@@ -6,6 +6,14 @@
 // download still arriving is never called broken. A file of its own (and no inline handlers on
 // the page), so the page runs under a CSP of `script-src 'self'` (the store's).
 (function () {
+  // In the game (not the gallery, a showcase, the echo spike or an autoplay) the front screen
+  // (ui.js) is up from the start and shows the boot as LAUNCH filling: this screen stays out of
+  // sight unless it fails before the page has taken over (`front-up`).
+  var q = new URLSearchParams(location.search);
+  var auto = q.get("autoplay") === "1" || (!!q.get("autopilot") && q.get("autoplay") !== "0");
+  if (!q.has("gallery") && !q.get("showcase") && q.get("mode") !== "echo" && !auto) {
+    document.documentElement.classList.add("front-early");
+  }
   var STALL_MS = { loader: 20000, graphics: 15000, client: 30000, start: 60000 };
   var state = { step: "loader", detail: "", failed: false, done: false, errors: [], at: Date.now() };
   var timer = 0;
@@ -34,6 +42,11 @@
     if (box) box.classList.remove("hidden");
     var gl = el("boot-webgl2");
     if (gl && window.BC_CONFIG && window.BC_CONFIG.gfx === "webgl2") gl.classList.add("hidden");
+    tell({ failed: true, line: "failed: " + message });
+  }
+  // The front screen (ui.js) draws the boot as LAUNCH filling, from these.
+  function tell(detail) {
+    try { window.dispatchEvent(new CustomEvent("bc-boot", { detail: detail })); } catch (_) {}
   }
   window.bcBoot = {
     // A step begins (its line shows) or moves on (`fraction` of it done: the meter, re-arming the
@@ -48,11 +61,17 @@
         fill.classList.toggle("unknown", fraction == null);
         fill.style.width = fraction == null ? "" : Math.round(Math.min(1, fraction) * 100) + "%";
       }
+      tell({ step: name, line: line || "", fraction: fraction == null ? null : Math.min(1, fraction) });
       arm();
     },
     fail: fail,
     // The first frame is drawn: the watch is over.
-    done: function () { state.done = true; clearTimeout(timer); },
+    done: function () {
+      if (state.done) return;
+      state.done = true;
+      clearTimeout(timer);
+      tell({ done: true });
+    },
     failed: function () { return state.failed; },
     report: function () {
       var c = window.BC_CONFIG || {};

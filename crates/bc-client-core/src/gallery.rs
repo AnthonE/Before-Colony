@@ -32,6 +32,11 @@ pub struct Scene {
     /// The hangar's word, for a terminal's tab (`terminal::hangar_json`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hangar: Option<Value>,
+    /// The front screen's state the view doesn't carry (`bcUi.front`): the pane picked (`pane`), a
+    /// download part-way (`loading`, a fraction, and its `line`), what the server says (`status`,
+    /// as its `/status` would).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub front: Option<Value>,
 }
 
 /// Everything the gallery shows.
@@ -57,7 +62,34 @@ fn survival(place: &'static str) -> View {
 }
 
 fn scene(name: &'static str, about: &'static str, expect: &'static str, view: View) -> Scene {
-    Scene { name, about, expect, view, hangar: None }
+    Scene { name, about, expect, view, hangar: None, front: None }
+}
+
+/// A server's `/status`, as much of it as the front screen reads: its rules, who's up, and the
+/// Proving Ground's board.
+fn status(survival: bool) -> Value {
+    serde_json::json!({
+        "mode": "game",
+        "net": { "humans_active": 3, "agents_active": 2 },
+        "game": {
+            "rules": if survival { "survival" } else { "arcade" },
+            "flight": "anime",
+            "colony": true,
+            "proving": {
+                "course": [
+                    { "name": "VEGA-7", "ms": 71_420 },
+                    { "name": "KESTREL", "ms": 74_900 },
+                    { "name": "HALCYON", "ms": 82_310 },
+                ],
+                "drill": [{ "name": "VEGA-7", "ms": 38_250 }],
+            },
+        },
+    })
+}
+
+/// The front screen, on a pane, with a server's word.
+fn front(name: &'static str, about: &'static str, expect: &'static str, front: Value) -> Scene {
+    Scene { front: Some(front), ..scene(name, about, expect, View::default()) }
 }
 
 /// A pilot's hangar a few sorties in: the starter bay with ore and steel in its stores, a job at the
@@ -123,14 +155,54 @@ fn terminal(
 ) -> Scene {
     let at = if place == "city" { Place::City } else { Place::Hangar };
     let view = View { panel: PanelKind::Terminal, terminal: tab, on_foot: true, ..survival(place) };
-    Scene { name, about, expect: "#terminal", view, hangar: Some(hangar(at, true, home)) }
+    Scene { name, about, expect: "#terminal", view, hangar: Some(hangar(at, true, home)), front: None }
 }
 
 pub fn gallery() -> Gallery {
     let paused = |v: View| View { panel: PanelKind::Pause, ..v };
     let home = a_home();
     let scenes = vec![
-        scene("title", "The title: a callsign, the frames, Launch.", "#launch", View::default()),
+        front(
+            "title",
+            "The front screen, arcade rules: who you fly as, the callsign, the server, the suits, LAUNCH.",
+            "#launch",
+            serde_json::json!({ "pane": "play", "status": status(false) }),
+        ),
+        front(
+            "title-loading",
+            "The front screen while the game downloads: LAUNCH fills.",
+            "#launch",
+            serde_json::json!({
+                "pane": "play",
+                "status": status(false),
+                "loading": 0.42,
+                "line": "fetching the webgl2 client · 16.1 MB",
+            }),
+        ),
+        front(
+            "title-survival",
+            "The front screen, survival rules: no suit to pick, an Arrival's worn-out Argo.",
+            "#launch",
+            serde_json::json!({ "pane": "play", "status": status(true) }),
+        ),
+        front(
+            "title-down",
+            "The front screen with a server that doesn't answer.",
+            "#server-row",
+            serde_json::json!({ "pane": "play", "status": null }),
+        ),
+        front(
+            "title-colony",
+            "THE COLONY: the setting, the sector now and the Proving Ground's best.",
+            "#colony-now",
+            serde_json::json!({ "pane": "colony", "status": status(true) }),
+        ),
+        front(
+            "title-controls",
+            "CONTROLS on the front screen.",
+            "#front-controls",
+            serde_json::json!({ "pane": "controls", "status": status(false) }),
+        ),
         scene(
             "connecting",
             "The first dial.",

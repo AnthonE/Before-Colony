@@ -28,51 +28,108 @@
     </div>
   </div>
 
-  <!-- The title screen: callsign, suit, launch; and the link's state while connecting. -->
-  <div id="title" class="overlay hidden">
-    <div class="card title-card">
-      <h1>BEFORE COLONY</h1>
-      <div class="tagline">THE YEAR BEFORE THE CALENDAR · THE FIRST COLONY · L1</div>
-      <form id="launch" autocomplete="off">
-        <label class="field">
-          <span>CALLSIGN</span>
-          <input id="callsign" maxlength="16" spellcheck="false" placeholder="Pilot">
-        </label>
-        <div class="field">
-          <span>PILOT</span>
-          <div class="row wallet-row">
-            <button id="wallet-button" type="button">CONNECT WALLET</button>
-            <button id="guest-button" type="button" class="hidden">PLAY AS GUEST</button>
-            <span id="wallet-account" class="note"></span>
-          </div>
-        </div>
-        <div class="field" id="frames-field">
-          <span>SUIT</span>
-          <div id="frames" class="frames" role="radiogroup" aria-label="Suit"></div>
-        </div>
-        <div class="field hidden" id="survival-field">
-          <span>SURVIVAL</span>
-          <div class="note survival-note">You are an Arrival: you wake on foot in your hangar bay in the First
-            Colony's docking hub, remembering another world. In the gantry stands a worn-out Argo (its beam rifle
-            missing, its radiators tired), with a little steel and propellant and 2,000 credits the Charter Board
-            advanced you. Mine ore, salvage wrecks, fabricate parts, keep your suit's systems running, trade on
-            the Colony Exchange, and work your way up to a Lodestar: a design nobody here has drawn yet, but you
-            remember it. Dock to bring your suit home: a suit destroyed out there is gone.</div>
-        </div>
-        <div class="row">
-          <button id="launch-button" type="submit" class="primary">LAUNCH</button>
-          <button id="title-controls" type="button">CONTROLS</button>
-          <button id="title-settings" type="button">SETTINGS</button>
-        </div>
-      </form>
-      <div id="link" class="link-state hidden">
-        <div id="link-message" class="message"></div>
-        <div class="row">
-          <button id="reload" type="button" class="primary">RELOAD</button>
-          <button id="cancel" type="button">CANCEL</button>
-        </div>
+  <!-- The front screen, laid out like Gates' menu: the wordmark, a column of choices, the pane
+       picked, the world behind. It's up from the first moment: the game downloads behind it and
+       LAUNCH fills as it comes (ui.js, "The front screen"). The link's state shows under LAUNCH. -->
+  <div id="title" class="overlay front hidden">
+    <div class="front-scene" aria-hidden="true"></div>
+    <header class="front-top">
+      <div class="wordmark">
+        <h1>BEFORE COLONY</h1>
+        <div class="tagline">THE YEAR BEFORE THE CALENDAR · THE FIRST COLONY · L1</div>
       </div>
+      <button id="acct" type="button" class="acct" title="Who you fly as">
+        <span class="acct-label">PILOT</span><span id="acct-who">GUEST</span>
+      </button>
+    </header>
+    <div class="front-body">
+      <nav id="front-nav" class="front-nav" aria-label="Before Colony">
+        <button type="button" data-pane="play" aria-current="true">PLAY</button>
+        <button type="button" data-pane="colony">THE COLONY</button>
+        <button type="button" data-pane="controls" id="title-controls">CONTROLS</button>
+        <div class="gap"></div>
+        <button type="button" id="title-settings">SETTINGS</button>
+        <a id="front-site" class="small hidden" href="https://elopros.com/">BACK TO ELO PROS</a>
+      </nav>
+
+      <!-- PLAY: who you fly as, your callsign, the server, the suit; LAUNCH and the link's state
+           at its foot, in view however short the screen. -->
+      <section class="front-pane play" data-pane="play">
+        <div class="pane-scroll">
+        <h2>PLAY</h2>
+        <p class="blurb" id="play-blurb">Launch into the First Colony's sector at L1.</p>
+        <form id="launch" autocomplete="off">
+          <div class="field">
+            <span>PILOT</span>
+            <div class="row wallet-row">
+              <button id="wallet-button" type="button">CONNECT WALLET</button>
+              <button id="guest-button" type="button" class="hidden">PLAY AS GUEST</button>
+            </div>
+            <div id="wallet-account" class="note"></div>
+          </div>
+          <label class="field">
+            <span>CALLSIGN</span>
+            <input id="callsign" maxlength="16" spellcheck="false" placeholder="Pilot">
+          </label>
+          <div class="field">
+            <span>SERVER</span>
+            <div id="server-row" class="server" role="status">
+              <span class="server-dot"></span>
+              <span class="server-name" id="server-name"></span>
+              <span class="server-line" id="server-line">asking…</span>
+              <span class="server-count" id="server-count"></span>
+            </div>
+          </div>
+          <div class="field" id="frames-field">
+            <span>SUIT</span>
+            <div id="frames" class="frames" role="radiogroup" aria-label="Suit"></div>
+            <div id="frame-kit" class="frame-kit"></div>
+          </div>
+          <div class="field hidden" id="survival-field">
+            <span>SUIT</span>
+            <div class="suit-line"><b>ARGO</b> AL-04S · worn out, its beam rifle missing</div>
+          </div>
+        </form>
+        </div>
+        <div class="launch-bar">
+          <button id="launch-button" form="launch" type="submit" class="primary launch">LAUNCH</button>
+          <div id="link" class="link-state hidden">
+            <div id="link-message" class="message"></div>
+            <div class="row">
+              <button id="reload" type="button" class="primary">RELOAD</button>
+              <button id="cancel" type="button">CANCEL</button>
+            </div>
+          </div>
+          <div id="front-boot" class="front-boot"></div>
+        </div>
+      </section>
+
+      <!-- THE COLONY: where you are, and what the sector's server says of it now. -->
+      <section class="front-pane hidden" data-pane="colony">
+        <h2>THE COLONY</h2>
+        <p class="blurb">The first space colony has just opened its docks at L1. The calendar history will
+          count in begins the day its charter is signed, and nobody has signed it yet.</p>
+        <p class="blurb" id="colony-arrival">You woke in a hangar bay in its docking hub with a pilot's
+          reflexes, a worn-out Argo in the gantry, an advance of 2,000 credits and memories of another world.
+          Mine ore, salvage wrecks, fabricate parts, trade on the Colony Exchange and work your way up to a
+          Lodestar: a design nobody here has drawn yet, but you remember it. Dock to bring your suit home: a
+          suit destroyed out there is gone.</p>
+        <h3>THE SECTOR NOW</h3>
+        <div id="colony-now" class="colony-now"></div>
+        <h3>THE PROVING GROUND · TODAY'S BEST</h3>
+        <div id="colony-board" class="colony-board"></div>
+      </section>
+
+      <!-- CONTROLS: the sheet F1 shows in the world. -->
+      <section class="front-pane wide hidden" data-pane="controls">
+        <h2>CONTROLS</h2>
+        <div id="front-controls" class="controls"></div>
+      </section>
     </div>
+    <footer class="front-foot">
+      <span id="front-build">BEFORE COLONY</span>
+      <span class="front-load"><span id="front-load-line"></span><span class="meter"><i id="front-fill"></i></span></span>
+    </footer>
   </div>
 
   <!-- Esc in flight. The sector keeps running: nothing pauses in an MMO. -->

@@ -1,11 +1,13 @@
-// The page around the game: the title screen, the menu, the controls sheet, the reconnect banner,
+// The page around the game: the front screen, the menu, the controls sheet, the reconnect banner,
 // the "click to fly" prompt and toasts. It decides nothing. It draws what the game sends through
 // bcUi.update(view) and pushes what the player does onto bcInbox, which the game drains every
 // frame (crates/bc-client/src/page.rs).
 (() => {
   "use strict";
   const inbox = (window.bcInbox = window.bcInbox || []);
-  const send = (cmd, extra) => inbox.push(Object.assign({ cmd }, extra || {}));
+  // Nothing is sent before the game is up to take it (`ready`): a click while it downloads would
+  // wait in the inbox and sound with all the others the moment it starts.
+  const send = (cmd, extra) => ready && inbox.push(Object.assign({ cmd }, extra || {}));
   const $ = (id) => document.getElementById(id);
   const show = (el, on) => el && el.classList.toggle("hidden", !on);
   const canvas = () => $("bc");
@@ -14,7 +16,10 @@
   const SIGNING = "APPROVE THE SIGN-IN IN YOUR WALLET…\nIt proves the address is yours. It authorizes nothing and moves no funds.";
   let frames = [];
   let chosen = "altair";
-  let autoplay = false;
+  // `?autoplay=1` (or an `?autopilot=` not told `autoplay=0`) skips the title: the game's config.rs
+  // reads it the same way, and says so again in `init`.
+  const query = new URLSearchParams(location.search);
+  let autoplay = query.get("autoplay") === "1" || (!!query.get("autopilot") && query.get("autoplay") !== "0");
   let toastSeq = 0;
   let helpWas = false;
   let toastTimer = null;
@@ -24,8 +29,14 @@
   let debriefTimer = null;
   // Survival rules (the server's /status says): the title has no frame to choose.
   let survival = false;
+  // The front screen: the game has sent `init` (LAUNCH and SETTINGS work), the download has failed,
+  // how far it has got (null: unknown), and the pane picked.
+  let ready = false;
+  let bootFailed = false;
+  let loadFill = null;
+  let pane = "play";
 
-  // --- Title screen. ---
+  // --- The front screen's suits: a plate each, and what the chosen one carries under them. ---
   function renderFrames() {
     const box = $("frames");
     box.textContent = "";
@@ -42,21 +53,26 @@
       const des = document.createElement("div");
       des.className = "designation";
       des.textContent = f.designation + (f.orrery ? " · ORRERY" : "");
-      const kit = document.createElement("div");
-      kit.className = "kit";
-      kit.textContent = f.weapons.join(" · ");
-      card.append(name, des, kit);
-      if (f.special) {
-        const sp = document.createElement("div");
-        sp.className = "special";
-        sp.textContent = "H  " + f.special;
-        card.append(sp);
-      }
+      card.append(name, des);
       card.addEventListener("click", () => {
         chosen = f.slug;
         renderFrames();
       });
       box.append(card);
+    }
+    const f = frames.find((x) => x.slug === chosen);
+    const kit = $("frame-kit");
+    kit.textContent = "";
+    if (!f) return;
+    const arms = document.createElement("div");
+    arms.className = "kit";
+    arms.textContent = f.weapons.join(" · ");
+    kit.append(arms);
+    if (f.special) {
+      const sp = document.createElement("div");
+      sp.className = "special";
+      keyed(sp, "H  " + f.special);
+      kit.append(sp);
     }
   }
 
@@ -81,6 +97,8 @@
       section.append(h, table);
       box.append(section);
     }
+    // The front screen's CONTROLS: the same sheet.
+    $("front-controls").replaceChildren(...[...box.children].map((n) => n.cloneNode(true)));
   }
 
   // --- The wallet: the same calls as Gates' page and the platform's own (has, accounts, connect,
@@ -352,6 +370,8 @@
     }
     account.classList.toggle("error", !!note);
     show($("guest-button"), !!address);
+    $("acct-who").textContent = address ? short(address) : "GUEST";
+    $("acct").classList.toggle("in", !!address);
   }
 
   // Already signed in, silently (never a prompt): the remembered wallet first, then the one in
@@ -427,9 +447,177 @@
 
   function launch(e) {
     if (e) e.preventDefault();
+    if (!ready) return;
     send("sfx", { cue: "confirm" });
     send("play", { name: $("callsign").value.trim(), frame: chosen, address: address || "" });
     canvas()?.focus();
+  }
+
+  // --- The front screen (#title), laid out like Gates' menu: the wordmark and who you fly as along
+  // the top, a column of choices down the left (PLAY, THE COLONY, CONTROLS, SETTINGS), the pane
+  // picked beside it, the world behind. In the game it's up before the game is: the client
+  // downloads behind it (boot.js tells each step, `bc-boot`), LAUNCH fills as it comes and opens
+  // once the game has said who it is (`init`). With `?autoplay` it's only the link's state. ---
+  function openPane(name) {
+    pane = name;
+    for (const b of document.querySelectorAll("#front-nav [data-pane]")) {
+      if (b.dataset.pane === name) b.setAttribute("aria-current", "true");
+      else b.removeAttribute("aria-current");
+    }
+    for (const p of document.querySelectorAll("#title .front-pane")) show(p, p.dataset.pane === name);
+    if (name !== "controls") askStatus();
+  }
+
+  // LAUNCH: filling while the game loads, then what the link's state makes it.
+  function drawLaunch() {
+    const s = view.screen;
+    const b = $("launch-button");
+    b.disabled = !ready || s === "connecting";
+    b.textContent = !ready ? "LOADING"
+      : s === "connecting" ? "CONNECTING"
+      : s === "failed" && view.retryable ? "RETRY"
+      : "LAUNCH";
+    b.classList.toggle("filling", !ready);
+    b.style.setProperty("--fill", ready ? "1" : String(loadFill ?? 0));
+    // (With ?autoplay, only once something has failed, with the form.)
+    show(b, (!autoplay || s === "failed") && !bootFailed && !(s === "failed" && view.reload));
+    $("title-settings").disabled = !ready;
+  }
+
+  // The download's steps, along the foot of the screen and in LAUNCH.
+  window.addEventListener("bc-boot", (e) => {
+    const d = e.detail || {};
+    const line = $("front-load-line");
+    const fill = $("front-fill");
+    if (d.done) {
+      $("title").classList.add("live");
+      line.textContent = "";
+      fill.parentElement.classList.add("hidden");
+      return;
+    }
+    if (d.failed) bootFailed = true;
+    line.textContent = d.line || "";
+    line.classList.toggle("error", bootFailed);
+    if (!d.failed) loadFill = d.fraction;
+    fill.parentElement.classList.toggle("hidden", bootFailed);
+    fill.classList.toggle("unknown", d.fraction == null);
+    fill.style.width = d.fraction == null ? "" : Math.round(d.fraction * 100) + "%";
+    drawLaunch();
+  });
+
+  // What the sector's server says of itself (`/status`): its rules (survival has no suit to pick),
+  // who's up, and the Proving Ground's board. Asked as the page opens, again when a pane wants it,
+  // at most every 15 s.
+  let statusAt = 0;
+  function askStatus() {
+    // The gallery's servers are made up (`front`); there's none to ask.
+    if (query.has("gallery") || Date.now() - statusAt < 15000) return;
+    statusAt = Date.now();
+    fetch(window.bcServer ? window.bcServer.url("status") : "status", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(applyStatus, () => applyStatus(null));
+  }
+
+  const plural = (n, one) => `${fmt(n)} ${one}${n === 1 ? "" : "S"}`;
+  function serverHost() {
+    const srv = window.bcServer;
+    if (srv && srv.wt) return srv.wt.replace(/:\d+$/, "");
+    return location.host || "this page's server";
+  }
+
+  function applyStatus(st) {
+    const game = st && st.game;
+    if (st) {
+      survival = (game?.rules ?? st.rules) === "survival";
+      statusColony = !survival || game?.colony !== false;
+      show($("frames-field"), !survival);
+      show($("survival-field"), survival);
+      showTabs();
+    }
+    $("play-blurb").textContent = !st ? "Launch into the First Colony's sector at L1."
+      : survival ? "You are an Arrival. You wake on foot in your hangar bay in the docking hub, a worn-out " +
+        "Argo in the gantry and 2,000 credits the Charter Board advanced you. Work your way up to a Lodestar."
+      : "Pick a suit and launch into the sector, where the Almagest's drones patrol.";
+    show($("colony-arrival"), survival);
+
+    // The server, as a row: up or not, its name, its rules, who's on it.
+    const host = serverHost();
+    const local = /^(localhost|127\.|\[::1\])/.test(host);
+    $("server-row").classList.toggle("down", !st);
+    $("server-name").textContent = local ? "LOCAL SERVER" : "THE FIRST COLONY";
+    const pilots = st?.net?.humans_active ?? 0;
+    const agents = st?.net?.agents_active ?? 0;
+    const rules = !game ? []
+      : [survival ? "SURVIVAL" : "ARCADE", game.flight === "real" ? "REAL FLIGHT" : "ANIME FLIGHT"];
+    $("server-line").textContent = st ? [host, ...rules].join(" · ") : `${host} · no answer`;
+    $("server-count").textContent = st ? plural(pilots, "PILOT") + (agents ? `\n${plural(agents, "AGENT")}` : "") : "";
+
+    // THE COLONY: the sector now, and the day's best on the Proving Ground's board (callsigns and
+    // times, as on the hall's wall).
+    const now = $("colony-now");
+    now.textContent = "";
+    if (!st) {
+      now.textContent = "The server doesn't answer right now.";
+    } else {
+      const rows = [
+        ["SERVER", host],
+        ["RULES", rules.join(" · ") || "—"],
+        ["PILOTS UP", fmt(pilots)],
+        ["AGENTS UP", fmt(agents)],
+      ];
+      if (survival) rows.push(["THE COLONY'S INSIDE", statusColony ? "OPEN" : "CLOSED"]);
+      for (const [k, val] of rows) {
+        const row = document.createElement("div");
+        const a = document.createElement("span");
+        const b = document.createElement("span");
+        a.textContent = k;
+        b.textContent = val;
+        row.append(a, b);
+        now.append(row);
+      }
+    }
+    const board = $("colony-board");
+    board.textContent = "";
+    const proving = game?.proving;
+    for (const [title, list] of [["THE RING COURSE", proving?.course], ["THE DRILL", proving?.drill]]) {
+      const col = document.createElement("div");
+      const h = document.createElement("div");
+      h.className = "head";
+      h.textContent = title;
+      col.append(h);
+      const top = (list || []).slice(0, 3);
+      if (!top.length) {
+        const none = document.createElement("div");
+        none.className = "none";
+        none.textContent = st ? "Nobody's flown it today." : "—";
+        col.append(none);
+      }
+      top.forEach((r, i) => {
+        const row = document.createElement("div");
+        const n = document.createElement("span");
+        const who = document.createElement("span");
+        const t = document.createElement("span");
+        n.textContent = String(i + 1);
+        who.textContent = r.name;
+        t.textContent = clock(r.ms);
+        row.append(n, who, t);
+        col.append(row);
+      });
+      board.append(col);
+    }
+  }
+
+  // The gallery's way in (gallery.js): a pane, a download part-way, what a server says.
+  function front(f) {
+    if (!f) return;
+    if ("status" in f) applyStatus(f.status);
+    ready = f.loading == null;
+    loadFill = f.loading ?? null;
+    $("front-load-line").textContent = ready ? "" : f.line || "";
+    $("front-fill").style.width = ready ? "" : Math.round(f.loading * 100) + "%";
+    show($("front-fill").parentElement, !ready);
+    openPane(f.pane || "play");
+    drawLaunch();
   }
 
   // --- The colony's radio (crates/bc-client/src/chat.rs): the latest lines, for a while after one
@@ -487,8 +675,13 @@
     const s = v.screen;
     const onTitle = s === "title" || s === "connecting" || s === "failed";
     show($("title"), onTitle);
-    // With ?autoplay the title is only the link's state: no form until something fails.
-    show($("launch"), (s === "title" && !autoplay) || s === "failed");
+    // With ?autoplay the title is only the link's state: no choices, no form until something fails.
+    $("title").classList.toggle("autoplay", autoplay);
+    show($("launch"), !autoplay || s === "failed");
+    // While it dials, the form stays where it was, out of reach.
+    $("launch").classList.toggle("busy", s === "connecting");
+    // A dial's state shows under LAUNCH, on PLAY.
+    if (s !== "title" && onTitle && pane !== "play") openPane("play");
     const linkBox = s === "connecting" || s === "failed" || (s === "title" && autoplay);
     show($("link"), linkBox);
     const msg = $("link-message");
@@ -499,10 +692,7 @@
     else msg.textContent = "";
     show($("reload"), s === "failed" && v.reload);
     show($("cancel"), s === "connecting");
-    const launchButton = $("launch-button");
-    launchButton.disabled = s === "connecting";
-    launchButton.textContent = s === "failed" && v.retryable ? "RETRY" : "LAUNCH";
-    show(launchButton, !(s === "failed" && v.reload));
+    drawLaunch();
 
     show($("banner"), s === "reconnecting");
     if (s === "reconnecting") {
@@ -807,15 +997,19 @@
   }
 
   function init(data) {
+    ready = true;
     city = data.city || null;
     frames = data.frames || [];
     autoplay = !!data.autoplay;
     if (data.frame && frames.some((f) => f.slug === data.frame)) chosen = data.frame;
-    if (data.name) $("callsign").value = data.name;
+    // The last callsign launched, unless one was typed while the game loaded.
+    const callsign = $("callsign");
+    if (data.name && !callsign.value) callsign.value = data.name;
     renderFrames();
     renderControls(data.controls || []);
     update(view);
-    if (!autoplay) $("callsign").focus();
+    const idle = !document.activeElement || document.activeElement === document.body || document.activeElement === canvas();
+    if (!autoplay && pane === "play" && idle) callsign.focus();
   }
 
   // --- Settings: built once, then only the values change (so a dragged slider isn't rebuilt
@@ -1828,7 +2022,7 @@
     if (tab === "exchange" || tab === "fabricator" || tab === "charter") renderTerminal();
   }
 
-  window.bcUi = { init, update, settings: renderSettings, catalogue: catalogueIn, hangar: hangarIn };
+  window.bcUi = { init, update, settings: renderSettings, catalogue: catalogueIn, hangar: hangarIn, front };
 
   // --- What the player does. ---
   document.addEventListener("DOMContentLoaded", () => {
@@ -1864,20 +2058,32 @@
     }
     // Survival rules: nothing to choose on the title but a callsign. With the colony closed
     // (`--no-colony`), its Proving Ground isn't there to show, and the bay does what its desks would
-    // (until the hangar's own word on it comes).
-    // The game server's (boot.js: the page's own, or the one config.js names).
-    fetch(window.bcServer ? window.bcServer.url("status") : "status", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((st) => {
-        survival = !!st && (st.game?.rules ?? st.rules) === "survival";
-        show($("frames-field"), !survival);
-        show($("survival-field"), survival);
-        statusColony = !survival || st.game?.colony !== false;
-        showTabs();
-      })
-      .catch(() => {});
-    $("title-controls").addEventListener("click", () => send("help", { show: true }));
+    // (until the hangar's own word on it comes). The game server's (boot.js: the page's own, or the
+    // one config.js names), again every half minute while the front screen is up.
+    askStatus();
+    setInterval(() => {
+      if (view.screen === "title" && !document.hidden) askStatus();
+    }, 30000);
+    // The front screen: its choices, who you fly as, and the way back to the store.
+    for (const b of document.querySelectorAll("#front-nav [data-pane]")) {
+      b.addEventListener("click", () => openPane(b.dataset.pane));
+    }
     $("title-settings").addEventListener("click", () => send("settings", { show: true }));
+    $("acct").addEventListener("click", () => {
+      openPane("play");
+      $("wallet-button").focus();
+    });
+    show($("front-site"), SITE === "");
+    $("front-build").textContent = "BEFORE COLONY · " + serverHost();
+    // In the game (boot.js says: not the gallery, a showcase, the echo spike or an autoplay), the
+    // front screen is up at once and takes the boot's failure (what happened, RELOAD, TRY WEBGL 2,
+    // COPY DETAILS) under LAUNCH; the boot's own screen goes for good.
+    const html = document.documentElement;
+    if (html.classList.contains("front-early")) {
+      $("front-boot").append($("boot-error"));
+      html.classList.add("front-up");
+      update(view);
+    }
     $("reload").addEventListener("click", () => location.reload());
     $("cancel").addEventListener("click", () => send("cancel"));
     for (const b of document.querySelectorAll("[data-cmd]")) {
