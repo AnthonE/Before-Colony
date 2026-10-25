@@ -387,6 +387,46 @@ fn the_citys_people_are_found_without_allocating() {
 }
 
 #[test]
+fn the_street_walks_without_allocating() {
+    // 64 walkers (`bc_sim::foot`, the tick's stepper) on three strips, walking, running, turning
+    // and jumping down the avenue and into what's on it for 300 ticks.
+    use bc_sim::colony::city::{self, Stage};
+    use bc_sim::colony::frame::{CityPos, STRIP_WIDTH};
+    use bc_sim::foot::{CityGround, Stride, Walker};
+    let ((s, x), _) = city::place_door(city::place("hub_gate_1").unwrap().1);
+    let mut people: Vec<(CityGround, Walker)> = (0..64u32)
+        .map(|k| {
+            let strip = (k % 3) as u8;
+            let (s, x) =
+                if strip == 0 { (s, x + k as f32) } else { (STRIP_WIDTH * 0.5 + k as f32 * 0.5, -9_000.0) };
+            let facing = glam::Vec3::new(1.0, 0.0, (k % 5) as f32 - 2.0);
+            (
+                CityGround { strip, stage: Stage(0) },
+                Walker::at(CityPos::new(strip, x, s, 0.5).walker(), facing),
+            )
+        })
+        .collect();
+    let ((), n) = bc_alloc::count(|| {
+        for t in 0..300u32 {
+            for (k, (ground, w)) in people.iter_mut().enumerate() {
+                let k = k as u32;
+                let stride = Stride {
+                    forward: [1.0, 0.4, -0.5][((t / 50 + k) % 3) as usize],
+                    right: [0.0, 1.0, -0.6, 0.0][((t / 80 + k) % 4) as usize],
+                    run: (t + k) % 100 > 50,
+                    jump: (t + k).is_multiple_of(60),
+                };
+                w.turn(0.02, 0.0);
+                w.tick(ground, &stride);
+            }
+        }
+    });
+    assert!(people.iter().all(|(_, w)| w.feet.is_finite()));
+    assert!(people.iter().filter(|(_, w)| w.grounded).count() > 32, "on their feet");
+    assert_eq!(n, 0, "heap operations walking the street: {n}");
+}
+
+#[test]
 fn the_interior_ticks_without_allocating() {
     // 64 suits flying the colony's inside: low among the towers, landing on roofs and the floor,
     // pressing fire (which the colony's law ignores); every fourth with its grip armed, landing on

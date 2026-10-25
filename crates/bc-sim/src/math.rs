@@ -40,6 +40,14 @@ pub fn cbrt(x: f32) -> f32 {
     libm::cbrtf(x)
 }
 
+/// `x` wrapped into `0..TAU`, as `f32::rem_euclid(TAU)` does (`fmod` is exact, so every machine
+/// agrees to the bit).
+#[inline]
+pub fn wrap_tau(x: f32) -> f32 {
+    let r = libm::fmodf(x, core::f32::consts::TAU);
+    if r < 0.0 { r + core::f32::consts::TAU } else { r }
+}
+
 /// Length that never divides by zero.
 #[inline]
 pub fn length(v: Vec3) -> f32 {

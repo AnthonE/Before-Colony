@@ -2,36 +2,14 @@
 //! in its frame on a strip, `(x, h, −s)` (`bc_sim::colony::frame`), under the colony's gravity,
 //! which weakens with height (1 g at the floor).
 
-use bc_sim::colony::city::{Stage, solid};
-use bc_sim::colony::frame::{CityPos, gravity};
 use glam::Vec3;
 
-use crate::walker::{Solid, Walker};
+use crate::walker::Walker;
 use bc_proto::presence::PersonPose;
+use bc_sim::colony::frame::CityPos;
 
-/// A strip of the city, to walk.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CityGround {
-    pub strip: u8,
-    pub stage: Stage,
-}
-
-impl Solid for CityGround {
-    fn hits(&self, min: Vec3, max: Vec3) -> bool {
-        solid(self.strip, min, max, self.stage)
-    }
-
-    fn gravity(&self, feet: Vec3) -> f32 {
-        gravity(feet.y)
-    }
-}
-
-impl CityGround {
-    /// Where `feet` (in the walker's frame) are in city coordinates.
-    pub fn place(&self, feet: Vec3) -> CityPos {
-        CityPos::from_walker(self.strip, feet)
-    }
-}
+/// A strip of the city, to walk (`bc_sim::foot`'s, shared with the tick).
+pub use bc_sim::foot::CityGround;
 
 /// A walker on strip `strip`, as the plaza has them (`bc_proto::presence`).
 pub fn pose_of(strip: u8, w: &Walker) -> PersonPose {
@@ -58,7 +36,8 @@ mod tests {
     use super::*;
     use crate::walker::{Guide, Stride};
     use bc_sim::colony::city::{
-        BLOCK, CANAL_ROW, KERB, Rect, SIDEWALK, block, block_rect, channel, grid_x, lots, place, place_door,
+        BLOCK, CANAL_ROW, KERB, Rect, SIDEWALK, Stage, block, block_rect, channel, grid_x, lots, place,
+        place_door,
     };
     use bc_sim::colony::frame::STRIP_WIDTH;
     use bc_sim::colony::furniture::{AVENUE_TREE, BENCH_HEIGHT, Furniture, Kind, each_furniture};

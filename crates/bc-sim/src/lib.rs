@@ -20,6 +20,7 @@ pub mod content;
 pub mod events;
 pub mod field;
 pub mod flight;
+pub mod foot;
 pub mod ground;
 pub mod handle;
 pub mod hash;
