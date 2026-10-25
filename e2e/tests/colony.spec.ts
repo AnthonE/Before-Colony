@@ -265,8 +265,17 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await page.screenshot({ path: "artifacts/colony-arrival.png" });
   await press(page, '[data-act="ace-terms"][data-salvage="1"]');
   await expect(page.locator("#term-log")).toContainText("TERMS: AN ACE'S WRECK", { timeout: FRAMES });
+  // Its second tab, the kitchen: a noodle bowl from the colony's staff, paid for from the bay's
+  // credits, fills the pilot, and a fish supper wouldn't fit after it.
+  await press(page, '[data-tab="menu"]');
+  await expect(page.locator("#term-body")).toContainText("THE KITCHEN", { timeout: FRAMES });
+  await press(page, '[data-act="eat"][data-dish="noodles"]');
+  await expect(page.locator("#term-log")).toContainText("NOODLE BOWL", { timeout: FRAMES });
+  await expect(page.locator('[data-act="eat"][data-dish="fish_supper"]')).toBeDisabled({ timeout: FRAMES });
+  await page.screenshot({ path: "artifacts/colony-menu.png" });
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 180_000);
+  await expect(page.locator("#bay-line")).toContainText("FED", { timeout: FRAMES });
   // The Exchange floor, the Charter Board's desk, standing and the Most Wanted read: each its
   // objective's bit (8, 12, 13 and 15).
   s = await until(page, "the desks' objectives", (s) => (s.objectives_done & 45312) === 45312, FRAMES);

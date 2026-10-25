@@ -19,7 +19,8 @@ colony; its phases (below) are built the way `ROADMAP.md` builds its items.
 | Phase | State |
 |---|---|
 | L0: the framework: seats, the body, meals (`bc_econ::{seats, body, food}`, `bc_sim::content::body`) | built |
-| L1 onwards | planned |
+| L1: eating at The Arrival (`Request::Eat`, `Update::Body`, the `menu` tab) | built |
+| L2 onwards | planned |
 
 ## What it has to be
 
@@ -237,16 +238,21 @@ Each is PR-sized and tested end to end, as `ROADMAP.md`'s items are.
 - **L0: the framework** (built). `bc_econ::seats` (jobs, seats, skills, quality, pay),
   `bc_econ::body` (the clock, eating, the condition), `bc_econ::food` (dishes and meals) and
   `bc_sim::content::body` (the conditions and their G). Unit tests for each; nothing on the wire yet.
-- **L1: eating at The Arrival.** The body on the pilot's record (`PilotRecord`), woken on entering
-  and put to sleep on leaving (`session.rs`'s `enter` and `leave`), settled on the session's tick.
-  `Request::Eat { dish }` at The Arrival's counter (`Request::desk` names it The Arrival's, and the
-  server's `at_desk(PlaceKind::Bar)` checks it as it checks the desks' requests: the plaza's last
-  pose inside its room), paid in credits to the staff (a sink); `Update::Body` with the condition
-  and the food left. The on-foot HUD shows the condition. The Arrival's door already opens the Most
-  Wanted (`Panel::Arrival`, the terminals' `wanted` tab); the menu joins it at `Panel::Arrival` as
-  a second tab, `menu` (ui.js's `DESK_TABS` gives The Arrival `wanted` alone today, and `menu`
-  then). Tests: `bc-server/tests/life.rs` (a pilot eats, logs out, wakes peckish), and a step in
-  the `colony` e2e.
+- **L1: eating at The Arrival** (built). The body went on the pilot's record (`PilotRecord::body`,
+  kept asleep, so a server stopped with them in the world burns their downtime at the sleeping
+  rate), woken at the top of `session.rs`'s `enter`, before anything seats them, and put to sleep in
+  `leave`; it is settled on the session's second. `Request::Eat { dish }` at The Arrival's counter
+  (`Request::desk` names it The Arrival's, and the server's `at_desk(PlaceKind::Bar)` checks it as
+  it checks the desks' requests: the plaza's last pose inside its room; never in the cockpit; with
+  the colony shut, the bay's terminal serves meals), paid in credits to the staff
+  (`body::eat_at_counter`, a sink: charged only when eaten); `Update::Body` with the condition and
+  the food left, on entering, after a meal, when the condition changes and each minute on foot. The
+  on-foot line shows the condition (`BAY 07 · 12,480 CR · PECKISH`). The Arrival's door opens the
+  Most Wanted (`Panel::Arrival`, the terminals' `wanted` tab), and the menu is its second tab,
+  `menu`: the staff's dishes with their hours and prices, EAT off for one that wouldn't fit or that
+  the pilot can't pay for. Every survival pilot has a body, guests (for the visit) and agents
+  alike. Tests: `bc-server/tests/life.rs` (a pilot eats, logs out, wakes peckish; sleep never
+  starves anyone), and a step in the `colony` e2e.
 - **L2: being fed in flight.** The condition in the own snapshot, `fed_g` in `own_tuning` and the
   sector's tuning, the HUD's line in the cockpit. A protocol bump; the predictor's tests.
 - **L3: the cook's seat.** `Seats` kept by the server (one per colony, in its data directory, as the

@@ -242,9 +242,10 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     site's stage. Its desk (`Panel::Board`) is where contracts are posted, patrols taken and the charter signed,
     and where what the Board holds for a pilot (a certificate's beam rifle, patrols' rewards, aces' bounties) is
     paid out, on walking in.
-  - The Arrival, a bar (`THE ARRIVAL · THE MOST WANTED`): you can sit (its seats out front, `arrival_seats`), and
+  - The Arrival, a bar (`THE ARRIVAL · MEALS AND THE MOST WANTED`): you can sit (its seats out front, `arrival_seats`), and
     at its counter (`Panel::Arrival`, the terminals' `wanted` tab) the Almagest's Most Wanted is pinned up behind the
-    bar, where a pilot's terms for an ace's bounty are settled. Its menu joins it there later (`LIFE.md`, L1).
+    bar, where a pilot's terms for an ace's bounty are settled, and its menu (the `menu` tab), where the colony's
+    staff serve meals (`LIFE.md`, L1).
   - The Proving Ground, the Blast Hall (`THE PROVING GROUND · THE BOARD AND THE TEST RANGE`, `TRAINING.md`): its
     desk has the board, and only there is the test range's trainer picked.
   - About 10 landmarks, named on approach, with a found-list kept in settings.

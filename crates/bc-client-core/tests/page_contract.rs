@@ -240,5 +240,8 @@ fn every_scene_in_the_gallery_is_named_once_and_shows_something() {
         if s.view.terminal == "home" {
             assert!(s.hangar.as_ref().is_some_and(|h| h["home"].is_object()), "{}: no home", s.name);
         }
+        if s.view.terminal == "menu" {
+            assert!(s.hangar.as_ref().is_some_and(|h| h["body"].is_object()), "{}: no body", s.name);
+        }
     }
 }

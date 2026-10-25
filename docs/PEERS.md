@@ -74,7 +74,7 @@ mechs and nothing to do.
   with no chat, emote, wave or seat anywhere. Since P0 there's the colony's radio (in the city,
   what's said shows over the speaker's head) and seats out in front of The Arrival, our bar;
   still no emote or wave, and inside, its counter has the Almagest's Most Wanted pinned up behind the
-  bar but no menu yet (`LIFE.md`, L1). Pilots pass each other in flight suits of their own colours;
+  bar and its menu, the colony's staff's meals (`LIFE.md`, L1). Pilots pass each other in flight suits of their own colours;
   together they can talk and sit, and nothing more.
 - **Physics as a toy.** Its players run the circle because they can. Our gravity falls with height
   (`bc_sim::colony::frame::gravity`: 1 g on the ground, less up a tower), and nobody is given a
@@ -121,8 +121,8 @@ as a test colony: a shop for real model kits, and your own kit scanned with a ph
   one thing only it does, and its door's prompt names it (`COLONY.md`, 2.6): Hub Gate the lift
   home; the Exchange floor an order at your own price that waits on the book; the Charter Board's
   desk posting contracts, taking patrols, the charter, and paying out what the Board holds for a
-  pilot (a flight certificate's beam rifle among it); The Arrival the Most Wanted and a pilot's
-  terms for an ace; the Proving Ground its board and the test range. The bay's terminals do the
+  pilot (a flight certificate's beam rifle among it); The Arrival meals, the Most Wanted and a
+  pilot's terms for an ace; the Proving Ground its board and the test range. The bay's terminals do the
   routine work and point at the desks for the rest, and the objectives walk a new Arrival to each
   in turn. Still a shop front: the building site is `Stage(0)` everywhere it's asked
   (`bc_sim::colony::city::Stage`), so nothing a pilot does can build it out.
@@ -512,7 +512,7 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 4. **The Arrival does something.** Seats out front (`COLONY.md`, 2.6), sat on and seen sat on,
    and it's where chat is easiest to find: what's said on the radio shows over the heads of those
    near you. Built; and at its counter, the Almagest's Most Wanted pinned up behind the bar, where a
-   pilot's terms for an ace are settled. Its own menu joins it there next (`LIFE.md`, L1).
+   pilot's terms for an ace are settled, and its menu: the colony's staff's meals (`LIFE.md`, L1).
 
 **P1: what makes the chain worth walking.**
 
