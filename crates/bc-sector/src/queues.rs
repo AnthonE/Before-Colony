@@ -66,6 +66,13 @@ pub enum Control {
         slot: u16,
         kit: bc_sim::content::Kit,
     },
+    /// Survival: how fed the pilot is, from their body on the wall clock (`bc_econ::body`). The
+    /// session sends it right after `Join` and `Board`, and again as it changes; nothing else in
+    /// the sector reads the body.
+    Fed {
+        slot: u16,
+        fed: bc_sim::content::body::Fed,
+    },
     /// Survival: the colony's tugs go out for wreck `hulk` of `generation` for the pilot
     /// ([`crate::TOW_TICKS`] on, as for an ejected pilot's own): ace `ace`'s, which they downed
     /// and take the bounty on as the rights to its wreck. A claim not yet settled is settled

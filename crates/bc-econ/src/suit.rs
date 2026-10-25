@@ -379,7 +379,7 @@ impl Suit {
     pub fn stats(&self) -> Stats {
         let spec = frame(self.line);
         let gone = self.gone();
-        let t = flown(gone, self.faults.0, self.equipment(), 0, self.grade);
+        let t = flown(gone, self.faults.0, self.equipment(), 0, bc_sim::content::body::Fed::Fed, self.grade);
         let tank = self.tank();
         let dry = mass_without(self.line, gone) + t.module_kg;
         let wet = dry + tank;

@@ -147,6 +147,9 @@ pub struct Status {
     pub stim: u16,
     /// Ticks chaff keeps locks off the suit.
     pub chaff: u8,
+    /// How fed its pilot is (`content::body`): the session sets it from the pilot's body
+    /// (`Sim::set_fed`); a placed suit is fed.
+    pub fed: crate::content::body::Fed,
 }
 
 /// [`Status::repairing`]: nothing under repair.
@@ -154,7 +157,15 @@ pub const NO_REPAIR: u8 = 15;
 
 impl Default for Status {
     fn default() -> Self {
-        Self { scram: 0, concussed: 0, repairing: NO_REPAIR, repair_left: 0, stim: 0, chaff: 0 }
+        Self {
+            scram: 0,
+            concussed: 0,
+            repairing: NO_REPAIR,
+            repair_left: 0,
+            stim: 0,
+            chaff: 0,
+            fed: crate::content::body::Fed::Fed,
+        }
     }
 }
 
@@ -506,6 +517,7 @@ impl Suits {
             self.systems[idx],
             self.modules[idx],
             self.status[idx].stim,
+            self.status[idx].fed,
             self.grade[idx],
         );
     }
