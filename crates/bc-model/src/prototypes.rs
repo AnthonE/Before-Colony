@@ -16,14 +16,15 @@
 //! - short round upper arms with a raised ring, big round gauntlets flaring to their cuffs, grey
 //!   fists;
 //! - a round lens in the crotch, short shield-shaped front skirts, and a plate over each hip;
-//! - thighs that are big round shells from under the belt to the knee, swelling out and forward,
-//!   each with a plate where its front turns to its side coming down past it to a notched point
-//!   beside the knee; a tall knee guard standing out of the shin under the shell; calves swelling
-//!   back and out to their widest just under the knee and tapering to the ankle, a ridge down the
-//!   front; and heavy boots: a rounded shaft over the ankle with a thick plate rising up its front,
-//!   a grey band behind and a big grey disc either side, on a thick platform with a high heel and a
-//!   long toe on its own hinge, a narrower block raised along it, and a vernier in the sole under
-//!   the heel and under the toe.
+//! - heavy thighs from under the belt to the knee: a rounded core armoured down its front in two
+//!   tiers, the upper a step proud of the lower with a raised panel on it, and down its outside
+//!   under a plate where the front turns to the side, coming down past it to a notched point beside
+//!   the knee; a tall knee guard standing out of the shin under the thigh; calves swelling back and
+//!   out to their widest just under the knee and tapering to the ankle, a ridge down the front and
+//!   a plate down the outside; and heavy boots: a rounded shaft over the ankle with a thick plate
+//!   rising up its front, a grey band behind and a big grey disc either side, on a thick platform
+//!   with a high heel and a long toe on its own hinge, a narrower block raised along it, and a
+//!   vernier in the sole under the heel and under the toe.
 //!
 //! The Sagittarius wears a single swept horn and carries the beam cannon cabled to the generator
 //! high on its back behind its head, a ring as tall as its torso with an iris over its core; the
@@ -544,18 +545,29 @@ fn arms(d: &mut Designer, t: Twin) {
 
 // --- Legs. ---
 
-/// The thigh's shell, up its axis from the knee to the hip (x out, z forward): from just over
-/// the knee guard to under the belt, swelling out and forward to its widest a little over halfway
-/// up, and closing in under the hip.
+/// The thigh's core, up its axis from the knee to the hip (x out, z forward): a rounded box from
+/// just over the knee guard to under the belt, widening out to its broadest a little over halfway
+/// up, and closing in under the hip. Its armour stands on it ([`THIGH_FRONT`], [`THIGH_SIDE`]).
 const THIGH_SHELL: [Hoop; 7] = [
-    hoop(0.45, 0.24, 0.12, 0.96, 0.98),
-    hoop(0.95, 0.4, 0.2, 1.4, 1.28),
-    hoop(1.7, 0.56, 0.22, 1.74, 1.45),
-    hoop(2.45, 0.62, 0.17, 1.76, 1.43),
-    hoop(3.15, 0.6, 0.08, 1.54, 1.28),
-    hoop(3.6, 0.52, 0.0, 1.2, 1.04),
-    hoop(3.88, 0.44, 0.0, 0.74, 0.64),
+    hoop(0.45, 0.22, 0.08, 1.0, 0.92),
+    hoop(0.95, 0.36, 0.12, 1.36, 1.14),
+    hoop(1.7, 0.5, 0.14, 1.58, 1.28),
+    hoop(2.45, 0.55, 0.1, 1.62, 1.28),
+    hoop(3.15, 0.52, 0.04, 1.48, 1.16),
+    hoop(3.6, 0.46, 0.0, 1.2, 1.0),
+    hoop(3.88, 0.4, 0.0, 0.76, 0.64),
 ];
+
+/// The plate down the thigh's front in two tiers, in the core's frame, each by its foot and its
+/// top: the lower narrowing to the knee, the upper standing a step proud of it, broadest where
+/// they meet and leaning back under the skirt.
+const THIGH_FRONT: [[Cut; 2]; 2] = [
+    [(0.75, -0.72, 1.05, 0.55, 1.36), (2.05, -0.98, 1.42, 0.65, 1.6)],
+    [(2.05, -1.04, 1.5, 0.65, 1.7), (3.3, -0.9, 1.36, 0.55, 1.4)],
+];
+
+/// The plate down the thigh's outside, under the fin, by its foot and its top.
+const THIGH_SIDE: [Cut; 2] = [(0.95, 1.6, 2.02, -0.9, 0.78), (3.15, 1.72, 2.22, -1.0, 0.84)];
 
 /// The lower leg, up its axis from the ankle to the knee (x out, z forward): slim over the boot,
 /// swelling back and out to the calf's widest just under the knee, and closing in behind the knee
@@ -571,6 +583,10 @@ const SHIN_SHELL: [Hoop; 9] = [
     hoop(5.6, 0.08, -0.24, 0.86, 0.82),
     hoop(5.75, 0.06, -0.22, 0.5, 0.5),
 ];
+
+/// The plate down the calf's outside (in the lower leg's frame), from over the boot to the calf's
+/// widest, by its foot and its top.
+const CALF_SIDE: [Cut; 2] = [(2.4, 1.0, 1.32, -1.0, 0.45), (4.9, 1.2, 1.66, -1.35, 0.4)];
 
 /// The plate on the thigh's shell where its front turns to its outside (its outline running
 /// back and out along x, up along y, from where it hangs): its top in the shell, coming down past
@@ -595,18 +611,32 @@ fn legs(d: &mut Designer) {
         );
         let k = s.pick(0.0, 0.2);
 
-        // The thigh: a big round shell on a grey ball at the hip, and the plate down its outside
-        // flaring out to its point beside the knee.
+        // The thigh: a rounded core on a grey ball at the hip, armoured down its front in two
+        // tiers and down its outside, and the fin over the outside plate flaring out to its point
+        // beside the knee.
         let mut th = d.on(thigh);
         th.seed(0.31 + k);
         th.sphere(0.8, 6, GREY, sided(s, Affine3A::from_translation(hip)));
         let along_thigh = sided(s, place(knee, toward(hip - knee)));
-        th.loft(&THIGH_SHELL, 3.0, 28, BODY, along_thigh);
-        let fin = along_thigh * place(v(1.82, 1.55, 1.18), ry(0.87) * rx(-0.28));
+        th.loft(&THIGH_SHELL, 4.0, 28, BODY, along_thigh);
+        for tier in THIGH_FRONT {
+            th.hexa(stacked(tier), 0.16, BODY, along_thigh);
+        }
+        th.hexa(stacked(THIGH_SIDE), 0.14, BODY, along_thigh);
+        // A raised panel on the upper tier, and a slot down each tier and the side plate.
+        let [(y0, .., f0), (y1, .., f1)] = THIGH_FRONT[1];
+        let upper = along_thigh * place(v(0.23, 2.68, (f0 + f1) * 0.5), rx(-((f1 - f0) / (y1 - y0)).atan()));
+        th.block(v(1.35, 0.9, 0.16), v2(0.85, 0.9), Vec2::ZERO, 0.04, BODY, upper);
+        slot(&mut th, 0.5, upper * at(0.42, 0.0, 0.08));
+        let [(y0, .., f0), (y1, .., f1)] = THIGH_FRONT[0];
+        let lower = along_thigh * place(v(0.15, 1.35, (f0 + f1) * 0.5), rx(-((f1 - f0) / (y1 - y0)).atan()));
+        slot(&mut th, 0.6, lower * at(-0.3, 0.0, 0.0));
+        slot(&mut th, 0.7, along_thigh * place(v(2.13, 2.0, -0.45), ry(FRAC_PI_2)));
+        let fin = along_thigh * place(v(2.0, 1.55, 1.24), ry(0.87) * rx(-0.28));
         th.extrude(&FIN, 0.32, BODY, fin);
         th.greeble(|th| {
-            // The seam between the shell's front and its side, and the notch's dark step.
-            th.cube(v(0.07, 1.7, 0.05), 0.0, FRAME, along_thigh * place(v(1.3, 1.9, 1.46), ry(0.55)));
+            // The seam where the tiers meet, and the notch's dark step.
+            th.cube(v(2.4, 0.06, 0.05), 0.0, FRAME, along_thigh * at(0.26, 2.05, 1.66));
             th.cube(v(0.07, 0.6, 0.05), 0.0, FRAME, fin * place(v(-0.2, -1.0, 0.17), rz(0.5)));
         });
 
@@ -617,13 +647,16 @@ fn legs(d: &mut Designer) {
         let mut m = d.on(shin);
         m.seed(0.37 + k);
         m.cylinder(0.62, 1.3, 12, GREY, sided(s, place(knee, rz(FRAC_PI_2))));
-        m.loft(&SHIN_SHELL, 2.6, 28, BODY, tube);
+        m.loft(&SHIN_SHELL, 3.4, 28, BODY, tube);
         // The ridge down the shin's front, from over the boot up to the knee guard.
         let ridge = |y: f32, z: f32, out: f32| {
             [v(-0.16, y, z - 0.12), v(0.16, y, z - 0.12), v(-0.1, y, z + out), v(0.1, y, z + out)]
         };
         let (lo, hi) = (ridge(1.45, 0.88, 0.08), ridge(4.3, 1.05, 0.1));
         m.hexa([lo[0], lo[1], hi[0], hi[1], lo[2], lo[3], hi[2], hi[3]], 0.04, BODY, tube);
+        // The plate down the calf's outside, a slot in it.
+        m.hexa(stacked(CALF_SIDE), 0.14, BODY, tube);
+        slot(&mut m, 0.8, tube * place(v(1.53, 3.9, -0.45), ry(FRAC_PI_2)));
         let guard = sided(s, at(knee.x + 0.02, knee.y, knee.z));
         m.hexa(
             [
