@@ -3,34 +3,34 @@
 //! here (the simulation's `BIRD` capsules): the head is the nose, the torso, chest and waist the
 //! fuselage, the arms the wings, the legs the tail, the backpack the dorsal thrusters.
 //!
-//! - The nose: the shield laid face up, its point forward and a little down, over a white keel; the
-//!   head folded down in front of the chest under it, the V-fin's blades reaching forward either
-//!   side of the keel. The cockpit's eye rides over the nose.
-//! - The fuselage: the chest face down, the yellow vents under it, the blue plates of its back on
-//!   top; the abdomen and the waist behind; the machine cannons turned forward at the chest's front
-//!   corners as the nose guns.
-//! - The wings: the binders on the pack spread their feathered wings flat, each upper wing's spar
-//!   out to its wrist and swept a little back, the long feathers trailing from the wrist and the
-//!   spar, the lower wing back along the body before the tail. Under each wing's leading edge the
-//!   arm reaches out from the shoulder at the root, the shoulder's outer plate forward; the
-//!   forearm folds back at the elbow, the fist tucked in behind.
+//! - The nose: the shield laid face up, its yellow point forward and a little down, over a white
+//!   keel; the head folded down in front of the chest under it, the V-fin's blades reaching forward
+//!   either side of the keel. The cockpit's eye rides over the nose.
+//! - The fuselage: the chest face down, the green sensor and the yellow vents under it, the blue
+//!   plates of its back on top; the abdomen and the waist behind; a machine cannon turned forward
+//!   at each of the chest's front corners as the nose guns.
+//! - The wings: each binder's arm reaches forward along the back to its hinge over the arm, and its
+//!   plated wing lies flat, its pointed foot out and swept back, its blue tip and the smaller plate
+//!   inboard; under each wing's leading edge the arm reaches out from the shoulder at the root, its
+//!   swept top forward, the forearm folded back at the elbow, the fist tucked in behind.
 //! - The tail: the legs drawn back and raised a little from the hips, the shins slid up over the
-//!   thighs, the feet turned to trail behind, soles down, their verniers quiet.
+//!   thighs, the red feet turned to trail behind, soles down, their verniers quiet.
 //! - The pack rides the back behind the chest, its two main thrusters turned to fire astern.
-//! - The Heavy Beam Rifle is slung whole under the fuselage, along the nose, and fires between
-//!   its muzzles.
+//! - The Twin Buster Rifle is split in two, a half slung under each wing's root along the nose;
+//!   the beam leaves between their muzzles.
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
-use glam::{Affine3A, Quat, Vec3};
+use glam::{Affine3A, Mat3, Quat, Vec2, Vec3};
 
-use crate::Designer;
 use crate::altair::{
-    Fan, HEEL_SOLE, TOE_SOLE, abdomen, backpack, binder, cannon, chest, fist, forearm, head, heel,
-    quiet_sole, shield, shin, shoulder_armour, thigh, toe_cap, twin_rifle, upper_arm, waist,
+    HEEL_SOLE, HINGE, TOE_SOLE, abdomen, backpack, binder, buster, chest, fist, forearm, head, heel,
+    quiet_sole, shield, shin, shoulder_armour, thigh, toe_cap, upper_arm, waist, wing_plane,
 };
-use crate::frames::{BODY, TRIM, at, j, nozzle, place, rx, ry, rz, sided, sp, v};
+use crate::detail::band;
+use crate::frames::{BODY, FRAME, GUN, TRIM, at, j, nozzle, place, rx, ry, sided, sp, v, v2};
 use crate::rig::{Bone, Side};
+use crate::{Designer, On};
 
 /// The Altair lying on its front with its head forward, `dz` along z: its up along +z, its front
 /// down. (x, y, z) goes to (x, -z, y + dz).
@@ -58,37 +58,46 @@ const SHIN_Z: f32 = -0.85;
 const TAIL_RISE: f32 = 0.08;
 /// The pack on the back, behind the chest.
 const PACK_Z: f32 = -5.0;
+/// Where the right half of the Twin Buster Rifle hangs under the wing's root: over its grip.
+const BUSTER: Vec3 = Vec3::new(2.35, -1.2, -1.2);
 
-/// The upper wing in flight: its spar out to the wrist, swept a little back, the long feathers
-/// trailing from the wrist and the spar.
-const BIRD_UPPER: Fan = Fan {
-    spar: (-8.0, 5.0),
-    primaries: &[
-        (1.0, 2.0, 3.2),
-        (0.96, -14.0, 3.9),
-        (0.9, -30.0, 4.5),
-        (0.82, -47.0, 4.9),
-        (0.72, -63.0, 5.0),
-        (0.6, -77.0, 4.9),
-        (0.46, -88.0, 4.6),
-        (0.32, -96.0, 4.1),
-        (0.18, -102.0, 3.5),
-    ],
-    coverts: &[
-        (0.9, -38.0, 2.4),
-        (0.72, -60.0, 2.6),
-        (0.55, -76.0, 2.5),
-        (0.38, -88.0, 2.2),
-        (0.22, -97.0, 1.9),
-    ],
-};
+/// Where each wing's hinge lies in flight (right side), at the root of its leading edge over the
+/// arm, and the way its binder's arm reaches it, forward along the back.
+const BIRD_HINGE: Vec3 = Vec3::new(2.6, 2.0, 0.6);
+const BIRD_ARM: Vec3 = Vec3::new(0.25, -0.1, 0.96);
+/// The way each wing reaches out in flight, swept back.
+const BIRD_SPAN: Vec3 = Vec3::new(1.0, 0.0, -0.7);
 
-/// The lower wing in flight, under the upper and back along the body, a fan before the tail.
-const BIRD_LOWER: Fan = Fan {
-    spar: (-70.0, 2.2),
-    primaries: &[(1.0, -55.0, 3.4), (0.85, -68.0, 3.8), (0.7, -80.0, 3.8), (0.55, -92.0, 3.4)],
-    coverts: &[(0.8, -75.0, 1.8)],
-};
+/// Where the binder's arm and its wing lie in flight (right side), as placements of their rest
+/// places: the arm forward along the back to the hinge, and the wing laid flat, its foot out and
+/// swept back, its chord trailing astern, its outer face up.
+fn spread() -> (Affine3A, Affine3A) {
+    let root = j(Bone::WingR);
+    let (reach, dir) = ((HINGE - root).length(), BIRD_ARM.normalize());
+    let arm = place(BIRD_HINGE - dir * reach, Quat::from_rotation_arc((HINGE - root).normalize(), dir))
+        * Affine3A::from_translation(-root);
+    let w = wing_plane();
+    let (chord, up) = (Vec3::from(w.matrix3.x_axis), Vec3::from(w.matrix3.y_axis));
+    let from = Mat3::from_cols(-up, chord, chord.cross(up));
+    let span = BIRD_SPAN.normalize();
+    let aft = v(span.z, 0.0, -span.x);
+    let to = Mat3::from_cols(span, aft, span.cross(aft));
+    let wing = Affine3A::from_mat3_translation(to * from.transpose(), BIRD_HINGE)
+        * Affine3A::from_translation(-HINGE);
+    (arm, wing)
+}
+
+/// A machine cannon in its housing at `xf` (centred, its barrel along +z): a white box with a blue
+/// lid, the barrel out of a dark port in its front, its muzzle ringed.
+fn cannon(c: &mut On<'_>, xf: Affine3A) {
+    c.block(v(0.78, 0.56, 2.0), v2(0.9, 0.92), Vec2::ZERO, 0.1, BODY, xf);
+    c.cube(v(0.6, 0.1, 1.5), 0.03, TRIM, xf * at(0.0, 0.3, -0.12));
+    c.cube(v(0.44, 0.36, 0.08), 0.02, FRAME, xf * at(0.0, -0.04, 1.0));
+    let barrel = xf * place(v(0.0, -0.04, 1.3), rx(FRAC_PI_2));
+    c.cylinder(0.12, 0.7, 10, GUN, barrel);
+    c.lathe(&band(0.08, 0.17, 0.25, 0.42), 12, GUN, barrel);
+    c.cylinder(0.08, 0.04, 8, FRAME, barrel * at(0.0, 0.43, 0.0));
+}
 
 pub(crate) fn aquila(d: &mut Designer) {
     let body = prone(BODY_Z);
@@ -96,16 +105,16 @@ pub(crate) fn aquila(d: &mut Designer) {
     // up, its point forward and a little down; a keel under its point.
     let mut h = d.on(Bone::Head);
     head(&mut h, body);
-    shield(&mut h, place(v(0.0, 0.95, 6.2), rx(-FRAC_PI_2 + 0.12)));
+    shield(&mut h, place(v(0.0, 0.75, 6.4), rx(-FRAC_PI_2 + 0.14)));
     let keel = [
         (-0.7, -0.9, 5.0),
         (0.7, -0.9, 5.0),
-        (-0.7, 0.75, 5.0),
-        (0.7, 0.75, 5.0),
-        (-0.15, 0.3, 8.6),
-        (0.15, 0.3, 8.6),
-        (-0.15, 0.7, 8.6),
-        (0.15, 0.7, 8.6),
+        (-0.7, 0.55, 5.0),
+        (0.7, 0.55, 5.0),
+        (-0.15, 0.1, 9.0),
+        (0.15, 0.1, 9.0),
+        (-0.15, 0.4, 9.0),
+        (0.15, 0.4, 9.0),
     ]
     .map(|(x, y, z)| v(x, y, z));
     h.hexa(keel, 0.1, BODY, Affine3A::IDENTITY);
@@ -127,7 +136,7 @@ pub(crate) fn aquila(d: &mut Designer) {
         // The arms out along the wings' leading edges, under the feathers: the shoulders at their
         // roots, their outer plates forward; the forearms folded back under the wings at the elbow,
         // the fists tucked in behind.
-        let arm = place(v(2.7, 1.2, -0.2), ry(-1.273) * rx(FRAC_PI_2))
+        let arm = place(v(3.0, 1.0, -0.6), ry(-1.273) * rx(FRAC_PI_2))
             * Affine3A::from_translation(-j(Bone::UpperArmR));
         let elbow = arm.transform_point3(j(Bone::ForearmR));
         let fold = Quat::from_rotation_arc(v(0.956, 0.0, -0.294), v(0.3, -0.1, -0.95).normalize());
@@ -164,13 +173,9 @@ pub(crate) fn aquila(d: &mut Designer) {
         toe_cap(&mut t, s, turned);
         quiet_sole(&mut t, s, x, TOE_SOLE, turned);
 
-        // The binders on the pack, their wings spread flat as the bird's.
-        let root = prone(PACK_Z).transform_point3(j(Bone::WingR));
-        let spread = on_side(
-            s,
-            place(root + v(0.0, -0.9, 0.0), rz(-0.3)) * Affine3A::from_translation(-root) * prone(PACK_Z),
-        );
-        binder(&mut d.on(s.pick(Bone::WingL, Bone::WingR)), s, spread, &BIRD_UPPER, &BIRD_LOWER);
+        // The binders' arms forward along the back, their wings spread flat over the arms.
+        let (arm, wing) = spread();
+        binder(&mut d.on(s.pick(Bone::WingL, Bone::WingR)), s, on_side(s, arm), on_side(s, wing));
     }
 
     // The pack on the back, its main thrusters turned to fire astern.
@@ -181,9 +186,14 @@ pub(crate) fn aquila(d: &mut Designer) {
         nozzle(d, Bone::Backpack, sp(s, v(0.62, 2.1, -2.55)), v(0.0, 0.05, -1.0), 0.5);
     }
 
-    // The Heavy Beam Rifle slung under the fuselage, along the nose.
-    let muzzle = twin_rifle(&mut d.on(Bone::Weapon), place(v(0.0, -2.55, -0.9), Quat::IDENTITY));
-    d.sockets.muzzle = Designer::local(Bone::Weapon, muzzle);
+    // The Twin Buster Rifle split in two, a half slung under each wing's root, along the nose; the
+    // beam leaves between their muzzles.
+    let mut g = d.on(Bone::Weapon);
+    g.seed(0.61);
+    for s in Side::BOTH {
+        buster(&mut g, 1.0, sided(s, at(BUSTER.x, BUSTER.y, BUSTER.z)));
+    }
+    d.sockets.muzzle = Designer::local(Bone::Weapon, v(0.0, BUSTER.y, BUSTER.z + 9.05));
     // Nothing is swung in this form; the saber's rest direction still has to be a direction.
     d.sockets.saber = (Vec3::ZERO, Vec3::Z);
 }
