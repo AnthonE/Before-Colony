@@ -31,7 +31,7 @@ use bc_client_core::homes as homes_on_foot;
 use bc_client_core::markab::{self, Chase, Markab};
 use bc_client_core::sights;
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
-use bc_client_core::vehicle::{Drive, Kind, Vehicle};
+use bc_client_core::vehicle::{Drive, DriverPose, Kind, Vehicle};
 use bc_client_core::walker::{Guide, Stride, Walker};
 use bc_econ::item::thousands;
 use bc_econ::wire::{HomesView, Outcome, Place, Request};
@@ -43,7 +43,7 @@ use bc_sim::colony::city::{
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hall;
-use bc_sim::colony::homes::{self, Home, HomeId};
+use bc_sim::colony::homes::{self, Home, HomeId, Overlay, OverlayHome};
 use bc_sim::colony::hub::BAY_RADIUS;
 use bc_sim::colony::pools::{pool, pool_near};
 use bc_sim::colony::transit::{
@@ -192,8 +192,9 @@ pub struct CityFoot {
     /// register's word: which, open or shut, and when (Gates' `predict_door`).
     pub doors: Vec<CityBox>,
     door_ahead: Option<(u32, bool, f64)>,
-    /// What the walker meets of the homes: the shut doors' leaves and the solid furniture.
-    blocks: Vec<CityBox>,
+    /// What the walker meets of the homes: the shut doors' leaves and the solid furniture (the
+    /// homes' overlay, as the server's tick has it), with their own door as they just worked it.
+    blocks: Overlay,
     /// Build mode in a home of theirs (H2): the piece being put down, and where it would go.
     pub build: Option<Build>,
 }
@@ -386,7 +387,7 @@ impl CityFoot {
             gantry: false,
             lift: None,
             doors: Vec::new(),
-            blocks: Vec::new(),
+            blocks: Overlay::new(homes_on_foot::VIEW_HOMES),
             door_ahead: None,
             build: None,
         }
@@ -424,19 +425,15 @@ impl CityFoot {
                 self.door_ahead = None;
             }
         }
-        self.doors = homes_on_foot::shut_doors(view, self.strip);
-        if let Some((id, open, _)) = self.door_ahead
-            && let Some(h) = bc_sim::colony::homes::home(HomeId(id))
-        {
-            let leaf = homes_on_foot::leaf(&h);
-            self.doors.retain(|b| *b != leaf);
-            if !open {
-                self.doors.push(leaf);
-            }
+        homes_on_foot::overlay_from(view, &mut self.blocks);
+        if let Some((id, open, _)) = self.door_ahead {
+            let mut ahead =
+                self.blocks.get(HomeId(id)).copied().unwrap_or_else(|| OverlayHome::new(HomeId(id), false));
+            ahead.shut = !open;
+            self.blocks.set(&ahead);
         }
-        self.blocks.clear();
-        self.blocks.extend_from_slice(&self.doors);
-        self.blocks.extend(homes_on_foot::solid_pieces(view, self.strip));
+        self.doors.clear();
+        self.doors.extend(self.blocks.leaves(self.strip));
     }
 
     /// The home whose door the pilot stands at (and whether they're in it): on foot, nothing else

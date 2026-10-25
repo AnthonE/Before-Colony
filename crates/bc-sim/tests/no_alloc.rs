@@ -387,6 +387,162 @@ fn the_citys_people_are_found_without_allocating() {
 }
 
 #[test]
+fn the_street_walks_without_allocating() {
+    // 64 walkers (`bc_sim::foot`, the tick's stepper) on three strips, walking, running, turning
+    // and jumping down the avenue and into what's on it for 300 ticks.
+    use bc_sim::colony::city::{self, Stage};
+    use bc_sim::colony::frame::{CityPos, STRIP_WIDTH};
+    use bc_sim::foot::{CityGround, Stride, Walker};
+    let ((s, x), _) = city::place_door(city::place("hub_gate_1").unwrap().1);
+    let mut people: Vec<(CityGround, Walker)> = (0..64u32)
+        .map(|k| {
+            let strip = (k % 3) as u8;
+            let (s, x) =
+                if strip == 0 { (s, x + k as f32) } else { (STRIP_WIDTH * 0.5 + k as f32 * 0.5, -9_000.0) };
+            let facing = glam::Vec3::new(1.0, 0.0, (k % 5) as f32 - 2.0);
+            (
+                CityGround { strip, stage: Stage(0) },
+                Walker::at(CityPos::new(strip, x, s, 0.5).walker(), facing),
+            )
+        })
+        .collect();
+    let ((), n) = bc_alloc::count(|| {
+        for t in 0..300u32 {
+            for (k, (ground, w)) in people.iter_mut().enumerate() {
+                let k = k as u32;
+                let stride = Stride {
+                    forward: [1.0, 0.4, -0.5][((t / 50 + k) % 3) as usize],
+                    right: [0.0, 1.0, -0.6, 0.0][((t / 80 + k) % 4) as usize],
+                    run: (t + k) % 100 > 50,
+                    jump: (t + k).is_multiple_of(60),
+                };
+                w.turn(0.02, 0.0);
+                w.tick(ground, &stride);
+            }
+        }
+    });
+    assert!(people.iter().all(|(_, w)| w.feet.is_finite()));
+    assert!(people.iter().filter(|(_, w)| w.grounded).count() > 32, "on their feet");
+    assert_eq!(n, 0, "heap operations walking the street: {n}");
+}
+
+#[test]
+fn the_cars_drive_without_allocating() {
+    // 48 cars and scooters (`bc_sim::car`) from every strip's motor pools, driven 900 ticks into
+    // whatever's there.
+    use bc_sim::car::{Drive, Kind, Vehicle};
+    use bc_sim::colony::pools::{POOLS, pool};
+    let mut cars: Vec<Vehicle> = (0..48usize)
+        .map(|k| {
+            let (s, x) = pool((k % 3) as u8, k % POOLS);
+            let kind = if k % 4 == 0 { Kind::Scooter } else { Kind::Car };
+            Vehicle::new(kind, (k % 3) as u8, s, x, k as f32 * 0.7)
+        })
+        .collect();
+    let ((), n) = bc_alloc::count(|| {
+        for t in 0..900u32 {
+            for (k, v) in cars.iter_mut().enumerate() {
+                let k = k as u32;
+                let steer = [0.0, 1.0, -0.7][((t / 60 + k) % 3) as usize];
+                let throttle = [1.0, 0.5, -1.0, 1.0][((t / 150 + k) % 4) as usize];
+                v.tick(&Drive { throttle, steer, handbrake: (t + k) % 200 > 190 });
+            }
+        }
+    });
+    assert!(cars.iter().all(|v| v.x.is_finite() && v.s.is_finite()));
+    assert_eq!(n, 0, "heap operations driving: {n}");
+}
+
+#[test]
+fn markabs_drive_without_allocating() {
+    // 16 Markabs (`bc_sim::markab`) on the avenues and at the Blast Hall: boosted, leaping, rolled,
+    // up walls and along ceilings, for 300 ticks, and the city gathered round each every tick.
+    use bc_sim::colony::frame::STRIP_WIDTH;
+    use bc_sim::colony::hall::hall;
+    use bc_sim::markab::{Controls, Markab};
+    let r = hall();
+    let mut cars: Vec<Markab> = (0..16u32)
+        .map(|k| {
+            if k % 4 == 0 {
+                let (s, x) = r.front.point(k as f32 - 8.0, -25.0);
+                let (ds, dx) = r.inward;
+                Markab::new(r.strip, s, x, bc_sim::math::atan2(dx, -ds))
+            } else {
+                Markab::new((k % 3) as u8, STRIP_WIDTH * 0.5 - 15.0, -12_000.0 + k as f32 * 40.0, 1.57)
+            }
+        })
+        .collect();
+    let ((), n) = bc_alloc::count(|| {
+        for t in 0..300u32 {
+            for (k, m) in cars.iter_mut().enumerate() {
+                let k = k as u32;
+                let c = Controls {
+                    throttle: [1.0, 1.0, -1.0, 0.3][((t / 50 + k) % 4) as usize],
+                    steer: [0.0, 0.7, -1.0][((t / 70 + k) % 3) as usize],
+                    roll: if (t + k) % 90 < 20 { 1.0 } else { 0.0 },
+                    lift: (t + k) % 120 < 15,
+                    boost: (t + k) % 100 < 30,
+                    handbrake: (t + k) % 200 > 185,
+                };
+                m.tick(&c);
+            }
+        }
+    });
+    assert!(cars.iter().all(|m| m.pos.is_finite()));
+    assert_eq!(n, 0, "heap operations driving Markabs: {n}");
+}
+
+#[test]
+fn the_overlay_answers_without_allocating() {
+    // The homes' overlay (`colony::homes::Overlay`), sized once: homes put in, shut, opened and
+    // taken out, and walkers' boxes asked of it all along the street, as the tick will.
+    use bc_sim::colony::city::{self, CityBox, Rect, Stage};
+    use bc_sim::colony::homes::{self, Overlay, OverlayHome};
+    let mut all = Vec::new();
+    'find: for bx in city::CITY.0..city::CITY.1 {
+        for row in -city::ROWS..=city::ROWS {
+            let Some(b) = city::block(0, bx, row, Stage(0)) else { continue };
+            for bd in city::lots(&b).as_slice() {
+                let Some(p) = homes::plan(&b, bd) else { continue };
+                all.extend((0..p.homes_per_storey()).filter_map(|u| p.home(0, u)));
+                if all.len() >= 96 {
+                    break 'find;
+                }
+            }
+        }
+    }
+    let mut overlay = Overlay::new(64);
+    let (met, n) = bc_alloc::count(|| {
+        let mut met = 0u32;
+        for round in 0..20usize {
+            for (k, h) in all.iter().enumerate() {
+                let mut oh = OverlayHome::new(h.id, (k + round) % 3 != 0);
+                let (s, x) = h.rect.middle();
+                oh.add(CityBox {
+                    rect: Rect::new(s - 0.5, s + 0.5, x - 0.5, x + 0.5),
+                    h0: h.floor,
+                    h1: h.floor + 1.0,
+                });
+                overlay.set(&oh);
+                if (k + round) % 5 == 0 {
+                    overlay.remove(all[(k * 7 + round) % all.len()].id);
+                }
+            }
+            for h in &all {
+                for b in [homes::leaf(h), CityBox { rect: h.rect, h0: h.floor, h1: h.floor }] {
+                    let (s, x) = b.rect.middle();
+                    let min = glam::Vec3::new(x - 0.3, b.h0 + 0.05, -s - 0.3);
+                    met += u32::from(overlay.hits(0, min, min + glam::Vec3::new(0.6, 1.8, 0.6)));
+                }
+            }
+        }
+        met
+    });
+    assert!(met > 100 && overlay.overflowed() > 0, "{met} met, {} overflowed", overlay.overflowed());
+    assert_eq!(n, 0, "heap operations in the overlay: {n}");
+}
+
+#[test]
 fn the_interior_ticks_without_allocating() {
     // 64 suits flying the colony's inside: low among the towers, landing on roofs and the floor,
     // pressing fire (which the colony's law ignores); every fourth with its grip armed, landing on

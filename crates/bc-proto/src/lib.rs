@@ -6,7 +6,8 @@
 //!   - client → server [`InputPacket`]: the last up-to-4 [`InputCmd`]s, so one lost packet costs
 //!     nothing.
 //!   - client → server [`PosePacket`] and server → client plaza ([`PlazaWriter`] / [`PlazaReader`]):
-//!     pilots on foot in the colony ([`presence`]).
+//!     pilots on foot in the colony ([`presence`]); a walker in the tick takes its own walker and
+//!     the people near in its snapshots instead ([`foot`]).
 //!   - server → client snapshot ([`SnapshotWriter`] / [`SnapshotReader`]): header, full-precision
 //!     own state, the Orrery info, events and changed rocks repeated until acked, the missiles in flight
 //!     nearby, then as many prioritised entities and salvage objects as fit in [`MAX_DATAGRAM`]
@@ -25,6 +26,7 @@ pub mod bits;
 pub mod control;
 pub mod entity;
 pub mod events;
+pub mod foot;
 pub mod input;
 pub mod missiles;
 pub mod objects;
@@ -36,7 +38,8 @@ pub mod types;
 pub use bits::{BitReader, BitWriter};
 pub use entity::{Delta, QEntity};
 pub use events::{BurstCause, Event};
-pub use input::{InputCmd, InputPacket, LockOn, buttons};
+pub use foot::{FootMode, FootOwn, PersonDelta, PersonRecord, QPerson};
+pub use input::{FootAct, InputCmd, InputPacket, LockOn, buttons};
 pub use missiles::MissileState;
 pub use objects::{ChunkDesc, ChunkKind, ObjectState, RockState, Segment};
 pub use presence::{PersonPose, PlazaReader, PlazaWriter, PosePacket};
@@ -46,7 +49,7 @@ pub use snapshot::{
 pub use types::{BodyRef, Faction, FrameId, Part, PilotKind, WeaponKind};
 
 /// Bumped on any incompatible wire change; the handshake rejects mismatches.
-pub const PROTOCOL_VERSION: u16 = 38;
+pub const PROTOCOL_VERSION: u16 = 39;
 
 /// Upper bound for every datagram we send. 1200 bytes is the smallest UDP payload QUIC guarantees;
 /// the QUIC short header, AEAD tag and HTTP/3 datagram prefix need ~30–40 of those.

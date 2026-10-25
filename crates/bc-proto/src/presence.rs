@@ -11,36 +11,37 @@ use crate::{BitReader, BitWriter, DecodeError, MAX_DATAGRAM, PACKET_KIND_BITS, P
 
 /// The colony's land strips.
 pub const STRIPS: u8 = 3;
-const STRIP_BITS: u32 = 2;
+pub(crate) const STRIP_BITS: u32 = 2;
 /// `x` along: [−`X_HALF`, `X_HALF`) m.
 const X_HALF: f32 = 16_384.0;
-const X_BITS: u32 = 22;
+pub(crate) const X_BITS: u32 = 22;
 /// `s` across: [0, `S_SPAN`) m.
 const S_SPAN: f32 = 4_096.0;
-const S_BITS: u32 = 19;
+pub(crate) const S_BITS: u32 = 19;
 /// `h` up: [`H_MIN`, `H_MIN` + `H_SPAN`) m (a canal's bed to the tallest roof).
 const H_MIN: f32 = -8.0;
 const H_SPAN: f32 = 256.0;
-const H_BITS: u32 = 15;
-const YAW_BITS: u32 = 10;
-const PITCH_BITS: u32 = 8;
+pub(crate) const H_BITS: u32 = 15;
+pub(crate) const YAW_BITS: u32 = 10;
+pub(crate) const PITCH_BITS: u32 = 8;
 /// A Markab's roll about its length ([`PersonPose::roll`]), [0, τ).
-const ROLL_BITS: u32 = 8;
+pub(crate) const ROLL_BITS: u32 = 8;
 /// Speed over the ground: [0, `SPEED_MAX`] m/s.
-const SPEED_MAX: f32 = 12.6;
-const SPEED_BITS: u32 = 6;
+pub(crate) const SPEED_MAX: f32 = 12.6;
+pub(crate) const SPEED_BITS: u32 = 6;
 /// What a pilot rides ([`PersonPose::ride`]).
-const RIDE_BITS: u32 = 5;
+pub(crate) const RIDE_BITS: u32 = 5;
 /// A Markab's jets firing ([`PersonPose::jets`]).
-const JET_BITS: u32 = 2;
-const POSE_BITS: u32 =
+pub(crate) const JET_BITS: u32 = 2;
+/// A pose's body on the wire, bits (its strip apart).
+pub const POSE_BITS: u32 =
     X_BITS + S_BITS + H_BITS + YAW_BITS + PITCH_BITS + ROLL_BITS + SPEED_BITS + 2 + RIDE_BITS + JET_BITS;
 /// Trains on a strip's line (`bc_sim::colony::transit::TRAINS`).
 pub const MAX_TRAINS: u8 = 12;
 /// [`PersonPose::ride`] for a pilot driving a car, and riding a scooter.
 pub const RIDE_CAR: u8 = 13;
 pub const RIDE_SCOOTER: u8 = 14;
-/// [`PersonPose::ride`] for a pilot sitting on a seat (`bc_sim::colony::city::SEATS`): where it
+/// [`PersonPose::ride`] for a pilot sitting on a seat (`bc_sim::colony::city::arrival_seats`): where it
 /// is, and the way it faces.
 pub const RIDE_SEATED: u8 = 15;
 /// [`PersonPose::ride`] for a pilot driving a Markab, the colony's rocket car: where its middle is,
@@ -139,38 +140,108 @@ impl PersonPose {
         TAU / (1u32 << YAW_BITS) as f32,
     ];
 
-    fn write_body(&self, w: &mut BitWriter<'_>) {
-        w.write_bits(unit(self.x, -X_HALF, 2.0 * X_HALF, X_BITS), X_BITS);
-        w.write_bits(unit(self.s, 0.0, S_SPAN, S_BITS), S_BITS);
-        w.write_bits(unit(self.h, H_MIN, H_SPAN, H_BITS), H_BITS);
-        // Round the circle: a heading just short of τ goes as 0.
-        let yaw = (wrap(self.yaw) / TAU * (1u32 << YAW_BITS) as f32 + 0.5) as u32;
-        w.write_bits(yaw & ((1 << YAW_BITS) - 1), YAW_BITS);
-        w.write_bits(unit(self.pitch, -HALF_PI, 2.0 * HALF_PI, PITCH_BITS), PITCH_BITS);
-        let roll = (wrap(self.roll) / TAU * (1u32 << ROLL_BITS) as f32 + 0.5) as u32;
-        w.write_bits(roll & ((1 << ROLL_BITS) - 1), ROLL_BITS);
-        w.write_bits(unit(self.speed, 0.0, SPEED_MAX, SPEED_BITS), SPEED_BITS);
-        w.write_bool(self.grounded);
-        w.write_bool(self.running);
-        w.write_bits(u32::from(self.ride.min((1 << RIDE_BITS) - 1)), RIDE_BITS);
-        w.write_bits(u32::from(self.jets & ((1 << JET_BITS) - 1)), JET_BITS);
+    pub(crate) fn write_body(&self, w: &mut BitWriter<'_>) {
+        PoseCodes::of(self).write(w);
     }
 
-    fn read_body(r: &mut BitReader<'_>, strip: u8) -> Self {
+    pub(crate) fn read_body(r: &mut BitReader<'_>, strip: u8) -> Self {
+        PoseCodes::read(r).pose(strip)
+    }
+}
+
+/// A pose's body as the integer codes it travels as (its strip apart): the plaza's and the
+/// tick's people's records alike (`crate::foot`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PoseCodes {
+    pub x: u32,
+    pub s: u32,
+    pub h: u32,
+    pub yaw: u32,
+    pub pitch: u32,
+    pub roll: u32,
+    pub speed: u32,
+    pub grounded: bool,
+    pub running: bool,
+    pub ride: u8,
+    pub jets: u8,
+}
+
+impl PoseCodes {
+    /// The codes `p` travels as.
+    pub fn of(p: &PersonPose) -> Self {
         Self {
-            strip,
-            x: ununit(r.read_bits(X_BITS), -X_HALF, 2.0 * X_HALF, X_BITS),
-            s: ununit(r.read_bits(S_BITS), 0.0, S_SPAN, S_BITS),
-            h: ununit(r.read_bits(H_BITS), H_MIN, H_SPAN, H_BITS),
-            yaw: ununit(r.read_bits(YAW_BITS), 0.0, TAU, YAW_BITS),
-            pitch: ununit(r.read_bits(PITCH_BITS), -HALF_PI, 2.0 * HALF_PI, PITCH_BITS),
-            roll: ununit(r.read_bits(ROLL_BITS), 0.0, TAU, ROLL_BITS),
-            speed: ununit(r.read_bits(SPEED_BITS), 0.0, SPEED_MAX, SPEED_BITS),
-            grounded: r.read_bool(),
-            running: r.read_bool(),
-            ride: r.read_bits(RIDE_BITS) as u8,
-            jets: r.read_bits(JET_BITS) as u8,
+            x: unit(p.x, -X_HALF, 2.0 * X_HALF, X_BITS),
+            s: unit(p.s, 0.0, S_SPAN, S_BITS),
+            h: unit(p.h, H_MIN, H_SPAN, H_BITS),
+            // Round the circle: a heading just short of τ goes as 0.
+            yaw: ((wrap(p.yaw) / TAU * (1u32 << YAW_BITS) as f32 + 0.5) as u32) & ((1 << YAW_BITS) - 1),
+            pitch: unit(p.pitch, -HALF_PI, 2.0 * HALF_PI, PITCH_BITS),
+            roll: ((wrap(p.roll) / TAU * (1u32 << ROLL_BITS) as f32 + 0.5) as u32) & ((1 << ROLL_BITS) - 1),
+            speed: unit(p.speed, 0.0, SPEED_MAX, SPEED_BITS),
+            grounded: p.grounded,
+            running: p.running,
+            ride: p.ride.min((1 << RIDE_BITS) - 1),
+            jets: p.jets & ((1 << JET_BITS) - 1),
         }
+    }
+
+    /// What the codes say, on strip `strip`.
+    pub fn pose(&self, strip: u8) -> PersonPose {
+        PersonPose {
+            strip,
+            x: ununit(self.x, -X_HALF, 2.0 * X_HALF, X_BITS),
+            s: ununit(self.s, 0.0, S_SPAN, S_BITS),
+            h: ununit(self.h, H_MIN, H_SPAN, H_BITS),
+            yaw: ununit(self.yaw, 0.0, TAU, YAW_BITS),
+            pitch: ununit(self.pitch, -HALF_PI, 2.0 * HALF_PI, PITCH_BITS),
+            roll: ununit(self.roll, 0.0, TAU, ROLL_BITS),
+            speed: ununit(self.speed, 0.0, SPEED_MAX, SPEED_BITS),
+            grounded: self.grounded,
+            running: self.running,
+            ride: self.ride,
+            jets: self.jets,
+        }
+    }
+
+    pub(crate) fn write(&self, w: &mut BitWriter<'_>) {
+        w.write_bits(self.x, X_BITS);
+        w.write_bits(self.s, S_BITS);
+        w.write_bits(self.h, H_BITS);
+        w.write_bits(self.yaw, YAW_BITS);
+        w.write_bits(self.pitch, PITCH_BITS);
+        w.write_bits(self.roll, ROLL_BITS);
+        w.write_bits(self.speed, SPEED_BITS);
+        self.write_flags(w);
+    }
+
+    /// Its flags: grounded, running, what it rides and the jets firing.
+    pub(crate) fn write_flags(&self, w: &mut BitWriter<'_>) {
+        w.write_bool(self.grounded);
+        w.write_bool(self.running);
+        w.write_bits(u32::from(self.ride), RIDE_BITS);
+        w.write_bits(u32::from(self.jets), JET_BITS);
+    }
+
+    pub(crate) fn read(r: &mut BitReader<'_>) -> Self {
+        let mut c = Self {
+            x: r.read_bits(X_BITS),
+            s: r.read_bits(S_BITS),
+            h: r.read_bits(H_BITS),
+            yaw: r.read_bits(YAW_BITS),
+            pitch: r.read_bits(PITCH_BITS),
+            roll: r.read_bits(ROLL_BITS),
+            speed: r.read_bits(SPEED_BITS),
+            ..Self::default()
+        };
+        c.read_flags(r);
+        c
+    }
+
+    pub(crate) fn read_flags(&mut self, r: &mut BitReader<'_>) {
+        self.grounded = r.read_bool();
+        self.running = r.read_bool();
+        self.ride = r.read_bits(RIDE_BITS) as u8;
+        self.jets = r.read_bits(JET_BITS) as u8;
     }
 }
 

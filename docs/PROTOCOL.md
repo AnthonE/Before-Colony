@@ -1,8 +1,22 @@
-# Before Colony wire protocol (v38)
+# Before Colony wire protocol (v39)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v39 (from v38): the walkers' codecs, for the street in the tick (`docs/OPEN_CITY.md`). No server
+walks anyone in the tick yet (that comes behind a later `--street`), so nothing below is sent by
+default. A snapshot's header flags gain ON_FOOT (bit 2): a walker's snapshot, which answers for
+their input as an own suit's does. An ON_FOOT snapshot carries two more sections after the objects:
+`foot_own`, a presence bit and then the pilot's own walker exactly (`FootOwn`: raw `f32` bits, 262
+bits on their feet), and `people`, `[1][person]` each (1 + 28 to 125 bits; 112 whole) closed by `[0]`: the
+people near, each a `PersonRecord` whole or delta-coded against a record the client acked, as
+suits' are (below, "The colony's people"). Every `InputCmd` gains `act` (1 bit, and with it a
+`FootAct`: kind 8, arg 16): what a walker does once on that command's tick. `InputCmd::neutral`
+never carries one and `InputCmd::stand_in` clears it explicitly, so a silent client's repeat never
+does it twice; four commands take 69 bytes, 100 locked on, 108 converging. The Hello's flags gain
+STREET (`1 << 2`: this client walks in the tick) and the Welcome's STREET (`1 << 6`: this server
+will walk you there).
 
 v38 (from v37): the own state carries the pilot's fed condition (`bc_sim::content::body::Fed`,
 `docs/LIFE.md`), 3 bits after the stim's clock: 0 fed, which changes nothing; 1 well fed; 2 peckish;
@@ -147,7 +161,7 @@ datagrams for pilots flying inside; and the key places' rooms in the city
 | client_time_ms (echoed for RTT) | 16 |
 | count − 1 | 2 |
 | newest command's tick | 32 |
-| `count` × `InputCmd` body, newest first (ticks descend by 1) | 108 each, 170 locked on, 16 more firing |
+| `count` × `InputCmd` body, newest first (ticks descend by 1) | 109 each, 171 locked on, 16 more firing, 24 more with an act |
 
 `InputCmd` body:
 
@@ -165,6 +179,8 @@ datagrams for pilots flying inside; and the key places' rooms in the city
 | `LockOn`: up (octahedral, 2 × 10) | 20 |
 | converging (a range follows) | 1 |
 | converge: how far along the aim from the pilot's eye the crosshair's point is, in quarter metres | 16 |
+| acting (a `FootAct` follows, v39) | 1 |
+| `FootAct`: kind (1 SIT, 2 STAND, 3 LIFT, 4 TAKE, 5 GET_OUT) and arg (which seat, storey or kind of vehicle) | 8 + 16 |
 
 **Converging** (`bc_sim::aim`): a pilot's client says how far along the aim the first thing under
 its crosshair is (the crosshair being the line from the frame's eye, `FrameSpec::eye`, along the
@@ -195,11 +211,19 @@ legs: x and z walk (Shift runs), and `thrust[1]` sets the stance and stays set: 
 crouches, 32 or more stands, 100 or more (standing) hops, and anything between keeps the stance it
 has, so a silent client stays crouched.
 
-Four commands fit in 68 bytes (110 + 4 × 108 bits), or 99 locked on (110 + 4 × 170). A client sending several ticks at once sends
-overlapping windows two ticks apart, so each command is in two packets. States persist while a
+Four commands fit in 69 bytes (110 + 4 × 109 bits), or 100 locked on (110 + 4 × 171), or 81 a walker's
+each with an act (110 + 4 × 133), and 120 at the most (110 + 4 × 211). A client sending several
+ticks at once sends overlapping windows two ticks apart, so each command is in two packets. States persist while a
 client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, the Orrery, GRAB,
 MODE and GRIP, and the lock-on for 30 ticks more); presses (STOW, THROW, JETTISON, MELEE, SPECIAL, BURST) act on the tick they first appear, and a
 repeated command never fires.
+
+**On foot in the tick** (v39, `bc_sim::foot`): the same command drives a walker. `thrust[2]` strides
+forward (+) or back and `thrust[0]` right (+) or left, each over 127; BOOST runs; `thrust[1]` at 100
+or more jumps; `aim`, read in the walker's frame on their strip (`(x, h, −s)`), turns their head:
+its heading the yaw, its rise the pitch. What a walker does once (sit, stand, ride a lift, take a
+vehicle, get out) is an `act` on the command for its tick; the repeats of that command in the next
+packets are for the same tick, and a stand-in for a missing one carries none.
 
 Lag compensation reaches back at most 8 ticks. A view delta of 128 or more (8 ticks) resolves at
 exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothing.
@@ -216,6 +240,8 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | missiles | repeated `[1][missile]` (119 bits each), closed by `[0]` |
 | entities | repeated `[1][entity]` (whole: 195 or 212 bits; a delta: 30 to about 140), closed by `[0]` |
 | objects | repeated `[1][object]` (12–232 bits each), closed by `[0]` |
+| foot own (ON_FOOT only, v39) | `[1][FootOwn]` (262 to 364 bits) or `[0]` |
+| people (ON_FOOT only, v39) | repeated `[1][person]` (whole: 112 bits; a delta: 28 to 125, about 46 at a walk), closed by `[0]` |
 
 The writer reserves room for every list terminator still owed before it writes a record, so a
 snapshot is never cut off mid-list.
@@ -226,7 +252,10 @@ watching the inside's suits). It has no own state and no Orrery, no events but L
 rocks, missiles or objects; its `ack_input_tick`, `input_health` and echo say nothing (the pilot
 sends no input). 1 MORE (v37): a tick's datagram after its first, carrying more of the suits the
 pilot sees and nothing else (no own state, no Orrery, and its event, rock, missile and object lists
-empty).
+empty). 2 ON_FOOT (v39): a walker's snapshot, the pilot on foot in the tick: after the objects come
+their own walker and the people near them (below, "The colony's people"), and its round trip and
+input health answer for their commands, as an own suit's do. Without it, those two sections
+aren't there at all.
 
 What fits, in the 8 800 bits of a 1 100-byte datagram: the fixed part is the header, the own state,
 the Orrery's presence bit and the five lists' terminators.
@@ -483,6 +512,28 @@ under the suit (over a window, the nearer strip's), within 1.5 km of it in the a
 The plaza's tick keeps a client's clock (and the colony's day) when none of the pilot's own
 snapshots come: in the bay, and in the city (a spectator's snapshots, below, carry no round trip).
 
+**People in the tick** (v39, `bc_proto::foot`; `docs/OPEN_CITY.md`, "The street in the tick"). A
+pilot walked in the tick (their Hello said STREET and the server's Welcome says so) sends no poses:
+they send commands, and their walker is the inside sector's, stepped by `bc_sim::foot` on the
+server and in their own prediction alike. Their snapshots say ON_FOOT and carry, after the objects:
+
+| Section | Content | Bits |
+|---|---|---|
+| foot own | present (1); strip (2); feet and velocity in the walker's frame (6 raw `f32`); yaw and pitch (2 raw `f32`); grounded (1); mode (3: 0 on foot, 1 on a train, 2 seated, 3 in a lift; 4–7 kept for kinds to come, refused); then the mode's: a train's `k` (4), its car (2) and the feet in the car's frame (3 raw `f32`); a seat (6); a lift's storey (5) and ticks left (8) | 1 + 262, 364, 268 or 275 |
+| people | per person `[1]`, their id (10: their sector-0 slot, as the plaza's), a delta bit, then whole: generation (2), strip (2) and the pose's codes as above (97); or a delta (below). `[0]` ends | whole 1 + 112 |
+
+The own walker is exact, as an own suit's state is: the predictor re-seeds from it to the bit, and
+nothing is snapped to the pose's grid (a body resting a hair above a floor, rounded down into it,
+would step up out of it every tick). A person's delta is against a record of the same person, life
+and strip the client took, `back` ticks before (8 bits, 1 to 255): the heading's change (2-bit mode:
+the same, 5 bits, 8 bits, or whole), the pitch's (the same, 4, 6, whole), whether the roll, the speed
+and the flags (grounded, running, what they ride, the jets) are the same (1 bit each, and the whole
+field if not), and the position (2-bit mode, then 3 × 6, 3 × 12 or whole) against where the
+baseline's position, carried `back` ticks at the record's own speed along its own heading, comes to
+(the heading's direction from polynomials, adds and multiplies only, so both ends agree to the bit).
+A person standing still is 29 bits with their continuation bit; at a walk, 47 or so. A delta whose
+baseline the client hasn't got is refused (`NoBaseline`).
+
 ## Control stream
 
 Frames are `[u16 LE payload length][u8 tag][payload]`, byte-aligned, at most 256 bytes with the
@@ -490,8 +541,8 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 
 | Tag | Message | Direction |
 |---|---|---|
-| 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
+| 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME, 4 STREET), resume token (32 B, only with RESUME)} | client → server (first frame) |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR, 64 STREET), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7)} | server → client |
 | 5 | Respawn {frame} | client → server |

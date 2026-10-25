@@ -24,6 +24,9 @@ pub mod hello_flags {
     pub const SIGN_IN: u8 = 1 << 0;
     /// The pilot signed in earlier and carries a resume token (a reconnect: no signature asked).
     pub const RESUME: u8 = 1 << 1;
+    /// This client walks in the tick: on foot in the colony it sends commands (`InputCmd`, its
+    /// acts in `InputCmd::act`) and takes `ON_FOOT` snapshots, rather than its poses.
+    pub const STREET: u8 = 1 << 2;
 }
 
 /// [`ControlMsg::Welcome`] flags.
@@ -44,6 +47,9 @@ pub mod welcome_flags {
     /// pull, its air and its city, weapons safe. A Welcome mid-session moves the pilot between
     /// sectors (in through the inner gate, and back to the bay).
     pub const INTERIOR: u8 = 1 << 5;
+    /// This server will walk the pilot in the tick (they said [`hello_flags::STREET`](super::hello_flags::STREET),
+    /// and it walks people there): on foot their snapshots say `ON_FOOT`.
+    pub const STREET: u8 = 1 << 6;
 }
 
 /// [`ControlMsg::Roster`] flags.
@@ -539,6 +545,46 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn the_street_flags_go_round_and_are_their_own_bits() {
+        let hello = ControlMsg::Hello {
+            version: PROTOCOL_VERSION,
+            pilot: PilotKind::Human,
+            frame: FrameId::Argo,
+            faction: Faction::Colonies,
+            name: Name::new("Ada"),
+            flags: hello_flags::STREET | hello_flags::RESUME,
+            resume: [7; TOKEN_BYTES],
+        };
+        let welcome = ControlMsg::Welcome {
+            version: PROTOCOL_VERSION,
+            client_slot: 9,
+            tick: 1,
+            tick_hz: 30,
+            sector: 0,
+            orrery_allowed: false,
+            max_datagram: 1100,
+            field_seed: 1,
+            field_rocks: 0,
+            flags: welcome_flags::STREET | welcome_flags::SURVIVAL | welcome_flags::COLONY,
+            landmarks: 0,
+            faction: Faction::Colonies,
+        };
+        for m in [hello, welcome] {
+            let mut buf = [0u8; 256];
+            let n = m.encode(&mut buf).unwrap();
+            assert_eq!(ControlMsg::decode(&buf[..n]).unwrap().map(|(m, _)| m), Some(m));
+        }
+        const { assert!(hello_flags::STREET & (hello_flags::SIGN_IN | hello_flags::RESUME) == 0) };
+        let others = welcome_flags::SIGNED_IN
+            | welcome_flags::WOKE
+            | welcome_flags::SURVIVAL
+            | welcome_flags::ANIME
+            | welcome_flags::COLONY
+            | welcome_flags::INTERIOR;
+        assert_eq!(welcome_flags::STREET & others, 0);
+    }
 
     #[test]
     fn frames_round_trip_and_split() {
