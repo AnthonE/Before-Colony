@@ -6,9 +6,17 @@
 //! Since every frame stands on the same skeleton, a suit can also be put together from several:
 //! one frame's head on another's body, a third's arms or legs ([`Parts`], [`build_parts`]).
 
+mod algol;
+mod altair;
+mod antares;
 mod ao;
+mod aquila;
 mod argo;
+mod canopus;
+mod cetus;
 pub mod cockpit;
+mod corvus;
+mod detail;
 pub mod frames;
 pub mod ik;
 pub mod kit;
@@ -16,6 +24,7 @@ mod lodestars;
 pub mod paint;
 mod prototypes;
 pub mod rig;
+mod thuban;
 
 use bc_proto::FrameId;
 use glam::{Affine3A, Vec2, Vec3};

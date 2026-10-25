@@ -6,8 +6,8 @@ at a design from the views its reference art is drawn in.
     python3 scripts/suit-render.py argo.json out/argo [front back side three rear34 head ...]
 
 Each view is written to `<out>-<view>.png`; `sheet` (the default) lays front, side, back and the
-three-quarter views out on one image. `--livery almagest|colonies|alliance|white|sagittarius|corona`
-picks the paint (the prototypes' own by default for them, the Almagest's for the rest),
+three-quarter views out on one image. `--livery almagest|colonies|alliance|white|<frame>` picks the
+paint (by default each frame's own, as the game paints it; the Almagest's for the Argo),
 `--size N` the height in pixels, `--blend` also saves the scene (`<out>.blend`) to open in Blender,
 and `--glb` exports the suit as glTF (`<out>.glb`). `--turn Head:0,40,0` turns a bone (and what
 hangs off it) about its joint by x, y and z angles in degrees, in the suit's frame, to see a pose:
@@ -58,12 +58,30 @@ LIVERIES = {
     "colonies": (8, 0, 2, (0.2, 6.0, 1.2)),
     "alliance": (10, 4, 2, (6.0, 0.4, 2.2)),
     "white": (0, 1, 2, (0.2, 6.0, 1.2)),
-    # The Almagest's prototype pair, in their own colours (suits_vis.rs's `livery`).
+    # Each frame's own colours, as the game paints it (suits_vis.rs's `livery`).
+    "altair": (0, 1, 2, (0.2, 6.0, 1.2)),
+    "antares": (0, 2, 4, (0.2, 6.0, 1.2)),
+    "algol": (4, 1, 2, (0.2, 6.0, 1.2)),
+    "canopus": (10, 0, 2, (0.2, 6.0, 1.2)),
+    "thuban": (0, 5, 3, (0.2, 6.0, 1.2)),
+    "corvus": (7, 8, 2, (6.0, 0.4, 2.2)),
+    "cetus": (9, 6, 4, (6.0, 0.4, 2.2)),
     "sagittarius": (1, 11, 4, (6.0, 0.4, 2.2)),
-    "corona": (2, 11, 4, (0.2, 6.0, 1.2)),
+    "corona": (2, 11, 4, (6.0, 0.4, 2.2)),
 }
-# The livery a frame is drawn in when none is asked for.
-LIVERY_OF = {"Sagittarius": "sagittarius", "Corona": "corona"}
+# The livery a frame is drawn in when none is asked for: its own, the Almagest's for the Argo.
+LIVERY_OF = {
+    "Altair": "altair",
+    "Aquila": "altair",
+    "Antares": "antares",
+    "Algol": "algol",
+    "Canopus": "canopus",
+    "Thuban": "thuban",
+    "Corvus": "corvus",
+    "Cetus": "cetus",
+    "Sagittarius": "sagittarius",
+    "Corona": "corona",
+}
 
 
 def load_palette(repo):

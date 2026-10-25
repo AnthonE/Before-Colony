@@ -39,6 +39,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use glam::{Affine3A, Quat, Vec2, Vec3};
 
+use crate::detail::{Cut, GREY, LENS, band, port, slot, stacked, swap_x, toward};
 use crate::frames::{
     BODY, EYE, FRAME, GUN, SOLE, STEEL, Sole, TRIM, YELLOW, at, j, nozzle, place, rx, ry, rz, sided, sole,
     sp, v, v2,
@@ -46,37 +47,6 @@ use crate::frames::{
 use crate::kit::{Hoop, Light, Paint, hoop};
 use crate::rig::{Bone, Side};
 use crate::{Designer, On, paint};
-
-/// The inner frame, the hands, the ankles' discs and the heels' bands.
-const GREY: Paint = Paint::Fixed(paint::HULL_DARK);
-/// The cameras' and sensors' glass.
-const LENS: Paint = Paint::Fixed(paint::LENS);
-
-/// Local +y along `dir`.
-fn toward(dir: Vec3) -> Quat {
-    Quat::from_rotation_arc(Vec3::Y, dir.normalize())
-}
-
-/// A closed rectangle in a lathe's (radius, height) plane, for rings and bands.
-fn band(r0: f32, r1: f32, y0: f32, y1: f32) -> [(f32, f32); 5] {
-    [(r0, y0), (r1, y0), (r1, y1), (r0, y1), (r0, y0)]
-}
-
-/// An engraved slot on the face at `xf`'s origin (looking along its +z), along its y.
-fn slot(o: &mut On<'_>, len: f32, xf: Affine3A) {
-    o.greeble(|o| {
-        o.cube(v(0.07, len, 0.05), 0.0, FRAME, xf);
-    });
-}
-
-/// A round port on the face at `xf`'s origin, looking along its +z: a grey rim round a dark
-/// socket and its lens.
-fn port(o: &mut On<'_>, r: f32, xf: Affine3A) {
-    let face = xf * Affine3A::from_rotation_x(FRAC_PI_2);
-    o.lathe(&band(r * 0.62, r, -0.06, 0.08), 18, TRIM, face);
-    o.cylinder(r * 0.64, 0.1, 16, FRAME, face);
-    o.lathe(&[(0.0, 0.05), (r * 0.42, 0.05), (r * 0.3, 0.1), (0.0, 0.12)], 14, LENS, face);
-}
 
 /// Which twin is being drawn, for what they don't share.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -253,9 +223,6 @@ const HATCH: [[(f32, f32, f32); 2]; 2] =
     [[(3.45, 0.84, 1.38), (4.75, 1.1, 1.62)], [(4.75, 1.1, 1.62), (5.9, 1.14, 1.3)]];
 const CHEST_FALL: f32 = 0.24;
 
-/// A block's section across at one height: (y, inner x, outer x, back z, front z).
-type Cut = (f32, f32, f32, f32, f32);
-
 /// The side blocks beside the hatch (right side), stacked: the lower, with the louvres in its
 /// front, and the upper a step back and in, standing up beside the head as high as its camera.
 /// Each given by its foot and its top.
@@ -263,20 +230,6 @@ const SIDE_BLOCKS: [[Cut; 2]; 2] = [
     [(3.42, 1.02, 2.32, -1.32, 1.1), (5.0, 1.06, 2.6, -1.5, 1.3)],
     [(5.0, 1.12, 2.54, -1.46, 1.1), (6.72, 1.16, 2.38, -1.28, 0.74)],
 ];
-
-/// A block's corners from its foot and its top.
-fn stacked([(y0, i0, o0, b0, f0), (y1, i1, o1, b1, f1)]: [Cut; 2]) -> [Vec3; 8] {
-    [
-        v(i0, y0, b0),
-        v(o0, y0, b0),
-        v(i1, y1, b1),
-        v(o1, y1, b1),
-        v(i0, y0, f0),
-        v(o0, y0, f0),
-        v(i1, y1, f1),
-        v(o1, y1, f1),
-    ]
-}
 
 /// A frame on a block's front (`block` as for [`stacked`]) at (`x`, `y`): z out of the face, y up
 /// it.
@@ -820,11 +773,6 @@ const BOOT_LEAN: f32 = 0.18;
 /// A block of a foot ([`frames::boot`](crate::frames::boot)), its sides leaning in [`BOOT_LEAN`].
 fn boot(x: f32, base: f32, top: (f32, f32), half: (f32, f32), z: [f32; 4]) -> [Vec3; 8] {
     crate::frames::boot(x, base, top, half, z, BOOT_LEAN)
-}
-
-/// A hexahedron's corners mirrored across x, reordered so its low-x corners stay the low ones.
-fn swap_x(c: [Vec3; 8]) -> [Vec3; 8] {
-    std::array::from_fn(|i| c[i ^ 1])
 }
 
 // --- The Sagittarius's back: the generator, and its cannon. ---
