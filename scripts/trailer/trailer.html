@@ -145,6 +145,8 @@ function brackets(alpha = .5) {
   }
   fg.restore();
 }
+// Under a caption on a bright frame (the city by day, the bay's yellow rail): the lower half darkened.
+function lower() { shade(fg, BOX.y + BOX.h * .45, BOX.y + BOX.h, 0, .62); }
 function shade(ctx, y0, y1, a0, a1) {
   const g = ctx.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, `rgba(4,10,18,${a0})`); g.addColorStop(1, `rgba(4,10,18,${a1})`);
   ctx.fillStyle = g; ctx.fillRect(0, y0, W, y1 - y0);
@@ -210,8 +212,9 @@ const SCENES = [
     foot(bg, 'salvage', L.t, L.d);
     caption(L, ['STRIP THE WRECKS'], { at: .2 });
   } },
-  { id: 'v3-exchange', b: [12, 14], box: true, draw(L) {
-    foot(bg, 'exchange', L.t, L.d, { z0: 1.0, z1: 1.14 });
+  { id: 'v3-city', b: [12, 14], box: true, draw(L) {
+    foot(bg, 'avenue', L.t, L.d, { z0: 1.0, z1: 1.14 });
+    lower();
     caption(L, ['TRADE ON THE COLONY EXCHANGE'], { at: .2 });
   } },
   { id: 'v4-lineup', b: [14, 16], box: true, draw(L) {
@@ -221,6 +224,7 @@ const SCENES = [
   // pre-chorus (17-20): out
   { id: 'p1-tunnel', b: [16, 18], box: true, draw(L) {
     foot(bg, 'tunnel', L.t, L.d, { z0: 1, z1: 1.06 });
+    lower();
     caption(L, ['THEN LAUNCH'], { at: .3, size: 84, track: 18 });
   } },
   { id: 'p2-out', b: [18, 19.25], box: true, draw(L) {
@@ -259,7 +263,7 @@ const SCENES = [
     caption(L, ['THE ORRERY', { s: 'A COMBAT AI THAT SEES THE FIGHT AHEAD', size: 38, color: C.cyan }], { at: .2, step: .4 });
   } },
   { id: 'l3-landing', b: [32, 33], box: true, draw(L) { foot(bg, 'landing', L.t, L.d); chip(L, 'LAND ON THE ROCKS'); } },
-  { id: 'l4-markab', b: [33, 34], box: true, draw(L) { foot(bg, 'markab', L.t, L.d, { z0: 1.12, z1: 1.0 }); chip(L, 'A CITY INSIDE'); } },
+  { id: 'l4-markab', b: [33, 34], box: true, draw(L) { foot(bg, 'markab', L.t, L.d, { z0: 1.12, z1: 1.0 }); lower(); chip(L, 'A CITY INSIDE'); } },
   { id: 'l5-night', b: [34, 36], box: true, draw(L) {
     foot(bg, 'city-night', L.t, L.d, { z0: 1.0, z1: 1.15 });
     caption(L, ['PEOPLE AND AI AGENTS', { s: 'BY THE SAME RULES', color: C.cyan }], { at: .2, step: .45 });
@@ -306,7 +310,7 @@ const CUES = {
     { src: snd('saber'), at: moment('v1-mine', 7.2, 9.0), gain: .5 },
     { src: snd('rock_break'), at: moment('v1-mine', 7.2, 9.75), gain: .7 },
     { src: snd('grab'), at: at('v2-salvage') + 1.4, gain: .5 },
-    { src: snd('sale'), at: at('v3-exchange') + 1.2, gain: .45 },
+    { src: snd('sale'), at: at('v3-city') + 1.2, gain: .45 },
     { src: snd('ui_confirm'), at: at('v4-lineup') + .9, gain: .45 },
     { src: 'sfx/trailer_riser.wav', at: DROP - 6.0, gain: .4 },
     { src: snd('launch'), at: at('p2-out') + .02, gain: .9 },

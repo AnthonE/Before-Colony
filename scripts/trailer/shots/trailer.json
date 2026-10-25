@@ -1,5 +1,5 @@
 {
-  "_": "The alpha trailer's footage (scripts/trailer/make.sh shoot). Each shot is a showcase scene filmed a frame at a time; trailer.html cuts them to the title theme's bars (a bar is 1.678 s). A look-ahead preset (the hangar's, the city's, the Markab's) turns with pan and moves with fwd; an orbit's with yaw and zoom, and follow keeps it on one of the scene's suits. The colony from afar holds still and the cut pushes in: the dust round the camera streaks with its speed, and a push across kilometres is a fast camera. The city's (the Exchange floor, the avenue at night, the Markab) are one frame each, which the cut pushes in on: a frame of the city takes SwiftShader the best part of a minute.",
+  "_": "The alpha trailer's footage (scripts/trailer/make.sh shoot). Each shot is a showcase scene filmed a frame at a time; trailer.html cuts them to the title theme's bars (a bar is 1.678 s). A look-ahead preset (the hangar's, the city's, the Markab's) turns with pan and moves with fwd; an orbit's with yaw and zoom, and follow keeps it on one of the scene's suits. The colony from afar holds still and the cut pushes in: the dust round the camera streaks with its speed, and a push across kilometres is a fast camera. The city's (the avenue by day and at night, Hub Gate's square) are one frame each, which the cut pushes in on: a frame of the city takes SwiftShader the best part of a minute.",
   "fps": 30,
   "size": [1440, 603],
   "quality": "high",
@@ -10,7 +10,7 @@
     {"name": "gantry", "scene": "hangar", "cam": 3, "t": 3, "len": 3.4, "query": "frame=argo", "move": {"fwd": [0, 1.5]}},
     {"name": "mining", "scene": "mining", "cam": 1, "t": 7.2, "len": 3.4, "pre": 0.3, "move": {"yaw": [0, 0.12], "zoom": [1, 0.9]}},
     {"name": "salvage", "scene": "salvage", "cam": 1, "t": 5, "len": 3.4, "pre": 0.3, "move": {"yaw": [-0.1, 0.18]}},
-    {"name": "exchange", "scene": "city", "cam": 8, "t": 6, "len": 0.034, "warm": 3},
+    {"name": "avenue", "scene": "city", "cam": 1, "t": 6, "len": 0.034, "warm": 3},
     {"name": "lineup", "scene": "lineup", "cam": 2, "t": 5.2, "len": 3.4, "pre": 0.3, "move": {"yaw": [-0.1, 0.12]}},
     {"name": "tunnel", "scene": "hangar", "cam": 5, "t": 7.6, "len": 3.4, "query": "frame=argo", "move": {"fwd": [0, 8], "ease": "in"}},
     {"name": "out", "scene": "chase", "cam": 1, "t": 2.0, "len": 2.2, "pre": 0.3},
