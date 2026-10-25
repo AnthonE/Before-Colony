@@ -571,7 +571,7 @@ fn arms(d: &mut Designer) {
         });
         let guard = sided(s, place(el + v(0.15, 0.1, -0.5), rx(-0.5)));
         f.block(v(0.95, 0.9, 0.5), v2(0.7, 0.6), v2(0.0, -0.06), 0.12, BODY, guard);
-        f.cylinder(0.46, 0.3, 12, GREY, fo_xf);
+        f.cylinder(0.46, 0.3, 12, GREY, fo_xf * at(0.0, 0.16, 0.0));
     }
     crate::frames::hands(d, GREY);
 }
@@ -895,69 +895,133 @@ fn backpack(d: &mut Designer) {
 
 // --- The beam machine gun. ---
 
-/// The barrel's axis, over the grip.
-const BORE_Y: f32 = 0.62;
+/// The barrel's axis over the grip. The gun is held as a pistol is ([`crate::hold`]), and must
+/// clear the arm three ways: at the ready, with the forearm level behind the fist; carried muzzle
+/// down, the forearm over the fist and the thigh behind the gun; and as built, level in the
+/// hanging fist, as it's shown while the arm swings a blade, the forearm rising over the fist and
+/// leaning back. So all of it lies ahead of the grip, the receiver high and a stride forward of the
+/// fist, joined to the grip by a low frame under the forearm's cuff, and nothing rides back over
+/// the forearm.
+const BORE_Y: f32 = 0.78;
+/// Where the receiver starts and ends ahead of the grip (the barrel's jacket begins there), and
+/// where the muzzle is.
+const RECEIVER: (f32, f32) = (0.95, 3.05);
+const MUZZLE: f32 = 6.2;
 
-/// The beam machine gun, in the right hand: a deep receiver, the energy drum on its inner side, a
-/// finned jacket round the barrel, the muzzle brake and its bore, a sight with its lens, a stock;
-/// and the clamp under its front that the right blade's grip locks into.
+/// The beam machine gun, in the right hand: a deep receiver standing forward of the fist on the
+/// low frame from the grip, the energy pan on its top behind a sight, a finned jacket round the
+/// barrel, the muzzle brake and its bore; and the clamps along its outer side where the right
+/// blade's grip locks in.
 fn machine_gun(d: &mut Designer) {
     let g = j(Bone::Weapon);
     let y = BORE_Y;
-    let along_z = |y: f32, z: f32| place(v(g.x, g.y + y, g.z + z), rx(FRAC_PI_2));
+    let (start, end) = RECEIVER;
+    let p = |x: f32, y: f32, z: f32| v(g.x + x, g.y + y, g.z + z);
+    let along_z = |y: f32, z: f32| place(p(0.0, y, z), rx(FRAC_PI_2));
     let mut w = d.on(Bone::Weapon);
     w.seed(0.61);
-    w.cube(v(0.34, 1.0, 0.46), 0.05, GUN, place(v(g.x, g.y - 0.15, g.z), rx(-0.25)));
-    // The receiver, its spine and its red stripe.
-    w.block(v(0.8, 1.05, 2.8), v2(0.92, 0.95), Vec2::ZERO, 0.14, GUN, at(g.x, g.y + y, g.z + 0.5));
-    w.cube(v(0.36, 0.16, 2.2), 0.04, GUN, at(g.x, g.y + y + 0.58, g.z + 0.6));
-    w.cube(v(0.04, 0.14, 1.4), 0.0, ACCENT, at(g.x + 0.41, g.y + y + 0.22, g.z + 0.7));
+    // The pistol grip in the fist, the trigger guard ahead of it, and the low frame from the grip
+    // forward to the receiver.
+    w.cube(v(0.34, 1.0, 0.46), 0.05, GUN, place(p(0.0, -0.18, 0.08), rx(-0.25)));
+    w.cube(v(0.12, 0.08, 0.52), 0.02, GUN, at(g.x, g.y - 0.32, g.z + 0.42));
+    w.cube(v(0.12, 0.5, 0.08), 0.02, GUN, place(p(0.0, -0.08, 0.66), rx(0.2)));
+    // Its top falls toward the grip, under the forearm's cuff when the gun is level in the fist.
+    let frame = [
+        (-0.25, 0.0, -0.1),
+        (0.25, 0.0, -0.1),
+        (-0.25, 0.2, -0.1),
+        (0.25, 0.2, -0.1),
+        (-0.25, 0.0, start + 0.05),
+        (0.25, 0.0, start + 0.05),
+        (-0.25, 0.5, start + 0.05),
+        (0.25, 0.5, start + 0.05),
+    ]
+    .map(|(x, y, z)| p(x, y, z));
+    w.hexa(frame, 0.06, GUN, Affine3A::IDENTITY);
+    w.greeble(|w| {
+        w.cube(v(0.54, 0.06, 0.3), 0.0, FRAME, at(g.x, g.y + 0.16, g.z + 0.62));
+    });
+    // The receiver, a red stripe down its outer side, vents in its inner.
+    w.block(
+        v(0.8, 1.04, end - start),
+        v2(0.92, 0.95),
+        Vec2::ZERO,
+        0.14,
+        GUN,
+        at(g.x, g.y + y, g.z + (start + end) * 0.5),
+    );
+    w.cube(v(0.04, 0.14, 1.4), 0.0, ACCENT, at(g.x + 0.41, g.y + y + 0.24, g.z + start + 1.0));
     w.greeble(|w| {
         for k in 0..5 {
-            let z = g.z + 0.9 + k as f32 * 0.22;
-            w.cube(v(0.84, 0.36, 0.08), 0.0, FRAME, at(g.x, g.y + y - 0.12, z));
+            w.cube(
+                v(0.05, 0.4, 0.1),
+                0.0,
+                FRAME,
+                at(g.x - 0.4, g.y + y - 0.05, g.z + start + 0.45 + k as f32 * 0.24),
+            );
+        }
+        w.cube(v(0.84, 0.06, 0.06), 0.0, FRAME, at(g.x, g.y + y + 0.1, g.z + end - 0.45));
+    });
+    // The sight at the receiver's top rear, its lenses fore and aft, and the energy pan ahead of
+    // it, a white ring round its face and a grey hub.
+    w.block(
+        v(0.34, 0.36, 0.42),
+        v2(0.9, 0.9),
+        Vec2::ZERO,
+        0.04,
+        GUN,
+        at(g.x, g.y + y + 0.7, g.z + start + 0.24),
+    );
+    for (z, r) in [(start + 0.46, 0.12), (start + 0.02, 0.1)] {
+        w.cylinder(r, 0.06, 12, LENS, along_z(y + 0.7, z));
+    }
+    let pan = place(p(0.0, y + 0.5, start + 1.12), Quat::IDENTITY);
+    w.lathe(&[(0.0, 0.0), (0.66, 0.0), (0.72, 0.06), (0.72, 0.26), (0.66, 0.32), (0.0, 0.32)], 24, GUN, pan);
+    w.lathe(&band(0.4, 0.56, 0.3, 0.36), 20, TRIM, pan);
+    w.cylinder(0.18, 0.14, 12, GREY, pan * at(0.0, 0.36, 0.0));
+    w.greeble(|w| {
+        for k in 0..8 {
+            let a = k as f32 * TAU / 8.0;
+            w.cube(
+                v(0.06, 0.2, 0.12),
+                0.0,
+                FRAME,
+                pan * place(v(0.72 * a.cos(), 0.16, 0.72 * a.sin()), ry(-a)),
+            );
         }
     });
-    // The sight on the spine, its lenses fore and aft.
-    w.cube(v(0.32, 0.36, 0.8), 0.04, GUN, at(g.x, g.y + y + 0.84, g.z - 0.1));
-    for (z, r) in [(0.31, 0.12), (-0.51, 0.1)] {
-        w.cylinder(r, 0.06, 12, LENS, along_z(y + 0.86, z - 0.1));
-    }
-    // The energy drum on the receiver's inner side, a white ring round its face.
-    let drum = place(v(g.x - 0.62, g.y + y - 0.12, g.z + 0.75), rz(FRAC_PI_2));
-    w.lathe(
-        &[(0.0, -0.24), (0.6, -0.24), (0.68, -0.16), (0.68, 0.16), (0.6, 0.24), (0.0, 0.24)],
-        20,
-        GUN,
-        drum,
-    );
-    w.lathe(&band(0.36, 0.5, 0.2, 0.27), 18, TRIM, drum);
-    w.cylinder(0.2, 0.56, 10, GREY, drum);
-    // The barrel's jacket: a sleeve with cooling fins round it.
-    let mut jacket = vec![(0.0, 0.0), (0.36, 0.0)];
+    // The barrel's jacket: a sleeve with cooling fins round it, and the barrel out of it.
+    let mut jacket = vec![(0.0, 0.0), (0.34, 0.0)];
     for k in 0..4 {
-        let h = 0.3 + k as f32 * 0.55;
-        jacket.extend([(0.36, h), (0.46, h + 0.04), (0.46, h + 0.16), (0.36, h + 0.2)]);
+        let h = 0.25 + k as f32 * 0.5;
+        jacket.extend([(0.34, h), (0.44, h + 0.04), (0.44, h + 0.16), (0.34, h + 0.2)]);
     }
-    jacket.extend([(0.36, 2.6), (0.0, 2.6)]);
-    w.lathe(&jacket, 16, GUN, along_z(y, 1.9));
-    w.cylinder(0.2, 0.8, 12, STEEL, along_z(y, 4.85));
+    jacket.extend([(0.34, 2.2), (0.0, 2.2)]);
+    w.lathe(&jacket, 16, GUN, along_z(y, end));
+    w.cylinder(0.2, MUZZLE - end - 2.6, 12, STEEL, along_z(y, (end + 2.1 + MUZZLE - 0.6) * 0.5));
     // The muzzle brake: octagonal, ported either side, and its bore.
-    w.cylinder(0.36, 0.72, 8, GUN, along_z(y, 5.42) * Affine3A::from_rotation_y(PI / 8.0));
+    let brake = MUZZLE - 0.38;
+    w.cylinder(0.36, 0.66, 8, GUN, along_z(y, brake) * Affine3A::from_rotation_y(PI / 8.0));
     w.greeble(|w| {
         for x in [-0.34, 0.34] {
-            for z in [5.3, 5.55] {
+            for z in [brake - 0.12, brake + 0.12] {
                 w.cube(v(0.06, 0.24, 0.12), 0.0, FRAME, at(g.x + x, g.y + y, g.z + z));
             }
         }
     });
-    w.cylinder(0.2, 0.1, 12, FRAME, along_z(y, 5.75));
-    // The stock, its grey butt.
-    w.block(v(0.6, 0.9, 1.5), v2(0.9, 0.8), v2(0.0, -0.08), 0.1, GUN, at(g.x, g.y + y - 0.1, g.z - 1.6));
-    w.cube(v(0.64, 0.95, 0.14), 0.03, GREY, at(g.x, g.y + y - 0.1, g.z - 2.4));
-    // The clamp under the receiver's front for the right blade's grip.
-    w.block(v(0.44, 0.48, 0.8), v2(0.9, 0.9), Vec2::ZERO, 0.06, GUN, at(g.x, g.y + 0.02, g.z + 1.3));
-    d.sockets.muzzle = Designer::local(Bone::Weapon, v(g.x, g.y + y, g.z + 5.8));
+    w.cylinder(0.2, 0.1, 12, FRAME, along_z(y, MUZZLE - 0.04));
+    // The clamps along the receiver's outer side that hold the right blade's grip.
+    for z in [start + 0.4, start + 1.2] {
+        w.block(
+            v(0.36, 0.3, 0.26),
+            v2(0.9, 0.9),
+            Vec2::ZERO,
+            0.04,
+            GREY,
+            at(g.x + 0.52, g.y + 0.56, g.z + z),
+        );
+    }
+    d.sockets.muzzle = Designer::local(Bone::Weapon, p(0.0, y, MUZZLE));
 }
 
 // --- The heat blades. ---
@@ -977,11 +1041,13 @@ fn blades(d: &mut Designer) {
     shotel(d, Bone::HandL, hilt, dir, Vec3::NEG_X);
     d.sockets.blade_left = Some((Designer::local(Bone::HandL, hilt), dir));
     d.sockets.saber = (Designer::local(Bone::HandL, hilt), dir);
-    // The right clamped under the gun, forward and down, bowing down and out under the barrel.
+    // The right clamped along the gun's outer side, its grip in the clamps and the crescent out
+    // along the barrel, bowing out and down from it: carried muzzle down, it hangs well outside the
+    // leg.
     let g = j(Bone::Weapon);
-    let hilt = v(g.x, g.y - 0.1, g.z + 1.75);
-    let dir = v(0.06, -0.32, 0.95).normalize();
-    shotel(d, Bone::Weapon, hilt, dir, v(0.5, -0.85, 0.0));
+    let hilt = v(g.x + 0.66, g.y + 0.56, g.z + RECEIVER.0 + 1.4);
+    let dir = v(0.1, -0.05, 1.0).normalize();
+    shotel(d, Bone::Weapon, hilt, dir, v(0.8, -0.6, 0.0));
     d.sockets.blade_right = Some((Designer::local(Bone::Weapon, hilt), dir));
 }
 
@@ -1031,108 +1097,77 @@ fn shotel(d: &mut Designer, bone: Bone, hilt: Vec3, dir: Vec3, bow: Vec3) {
 // --- The cross shield. ---
 
 /// How much larger the cross shield is drawn than its outline below, across its face.
-const SHIELD_SCALE: f32 = 1.15;
+const SHIELD_SCALE: f32 = 1.1;
+/// The cross's long bar along the forearm (local y): its foot's point, where its middle ends below
+/// and above, and its head's point, short so it stays under the shoulder armour as the arm stands
+/// out from the body ([`crate::hold::SPREAD`]); and the arms across it, from foot to top where they
+/// leave the bar.
+const BAR: (f32, f32, f32, f32) = (-2.6, -1.5, 0.9, 1.5);
+const ARMS: (f32, f32) = (-0.1, 0.95);
 
 /// The cross shield on the left forearm, facing out: a long white bar down the forearm, pointed
-/// at both ends, crossed near its top by a shorter bar whose arms are where the blades lock in;
+/// at both ends, crossed near its head by a shorter bar whose arms are where the blades lock in;
 /// a tan spine down its middle, a red boss where the arms cross, and the grey mount behind.
 fn cross_shield(d: &mut Designer) {
     let (el, wr) = (sp(Side::L, j(Bone::ForearmR)), sp(Side::L, j(Bone::HandR)));
     let out = v(-1.0, 0.0, 0.1).normalize();
     let run = el - wr;
     let up = (run - out * run.dot(out)).normalize();
-    let centre = (el + wr) * 0.5 + out * 1.3 + up * 0.2;
+    let centre = (el + wr) * 0.5 + out * 1.3 - up * 0.25;
     // Local x across the shield, y up the forearm toward the elbow, z out of its face; its outline
     // below is drawn larger by `SHIELD_SCALE` across its face.
     let face = frame_of(centre, up.cross(out), up) * Affine3A::from_scale(v(SHIELD_SCALE, SHIELD_SCALE, 1.0));
     let mut s = d.on(Bone::Shield);
     s.seed(0.71);
     s.block(v(0.9, 1.6, 0.62), v2(0.9, 0.9), Vec2::ZERO, 0.06, GREY, face * at(0.0, 0.2, -0.28));
-    let corners = |c: [(f32, f32, f32); 8]| c.map(|(x, y, z)| v(x, y, z));
-    // The long bar: its middle, and its two pointed ends.
-    s.hexa(
-        corners([
-            (-0.62, -1.7, 0.0),
-            (0.62, -1.7, 0.0),
-            (-0.62, 1.4, 0.0),
-            (0.62, 1.4, 0.0),
-            (-0.5, -1.7, 0.3),
-            (0.5, -1.7, 0.3),
-            (-0.5, 1.4, 0.3),
-            (0.5, 1.4, 0.3),
-        ]),
-        0.08,
-        TRIM,
-        face,
-    );
-    s.hexa(
-        corners([
-            (-0.14, -2.95, 0.0),
-            (0.14, -2.95, 0.0),
-            (-0.62, -1.7, 0.0),
-            (0.62, -1.7, 0.0),
-            (-0.02, -2.95, 0.3),
-            (0.02, -2.95, 0.3),
-            (-0.5, -1.7, 0.3),
-            (0.5, -1.7, 0.3),
-        ]),
-        0.08,
-        TRIM,
-        face,
-    );
-    s.hexa(
-        corners([
-            (-0.62, 1.4, 0.0),
-            (0.62, 1.4, 0.0),
-            (-0.3, 2.3, 0.0),
-            (0.3, 2.3, 0.0),
-            (-0.5, 1.4, 0.3),
-            (0.5, 1.4, 0.3),
-            (-0.18, 2.3, 0.3),
-            (0.18, 2.3, 0.3),
-        ]),
-        0.08,
-        TRIM,
-        face,
-    );
+    // A section of the bar from `y0` to `y1`, as wide as `w0` and `w1` at its back, its sides
+    // falling in 0.12 to its face.
+    let bar = |y0: f32, w0: f32, y1: f32, w1: f32| {
+        let (f0, f1) = ((w0 - 0.12).max(0.02), (w1 - 0.12).max(0.02));
+        [
+            v(-w0, y0, 0.0),
+            v(w0, y0, 0.0),
+            v(-w1, y1, 0.0),
+            v(w1, y1, 0.0),
+            v(-f0, y0, 0.3),
+            v(f0, y0, 0.3),
+            v(-f1, y1, 0.3),
+            v(f1, y1, 0.3),
+        ]
+    };
+    let (foot, low, high, head) = BAR;
+    s.hexa(bar(foot, 0.14, low, 0.62), 0.08, TRIM, face);
+    s.hexa(bar(low, 0.62, high, 0.62), 0.08, TRIM, face);
+    s.hexa(bar(high, 0.62, head, 0.3), 0.08, TRIM, face);
     // The cross's arms, narrowing to their ends, a dark slot along each where a blade locks in.
+    let (y0, y1) = ARMS;
+    let mid = (y0 + y1) * 0.5;
     for side in Side::BOTH {
-        let arm = corners([
-            (0.5, 0.2, 0.0),
-            (1.85, 0.43, 0.0),
-            (0.5, 1.3, 0.0),
-            (1.85, 1.07, 0.0),
-            (0.5, 0.32, 0.3),
-            (1.73, 0.55, 0.3),
-            (0.5, 1.18, 0.3),
-            (1.73, 0.95, 0.3),
-        ]);
+        let arm = [
+            (0.5, y0, 0.0),
+            (1.85, y0 + 0.23, 0.0),
+            (0.5, y1, 0.0),
+            (1.85, y1 - 0.23, 0.0),
+            (0.5, y0 + 0.12, 0.3),
+            (1.73, y0 + 0.35, 0.3),
+            (0.5, y1 - 0.12, 0.3),
+            (1.73, y1 - 0.35, 0.3),
+        ]
+        .map(|(x, y, z)| v(x, y, z));
         let arm = if side == Side::R { arm } else { swap_x(arm.map(|p| v(-p.x, p.y, p.z))) };
         s.hexa(arm, 0.08, TRIM, face);
-        s.cube(v(0.9, 0.16, 0.08), 0.02, FRAME, face * at(side.sign() * 1.2, 0.75, 0.3));
+        s.cube(v(0.9, 0.16, 0.08), 0.02, FRAME, face * at(side.sign() * 1.2, mid, 0.3));
     }
     // The spine, and the red boss.
-    s.hexa(
-        corners([
-            (-0.24, -2.35, 0.2),
-            (0.24, -2.35, 0.2),
-            (-0.24, 1.95, 0.2),
-            (0.24, 1.95, 0.2),
-            (-0.16, -2.35, 0.44),
-            (0.16, -2.35, 0.44),
-            (-0.16, 1.95, 0.44),
-            (0.16, 1.95, 0.44),
-        ]),
-        0.05,
-        BODY,
-        face,
-    );
-    let boss = face * place(v(0.0, 0.75, 0.3), rx(FRAC_PI_2));
+    let spine = bar(foot + 0.5, 0.24, head - 0.3, 0.24)
+        .map(|p| p + v(0.0, 0.0, 0.2) - v(0.0, 0.0, 0.06) * (p.z / 0.3));
+    s.hexa(spine, 0.05, BODY, face);
+    let boss = face * place(v(0.0, mid, 0.3), rx(FRAC_PI_2));
     s.lathe(&[(0.0, 0.0), (0.5, 0.0), (0.5, 0.14), (0.4, 0.26), (0.0, 0.28)], 20, ACCENT, boss);
     s.lathe(&band(0.16, 0.24, 0.26, 0.32), 14, GREY, boss);
     s.greeble(|s| {
-        for y in [-1.2, 1.7] {
-            s.cube(v(0.9, 0.05, 0.05), 0.0, FRAME, face * at(0.0, y, 0.31));
+        for (y, w) in [(-1.1, 0.9), (high + 0.25, 0.7)] {
+            s.cube(v(w, 0.05, 0.05), 0.0, FRAME, face * at(0.0, y, 0.31));
         }
     });
 }
