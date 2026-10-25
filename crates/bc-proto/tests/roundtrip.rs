@@ -218,13 +218,13 @@ proptest! {
         for (i, &on) in locked.iter().enumerate().take(count as usize) {
             let t = tick - i as u32;
             let lockon = on.then_some(LockOn { ref_vel, up });
-            p.cmds[i] = InputCmd { tick: t, view_tick_q4: (t << 4).saturating_sub(view_back), aim, thrust, roll, buttons, lock_target: lock, shot_seq: shot, lockon, converge: converge[i] }.quantized();
+            p.cmds[i] = InputCmd { tick: t, view_tick_q4: (t << 4).saturating_sub(view_back), aim, thrust, roll, buttons, lock_target: lock, shot_seq: shot, lockon, converge: converge[i], act: None }.quantized();
         }
         let mut buf = [0u8; 128];
         let n = p.encode(&mut buf).unwrap();
-        prop_assert!(n <= 107, "{} bytes", n);
+        prop_assert!(n <= 108, "{} bytes", n);
         if !locked[..count as usize].contains(&true) && converge[..count as usize].iter().all(|&c| c == 0) {
-            prop_assert!(n <= 68, "{} bytes", n);
+            prop_assert!(n <= 69, "{} bytes", n);
         }
         let back = InputPacket::decode(&buf[..n]).unwrap();
         for i in 0..count as usize {
@@ -239,7 +239,8 @@ proptest! {
                            lock in 0u16..1024, progress in 0u8..16, special in any::<[u8; 2]>(), ready in 0u8..16,
                            arms in arms(), burst in burst(), g_strain in 0.0f32..3.0, on in 0u32..3, stance in 96u8..=146, cover in 0u8..4,
                            systems in 0u32..(1 << 24), modules in 0u32..(1 << 20),
-                           timers in any::<[u8; 3]>(), repairing in 0u8..16, kits in any::<u8>(), stim in 0u16..4_096) {
+                           timers in any::<[u8; 3]>(), repairing in 0u8..16, kits in any::<u8>(), stim in 0u16..4_096,
+                           fed in 0u8..=4) {
         // Flying free, standing on a rock, or in a landmark's grip.
         let surface = match on {
             0 => None,
@@ -250,7 +251,7 @@ proptest! {
                              g_strain, parts: [1.0, 0.5, 0.0, 1.0, 0.25, 0.75], extra_mass_kg: extra, cargo_kg: [0, 8_191, 2_500, 1],
                              credits, held: 1_000, weapon_ready: ready, lock_target: lock, lock_progress: progress,
                              special_timer: special[0], special_charge: special[1], arms, burst, surface, cover, systems, modules,
-                             scram: timers[0] & 127, concussed: timers[1] & 127, repairing, repair_left: timers[2] & 127, kits, stim, grade: 2,
+                             scram: timers[0] & 127, concussed: timers[1] & 127, repairing, repair_left: timers[2] & 127, kits, stim, fed, grade: 2,
                              ..OwnState::default() };
         let mut orrery = OrreryInfo { threat_count: 2, has_solution: true, solution: Vec3::X, hit_p: 0.62, ..OrreryInfo::default() };
         orrery.threats[0] = OrreryThreat { slot: 9, probs: [0.1, 0.2, 0.3, 0.1, 0.1, 0.1, 0.1] };
@@ -298,7 +299,7 @@ proptest! {
         prop_assert_eq!((o.extra_mass_kg, o.cargo_kg, o.credits, o.held), (extra, own.cargo_kg, credits, 1_000));
         prop_assert_eq!((o.weapon_ready, o.lock_target, o.lock_progress), (ready, lock, progress));
         prop_assert_eq!((o.special_timer, o.special_charge), (special[0], special[1]));
-        prop_assert_eq!((o.kits, o.stim), (kits, stim));
+        prop_assert_eq!((o.kits, o.stim, o.fed), (kits, stim, fed));
         prop_assert_eq!(o.grade, 2);
         prop_assert_eq!((o.surface, o.cover), (surface, cover));
         // In a body's frame or the sector's, the velocity comes back exact too.
@@ -398,11 +399,22 @@ proptest! {
             for _ in 0..64 { if !matches!(r.next_missile(), Ok(Some(_))) { break } }
             for _ in 0..64 { if !matches!(r.next_entity(), Ok(Some(_))) { break } }
             for _ in 0..64 { if !matches!(r.next_object(), Ok(Some(_))) { break } }
+            let _ = r.foot_own();
+            for _ in 0..64 { if !matches!(r.next_person(|_, _| None), Ok(Some(_))) { break } }
         }
         // Straight to a later list, skipping the earlier ones.
         if let Ok(mut r) = SnapshotReader::new(&bytes) {
             for _ in 0..64 { if !matches!(r.next_object(), Ok(Some(_))) { break } }
         }
+        // A walker's sections, straight to them, with and without baselines held.
+        if let Ok(mut r) = SnapshotReader::new(&bytes) {
+            let _ = r.foot_own();
+            for _ in 0..64 { if !matches!(r.next_person(|id, _| Some(bc_proto::QPerson { id, ..Default::default() })), Ok(Some(_))) { break } }
+        }
+        if let Ok(mut r) = SnapshotReader::new(&bytes) {
+            for _ in 0..64 { if !matches!(r.next_person(|_, _| None), Ok(Some(_))) { break } }
+        }
+        // (A walker's acts are `InputPacket::decode`'s above; the Hello's and Welcome's flags, `ControlMsg::decode`'s below.)
         if let Ok(mut r) = SnapshotReader::new(&bytes) {
             for _ in 0..64 { if !matches!(r.next_missile(), Ok(Some(_))) { break } }
         }
@@ -576,8 +588,8 @@ fn record_budgets_match_plan() {
     // state, the Orrery and events.
     const { assert!(ENTITY_MAX_BITS == 212) };
     const { assert!(ORRERY_HYPOTHESES == 7) };
-    const { assert!(OWN_BITS_FREE == 811) };
-    const { assert!(OWN_MAX_BITS == 831) };
+    const { assert!(OWN_BITS_FREE == 814) };
+    const { assert!(OWN_MAX_BITS == 834) };
     const { assert!(ROCK_RECORD_BITS == 18) };
     const { assert!(MISSILE_RECORD_BITS == 119) };
     const { assert!(ObjectState::MAX_BITS <= 232) };
@@ -628,9 +640,11 @@ fn a_full_datagram_holds_36_whole_records_free_or_39_riders() {
     assert_eq!(on_a_rock.encoded_bits(), OWN_MAX_BITS);
     assert_eq!(entities_that_fit(&on_a_rock, &free), 36);
     assert_eq!(entities_that_fit(&on_a_rock, &rider), 39);
+    // Flying free, a fortieth rider fitted with a bit to spare until the fed condition's three
+    // (v38).
     let flying = OwnState { alive: true, ..OwnState::default() };
     assert_eq!(entities_that_fit(&flying, &free), 36);
-    assert_eq!(entities_that_fit(&flying, &rider), 40);
+    assert_eq!(entities_that_fit(&flying, &rider), 39);
 }
 
 #[test]

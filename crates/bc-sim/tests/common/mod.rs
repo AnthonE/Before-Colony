@@ -95,6 +95,7 @@ pub fn scripted(sim: &Sim, id: SuitId, tick: u32) -> InputCmd {
         shot_seq: (tick / 10) as u8,
         lockon: None,
         converge: 0,
+        act: None,
     }
     .quantized()
 }
@@ -221,6 +222,7 @@ pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd 
         shot_seq: (tick / 10) as u8,
         lockon: None,
         converge: 0,
+        act: None,
     }
     .quantized()
 }

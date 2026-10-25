@@ -1095,14 +1095,14 @@
   // --- The hangar's terminals (survival rules). The game sends the catalogue once and the pilot's
   // hangar whenever the server's word on it changes (crates/bc-client/src/terminal.rs); what the
   // pilot asks for goes back as {cmd: "hangar", req}, a request the server checks and answers. ---
-  let catalogue = { items: [], recipes: [], lines: [], parts: [], systems: [], module_mounts: [], fee_bp: 0 };
+  let catalogue = { items: [], recipes: [], lines: [], parts: [], systems: [], module_mounts: [], fee_bp: 0, dishes: [], body_full_s: 0, peckish_s: 0 };
   const items = new Map();
   const lines = new Map();
   let hangar = null;
   let tab = "fabricator";
   let terminalShown = false;
-  // The desk in the city whose terminal is open ("exchange", "charter", "proving", "wanted"), or ""
-  // in the bay. Each desk does its one thing, and only that tab shows.
+  // The desk in the city whose terminal is open ("exchange", "charter", "proving", "wanted", "menu"),
+  // or "" in the bay. Each desk does its own things, and only their tabs show.
   let desk = "";
   // The colony's open (`--no-colony` closes it): the hangar's word once it comes, the /status
   // page's until then.
@@ -1110,14 +1110,15 @@
   const colonyOpen = () => hangar?.colony ?? statusColony;
   // In the bay with the colony open, what only a desk does is pointed at, not offered.
   const pointers = () => !desk && colonyOpen();
-  // What each desk shows (L1's menu joins The Arrival's).
+  // What each desk shows: The Arrival's counter, the Most Wanted and its menu.
   // A home's door and panel (`home`) is the city's too: docs/OPEN_CITY.md.
-  const DESK_TABS = { exchange: ["exchange"], charter: ["charter"], proving: ["proving"], wanted: ["wanted"], home: ["home"] };
+  const DESK_TABS = { exchange: ["exchange"], charter: ["charter"], proving: ["proving"], wanted: ["wanted", "menu"], menu: ["wanted", "menu"], home: ["home"] };
   function showTabs() {
     const only = desk ? DESK_TABS[desk] || [desk] : null;
     for (const b of document.querySelectorAll("[data-tab]")) {
       const t = b.dataset.tab;
-      show(b, only ? only.includes(t) : t !== "wanted" && t !== "home" && (t !== "proving" || colonyOpen()));
+      // In the bay, the menu only with the colony shut (its counter is The Arrival's otherwise).
+      show(b, only ? only.includes(t) : t !== "wanted" && t !== "home" && (t !== "proving" || colonyOpen()) && (t !== "menu" || !colonyOpen()));
     }
   }
   let fabFilter = "materials";
@@ -1614,12 +1615,37 @@
   }
 
   // The Arrival, off Charter Square: the Most Wanted pinned up behind its bar, and the pilot's terms
-  // settled at its counter (L1's menu joins it as a second tab).
+  // settled at its counter (its menu is the second tab).
   function renderArrival() {
     const b = hangar?.charter;
     if (!b) return `<div class="note">Waiting for the Most Wanted…</div>`;
     return `<h3>THE ARRIVAL</h3><div class="note">Pinned up behind the bar: the Almagest's aces, the Charter Board's bounty on each, and who downed each last. Your terms are settled here.</div>` +
       renderWanted(b);
+  }
+
+  // The Arrival's kitchen (docs/LIFE.md): the colony's staff cook every dish, paid for from the bay's
+  // credits. How fed the pilot is and the food left in them, from the server's word (hangar.body); a
+  // dish that wouldn't fit (more than half of it past the most they hold) or that they can't pay for
+  // is shown, its EAT off and why.
+  const fedTag = (fed) => String(fed || "fed").replace("_", " ").toUpperCase();
+  function renderMenu() {
+    const body = hangar?.body;
+    const credits = hangar?.view?.credits ?? 0;
+    let out = `<h3>THE ARRIVAL · THE KITCHEN</h3>`;
+    out += body
+      ? `<div class="status${body.fed === "hungry" || body.fed === "starving" ? " warn" : ""}"><b>${fedTag(body.fed)}</b> · ${body.food_s > 0 ? `${secs(body.food_s)} OF FOOD IN YOU` : "NOTHING IN YOU"}${body.well_fed_s > 0 ? ` · WELL FED ${secs(body.well_fed_s)}` : ""}</div>`
+      : `<div class="note">Waiting for word of how fed you are…</div>`;
+    out += `<div class="note">Full, you hold ${secs(catalogue.body_full_s)} of food; with ${secs(catalogue.peckish_s)} or less left, you're peckish. Hungry, you bear less G in flight, and starving, less still.</div>`;
+    out += `<table><tr><th>DISH</th><th class="num">KEEPS YOU</th><th class="num">PRICE</th><th></th></tr>` +
+      catalogue.dishes.map((d) => {
+        const full = body && body.food_s + Math.floor(d.food_s / 2) > catalogue.body_full_s;
+        const short = credits < d.price;
+        const why = full ? "YOU COULDN'T EAT ANOTHER BITE" : short ? `${fmt(d.price)} CR: YOU HAVE ${fmt(credits)}` : "";
+        const eat = `<button type="button" data-act="eat" data-dish="${esc(d.slug)}"${why ? ` disabled title="${esc(why)}"` : ""}>EAT</button>`;
+        return `<tr><td>${esc(String(d.name).toUpperCase())}</td><td class="num">${secs(d.food_s)}</td><td class="num">${fmt(d.price)} CR</td>` +
+          `<td>${eat}${why ? ` <span class="dim">${esc(why)}</span>` : ""}</td></tr>`;
+      }).join("") + `</table>`;
+    return out + `<div class="note">COOKED BY THE COLONY'S STAFF</div>`;
   }
 
   // The Proving Ground's board, at the Blast Hall's desk: the day's best round the course and
@@ -1778,7 +1804,7 @@
     const caret = key && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
     const body = $("term-body");
     const scroll = body.scrollTop;
-    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter, proving: renderProving, wanted: renderArrival, home: renderHome }[tab];
+    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter, proving: renderProving, wanted: renderArrival, menu: renderMenu, home: renderHome }[tab];
     body.innerHTML = render ? render() : "";
     body.scrollTop = scroll;
     if (key) {
@@ -1993,6 +2019,9 @@
         return;
       case "ace-terms":
         ask({ t: "ace_terms", salvage: d.salvage === "1" });
+        return;
+      case "eat":
+        ask({ t: "eat", dish: d.dish });
         return;
       case "post": {
         const item = draft("post:item", "mat.steel");

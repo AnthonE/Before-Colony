@@ -602,6 +602,54 @@ fn prediction_holds_up_for_a_suit_with_failing_systems() {
     assert!(p99 < 0.01, "prediction error p99 {p99:.3} m");
 }
 
+/// Boosts flat out without flight assist (whose G guard would cap the thrust at what the pilot
+/// bears), swinging the aim and the thrust's side every two seconds: hard pulls, again and again.
+fn hard_puller(ctx: &InputContext) -> InputCmd {
+    let t = f64::from(ctx.tick) / 30.0;
+    let side = if (ctx.tick / 60).is_multiple_of(2) { 127 } else { -127 };
+    InputCmd {
+        aim: Vec3::new((t * 1.3).sin() as f32, (t * 0.7).cos() as f32 * 0.5, 1.0).normalize(),
+        thrust: [side, side / 2, 127],
+        buttons: BOOST,
+        ..InputCmd::default()
+    }
+}
+
+/// A starving pilot bears a G less (`bc_sim::content::body`). The condition rides the own
+/// snapshot, so the client's stat sheet is the server's and its prediction holds through hard pulls
+/// as well as a fed pilot's.
+#[test]
+fn prediction_holds_up_for_a_starving_pilot() {
+    use bc_sim::content::body::{Fed, STARVING_G};
+    let fed = run_scenario(&Scenario::default(), &mut hard_puller);
+    let base = bc_sim::tuning::own_tuning(&fed.client.world.own.expect("own state")).g_tolerance;
+    let sc = Scenario {
+        place: Some(|s, i| {
+            s.sim.suits.status[i].fed = Fed::Starving;
+            s.sim.suits.retune(i);
+        }),
+        ..Scenario::default()
+    };
+    let mut strained = 0.0f32;
+    let mut brain = |ctx: &InputContext| {
+        strained = strained.max(ctx.predict.state.g_strain);
+        hard_puller(ctx)
+    };
+    let Outcome { client, mut errors, out_cold, .. } = run_scenario(&sc, &mut brain);
+    let own = client.world.own.expect("own state");
+    assert_eq!(own.fed, Fed::Starving as u8);
+    let g = bc_sim::tuning::own_tuning(&own).g_tolerance;
+    assert!((g - (base + STARVING_G)).abs() < 1e-6, "{g} against {base} fed");
+    let p99 = percentile(&mut errors, 0.99);
+    println!(
+        "starving pilot: strained to {strained:.2}, {out_cold} snapshots out cold (fed: {}), prediction error p50 {:.4} m  p99 {p99:.4} m",
+        fed.out_cold,
+        percentile(&mut errors, 0.5)
+    );
+    assert!(strained > 0.0, "the pulls never strained the pilot");
+    assert!(p99 < 0.01, "prediction error p99 {p99:.3} m");
+}
+
 /// An Altair weaving and changing into Aquila and back every 3 s over the bad link. The client
 /// steps each change as the server does, so its prediction stays exact through them.
 #[test]

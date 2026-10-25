@@ -234,6 +234,7 @@ impl Sim {
             respawn_in,
             kits: s.kits[i].0,
             stim: s.status[i].stim,
+            fed: s.status[i].fed as u8,
             extra_mass_kg: mods.extra_mass_kg,
             cargo_kg: s.cargo_kg[i],
             credits: s.credits[i],

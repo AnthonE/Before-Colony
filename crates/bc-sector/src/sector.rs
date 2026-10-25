@@ -343,6 +343,11 @@ impl Sector {
                         let _ = self.sim.use_kit(c.suit, kit);
                     }
                 }
+                Control::Fed { slot, fed } => {
+                    if let Some(c) = self.clients.get(slot as usize).filter(|c| c.active) {
+                        let _ = self.sim.set_fed(c.suit, fed);
+                    }
+                }
                 Control::Tow { slot } => {
                     if (slot as usize) < self.claims.len() {
                         self.tow(slot as usize);

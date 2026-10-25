@@ -1,8 +1,28 @@
-# Before Colony wire protocol (v37)
+# Before Colony wire protocol (v39)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v39 (from v38): the walkers' codecs, for the street in the tick (`docs/OPEN_CITY.md`). No server
+walks anyone in the tick yet (that comes behind a later `--street`), so nothing below is sent by
+default. A snapshot's header flags gain ON_FOOT (bit 2): a walker's snapshot, which answers for
+their input as an own suit's does. An ON_FOOT snapshot carries two more sections after the objects:
+`foot_own`, a presence bit and then the pilot's own walker exactly (`FootOwn`: raw `f32` bits, 262
+bits on their feet), and `people`, `[1][person]` each (1 + 28 to 125 bits; 112 whole) closed by `[0]`: the
+people near, each a `PersonRecord` whole or delta-coded against a record the client acked, as
+suits' are (below, "The colony's people"). Every `InputCmd` gains `act` (1 bit, and with it a
+`FootAct`: kind 8, arg 16): what a walker does once on that command's tick. `InputCmd::neutral`
+never carries one and `InputCmd::stand_in` clears it explicitly, so a silent client's repeat never
+does it twice; four commands take 69 bytes, 100 locked on, 108 converging. The Hello's flags gain
+STREET (`1 << 2`: this client walks in the tick) and the Welcome's STREET (`1 << 6`: this server
+will walk you there).
+
+v38 (from v37): the own state carries the pilot's fed condition (`bc_sim::content::body::Fed`,
+`docs/LIFE.md`), 3 bits after the stim's clock: 0 fed, which changes nothing; 1 well fed; 2 peckish;
+3 hungry; 4 starving. Anything above 4 is invalid. The client's stat sheet adds what it does to the G
+the pilot bears, as it does the stim's, so its prediction stays exact. The own state grows from
+811..831 bits to 814..834; flying free, a full datagram now holds 39 suits on bodies whole, not 40.
 
 v37 (from v36): acks for every datagram, suits' records as deltas, and more than one datagram a
 tick (`docs/NETCODE.md`, "The wire's road"). A snapshot's header carries its datagram's number
@@ -141,7 +161,7 @@ datagrams for pilots flying inside; and the key places' rooms in the city
 | client_time_ms (echoed for RTT) | 16 |
 | count − 1 | 2 |
 | newest command's tick | 32 |
-| `count` × `InputCmd` body, newest first (ticks descend by 1) | 108 each, 170 locked on, 16 more firing |
+| `count` × `InputCmd` body, newest first (ticks descend by 1) | 109 each, 171 locked on, 16 more firing, 24 more with an act |
 
 `InputCmd` body:
 
@@ -159,6 +179,8 @@ datagrams for pilots flying inside; and the key places' rooms in the city
 | `LockOn`: up (octahedral, 2 × 10) | 20 |
 | converging (a range follows) | 1 |
 | converge: how far along the aim from the pilot's eye the crosshair's point is, in quarter metres | 16 |
+| acting (a `FootAct` follows, v39) | 1 |
+| `FootAct`: kind (1 SIT, 2 STAND, 3 LIFT, 4 TAKE, 5 GET_OUT) and arg (which seat, storey or kind of vehicle) | 8 + 16 |
 
 **Converging** (`bc_sim::aim`): a pilot's client says how far along the aim the first thing under
 its crosshair is (the crosshair being the line from the frame's eye, `FrameSpec::eye`, along the
@@ -189,11 +211,19 @@ legs: x and z walk (Shift runs), and `thrust[1]` sets the stance and stays set: 
 crouches, 32 or more stands, 100 or more (standing) hops, and anything between keeps the stance it
 has, so a silent client stays crouched.
 
-Four commands fit in 68 bytes (110 + 4 × 108 bits), or 99 locked on (110 + 4 × 170). A client sending several ticks at once sends
-overlapping windows two ticks apart, so each command is in two packets. States persist while a
+Four commands fit in 69 bytes (110 + 4 × 109 bits), or 100 locked on (110 + 4 × 171), or 81 a walker's
+each with an act (110 + 4 × 133), and 120 at the most (110 + 4 × 211). A client sending several
+ticks at once sends overlapping windows two ticks apart, so each command is in two packets. States persist while a
 client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, the Orrery, GRAB,
 MODE and GRIP, and the lock-on for 30 ticks more); presses (STOW, THROW, JETTISON, MELEE, SPECIAL, BURST) act on the tick they first appear, and a
 repeated command never fires.
+
+**On foot in the tick** (v39, `bc_sim::foot`): the same command drives a walker. `thrust[2]` strides
+forward (+) or back and `thrust[0]` right (+) or left, each over 127; BOOST runs; `thrust[1]` at 100
+or more jumps; `aim`, read in the walker's frame on their strip (`(x, h, −s)`), turns their head:
+its heading the yaw, its rise the pitch. What a walker does once (sit, stand, ride a lift, take a
+vehicle, get out) is an `act` on the command for its tick; the repeats of that command in the next
+packets are for the same tick, and a stand-in for a missing one carries none.
 
 Lag compensation reaches back at most 8 ticks. A view delta of 128 or more (8 ticks) resolves at
 exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothing.
@@ -203,13 +233,15 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (140 bits) | kind=2, tick, seq (16), stream (8), ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 811..831 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, orrery_strain, orrery_mode, flags, systems (24), modules (20), the propellant's grade (2), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 13 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
+| own (1 + 814..834 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, orrery_strain, orrery_mode, flags, systems (24), modules (20), the propellant's grade (2), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), the fed condition (3: 0 fed, 1 well fed, 2 peckish, 3 hungry, 4 starving; v38), extra mass (kg, i18), cargo ×4 (kg, 13 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
 | The Orrery (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
 | missiles | repeated `[1][missile]` (119 bits each), closed by `[0]` |
 | entities | repeated `[1][entity]` (whole: 195 or 212 bits; a delta: 30 to about 140), closed by `[0]` |
 | objects | repeated `[1][object]` (12–232 bits each), closed by `[0]` |
+| foot own (ON_FOOT only, v39) | `[1][FootOwn]` (262 to 364 bits) or `[0]` |
+| people (ON_FOOT only, v39) | repeated `[1][person]` (whole: 112 bits; a delta: 28 to 125, about 46 at a walk), closed by `[0]` |
 
 The writer reserves room for every list terminator still owed before it writes a record, so a
 snapshot is never cut off mid-list.
@@ -220,18 +252,21 @@ watching the inside's suits). It has no own state and no Orrery, no events but L
 rocks, missiles or objects; its `ack_input_tick`, `input_health` and echo say nothing (the pilot
 sends no input). 1 MORE (v37): a tick's datagram after its first, carrying more of the suits the
 pilot sees and nothing else (no own state, no Orrery, and its event, rock, missile and object lists
-empty).
+empty). 2 ON_FOOT (v39): a walker's snapshot, the pilot on foot in the tick: after the objects come
+their own walker and the people near them (below, "The colony's people"), and its round trip and
+input health answer for their commands, as an own suit's do. Without it, those two sections
+aren't there at all.
 
 What fits, in the 8 800 bits of a 1 100-byte datagram: the fixed part is the header, the own state,
 the Orrery's presence bit and the five lists' terminators.
 
 | | Own flying free | Own on a rock (the largest) |
 |---|---|---|
-| Fixed | 944 bits | 964 bits |
+| Fixed | 947 bits | 967 bits |
 | Free suits whole (1 + 212 bits each), nothing else | 36 | 36 |
-| Suits on bodies whole (1 + 195 bits each), nothing else | 40 | 39 |
+| Suits on bodies whole (1 + 195 bits each), nothing else | 39 | 39 |
 | Room kept for six of the largest objects (6 × 233 bits) | 30 free / 32 riders | 30 / 32 |
-| With the Orrery on (+200 bits) | 35 / 39 | 35 / 38 |
+| With the Orrery on (+200 bits) | 35 / 38 | 35 / 38 |
 | A 256-byte connection (2 048 bits) | 5 / 5 | 5 / 5 |
 | Suits as deltas: at rest (1 + 30), moving (1 + about 90) | 96 (the most a snapshot lists) / about 86 | 96 / about 86 |
 
@@ -477,6 +512,28 @@ under the suit (over a window, the nearer strip's), within 1.5 km of it in the a
 The plaza's tick keeps a client's clock (and the colony's day) when none of the pilot's own
 snapshots come: in the bay, and in the city (a spectator's snapshots, below, carry no round trip).
 
+**People in the tick** (v39, `bc_proto::foot`; `docs/OPEN_CITY.md`, "The street in the tick"). A
+pilot walked in the tick (their Hello said STREET and the server's Welcome says so) sends no poses:
+they send commands, and their walker is the inside sector's, stepped by `bc_sim::foot` on the
+server and in their own prediction alike. Their snapshots say ON_FOOT and carry, after the objects:
+
+| Section | Content | Bits |
+|---|---|---|
+| foot own | present (1); strip (2); feet and velocity in the walker's frame (6 raw `f32`); yaw and pitch (2 raw `f32`); grounded (1); mode (3: 0 on foot, 1 on a train, 2 seated, 3 in a lift; 4–7 kept for kinds to come, refused); then the mode's: a train's `k` (4), its car (2) and the feet in the car's frame (3 raw `f32`); a seat (6); a lift's storey (5) and ticks left (8) | 1 + 262, 364, 268 or 275 |
+| people | per person `[1]`, their id (10: their sector-0 slot, as the plaza's), a delta bit, then whole: generation (2), strip (2) and the pose's codes as above (97); or a delta (below). `[0]` ends | whole 1 + 112 |
+
+The own walker is exact, as an own suit's state is: the predictor re-seeds from it to the bit, and
+nothing is snapped to the pose's grid (a body resting a hair above a floor, rounded down into it,
+would step up out of it every tick). A person's delta is against a record of the same person, life
+and strip the client took, `back` ticks before (8 bits, 1 to 255): the heading's change (2-bit mode:
+the same, 5 bits, 8 bits, or whole), the pitch's (the same, 4, 6, whole), whether the roll, the speed
+and the flags (grounded, running, what they ride, the jets) are the same (1 bit each, and the whole
+field if not), and the position (2-bit mode, then 3 × 6, 3 × 12 or whole) against where the
+baseline's position, carried `back` ticks at the record's own speed along its own heading, comes to
+(the heading's direction from polynomials, adds and multiplies only, so both ends agree to the bit).
+A person standing still is 29 bits with their continuation bit; at a walk, 47 or so. A delta whose
+baseline the client hasn't got is refused (`NoBaseline`).
+
 ## Control stream
 
 Frames are `[u16 LE payload length][u8 tag][payload]`, byte-aligned, at most 256 bytes with the
@@ -484,8 +541,8 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 
 | Tag | Message | Direction |
 |---|---|---|
-| 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
+| 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME, 4 STREET), resume token (32 B, only with RESUME)} | client → server (first frame) |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR, 64 STREET), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -592,6 +649,7 @@ Client → server (`Request`):
 | `contribute` | `work` (`second_foundry`, `militia_hangar`), `item`, `qty` | deliver to one of the colony's great works |
 | `sign` | | sign the charter (the vote open, and the pilot of standing; desk: the Charter Board's) |
 | `ace_terms` | `salvage` | the Most Wanted: take an ace's bounty as the rights to its wreck (`true`: the tugs bring it home; only with standing, unless already on those terms) or as pay (`false`, the default) (desk: The Arrival) |
+| `eat` | `dish` (`ration_bar`, `orchard_plate`, `breakfast`, `noodles`, `fish_supper`) | a dish from the colony's staff, paid for from the bay's credits (`bc_econ::food::Dish::price`; the money leaves the economy) and answered with a `note` (`NOODLE BOWL · 25 CR · FED`) and a `body`. Refused short of the price (`a noodle bowl is 25 cr`), in flight (`you can't eat in the cockpit`), or when more than half of it wouldn't fit (`you couldn't eat another bite`) (desk: The Arrival) |
 | `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
 | `eject` | `destruct` (default false) | in flight, under any rules: eject from the suit, or (`destruct`, doomed) blow it up aboard. Nothing answers but the loss (`sortie`, and under survival the tugs' `news` on the wreck 45 s on) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
@@ -599,14 +657,14 @@ Client → server (`Request`):
 **Desks** (`Request::desk`, the colony open: the Welcome's COLONY flag). A request marked with a
 desk above is that place's alone, and the server takes it only from a pilot on foot in the city
 standing in that place's room (the plaza's last pose; the whole room counts). Anywhere else
-(the bay, another desk, the street) `post`, `take_patrol`, `sign`, `ace_terms` and `trainer` are
+(the bay, another desk, the street) `post`, `take_patrol`, `sign`, `ace_terms`, `eat` and `trainer` are
 refused with a `note` saying where to go (the page shows it as `CAN'T: ` and the text in capitals):
 
 | Desk | Refusal |
 |---|---|
 | the Exchange floor | `a price that waits on the book is placed at the exchange floor's counter, on charter square` (never sent: see below) |
 | the Charter Board's | `that's done in person at the charter board's desk, in its hall on charter square` |
-| The Arrival | `your terms for an ace's bounty are settled at the arrival's counter, off charter square` |
+| The Arrival | `meals and terms for an ace's bounty are at the arrival's counter, off charter square` |
 | the Proving Ground | `the test range is picked at the proving ground's desk, in the blast hall` |
 
 An `order` with `rest: true` away from the floor isn't refused: it's taken as `rest: false` (it
@@ -655,7 +713,10 @@ on the colony's radio, the speaker's own included,
 from the moment the pilot was welcomed, in the order the server heard them); `proving` (the
 Proving Ground's board, in the colony: `course` and `drill`, the day's best as [{`name`, `ms`,
 `you`}] fastest first, `course_record` and `drill_record` the best ever, `course_par_ms` and
-`drill_par_ms`, and `mine` {`course_ms`, `drill_ms`}, the pilot's own bests; no keys of anyone's). A suit (in the bay, or out) carries
+`drill_par_ms`, and `mine` {`course_ms`, `drill_ms`}, the pilot's own bests; no keys of anyone's); `body`
+{`fed` (`well_fed`, `fed`, `peckish`, `hungry` or `starving`), `food_s`, `well_fed_s`} (the pilot's
+body, `docs/LIFE.md`: how fed they are, and the seconds awake the food in them, and its glow, last;
+sent on entering, after a meal, when the condition changes, and each minute on foot). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`), and `grade`, its propellant's (absent:
 `standard`); a part on the shelf carries its own `faults`.

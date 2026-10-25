@@ -5,6 +5,10 @@
 //! own snapshot, added to the stat sheet where [`super::kits::stim_g`] is. [`Fed::Fed`] is 0, so a
 //! zeroed field changes nothing.
 
+// The own snapshot carries the condition in its own bits (`bc_proto::snapshot::FED_BITS`).
+const _: () =
+    assert!(Fed::BITS == bc_proto::snapshot::FED_BITS && Fed::COUNT as u8 == bc_proto::snapshot::FED_MAX + 1);
+
 /// How fed a pilot is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]

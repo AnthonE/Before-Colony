@@ -2,6 +2,15 @@
 //!
 //! [`InputCmd`] is the one control interface in the game. Humans, external agents and server-side
 //! drones all drive their suits by producing it, so nobody gets a privileged API.
+//!
+//! On foot in the tick (the colony's inside sector, `docs/OPEN_CITY.md`) the same command drives a
+//! walker (`bc_sim::foot`): `thrust[2]` strides forward (+) or back and `thrust[0]` right (+) or
+//! left, each over 127; [`buttons::BOOST`] runs; `thrust[1]` at 100 or more jumps (as a suit on
+//! its feet hops, `bc_sim::ground::JUMP_LEVEL`);
+//! and `aim`, read in the walker's frame on their strip (`(x, h, −s)`), turns their head: its
+//! heading the walker's yaw, its rise their pitch. What a walker does once rather than holds (sit,
+//! stand, ride a lift, take a car, get out of one) rides in [`InputCmd::act`] ([`FootAct`]), on
+//! the command for the tick it's done on; a silent client's stand-in never repeats it.
 
 use glam::Vec3;
 
@@ -78,6 +87,32 @@ pub const MAX_CMDS: usize = 4;
 /// A client silent for more than this many ticks goes hands-off (see [`InputCmd::stand_in`]).
 pub const NEUTRAL_AFTER: u32 = 8;
 
+/// Something a walker does once, on its command's tick: sit on a seat, stand up, ride a lift to a
+/// storey, take a vehicle from a motor pool, get out of one ([`act`]'s kinds). `arg` says which (a
+/// seat, a storey, a kind of vehicle), as the kind has it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FootAct {
+    pub kind: u8,
+    pub arg: u16,
+}
+
+/// [`FootAct::kind`]s.
+pub mod act {
+    /// Sit on seat `arg` (`bc_sim::colony::city::arrival_seats`), within reach of it.
+    pub const SIT: u8 = 1;
+    /// Stand up (off a seat).
+    pub const STAND: u8 = 2;
+    /// Ride the lift whose doors they stand at to storey `arg`.
+    pub const LIFT: u8 = 3;
+    /// Take a vehicle of kind `arg` from the motor pool in reach.
+    pub const TAKE: u8 = 4;
+    /// Get out of what they drive, beside its door.
+    pub const GET_OUT: u8 = 5;
+}
+
+/// Bits of a [`FootAct`] on the wire, its presence bit apart: its kind and its argument.
+pub const FOOT_ACT_BITS: u32 = 8 + 16;
+
 /// Flying locked on to a target: flight assist holds the suit's velocity relative to `ref_vel` (the
 /// target's, as its pilot sees it) instead of to the sector, and reads the stick in axes levelled
 /// to `up`: the stick's up is `up`, its forward the aim laid flat, and the suit rolls level with
@@ -149,6 +184,9 @@ pub struct InputCmd {
     /// (`bc_sim::aim`), so a shot goes where the crosshair is rather than parallel to it, a hand's
     /// breadth off. 0: none said (agents), and shots fly along the aim.
     pub converge: u16,
+    /// On foot in the tick: what the walker does once on this command's tick ([`FootAct`]), or
+    /// nothing. Never repeated by a stand-in, nor kept by a hands-off command.
+    pub act: Option<FootAct>,
 }
 
 impl Default for InputCmd {
@@ -164,13 +202,15 @@ impl Default for InputCmd {
             shot_seq: 0,
             lockon: None,
             converge: 0,
+            act: None,
         }
     }
 }
 
 impl InputCmd {
     /// A "hands off" command for `tick` that keeps the given aim and states (flight assist, the Orrery,
-    /// the frame's mode, a grip on whatever is in hand, and the grip on a surface).
+    /// the frame's mode, a grip on whatever is in hand, and the grip on a surface), and does nothing
+    /// once ([`InputCmd::act`]).
     pub fn neutral(tick: u32, aim: Vec3, keep_buttons: u16) -> Self {
         Self {
             tick,
@@ -186,7 +226,8 @@ impl InputCmd {
     /// view delay, then hands-off ([`InputCmd::neutral`]) once the client has been silent for more
     /// than [`NEUTRAL_AFTER`] ticks, still locked on for [`LOCKON_KEEP`] ticks more (so a stalled
     /// pilot keeps station on its target rather than braking hard to the sector's rest). The owner's
-    /// prediction flies the same through gaps in what it sent.
+    /// prediction flies the same through gaps in what it sent. A walker's act ([`InputCmd::act`])
+    /// was for `last`'s tick alone: the stand-in never does it again.
     pub fn stand_in(last: &InputCmd, tick: u32, missing: u32) -> Self {
         if missing > NEUTRAL_AFTER {
             let lockon = last.lockon.filter(|_| missing <= NEUTRAL_AFTER + LOCKON_KEEP);
@@ -197,6 +238,7 @@ impl InputCmd {
             tick,
             view_tick_q4: (tick << 4).saturating_sub(delta),
             buttons: last.buttons & !buttons::FIRE_MASK,
+            act: None,
             ..*last
         }
     }
@@ -249,6 +291,11 @@ impl InputCmd {
         if self.converge != 0 {
             w.write_u16(self.converge);
         }
+        w.write_bool(self.act.is_some());
+        if let Some(a) = self.act {
+            w.write_u8(a.kind);
+            w.write_u16(a.arg);
+        }
     }
 
     fn read_body(r: &mut BitReader<'_>, tick: u32) -> Self {
@@ -261,6 +308,7 @@ impl InputCmd {
         let shot_seq = r.read_u8();
         let lockon = r.read_bool().then(|| LockOn::read(r));
         let converge = if r.read_bool() { r.read_u16() } else { 0 };
+        let act = r.read_bool().then(|| FootAct { kind: r.read_u8(), arg: r.read_u16() });
         Self {
             tick,
             view_tick_q4: (tick << 4).saturating_sub(delta),
@@ -272,6 +320,7 @@ impl InputCmd {
             shot_seq,
             lockon,
             converge,
+            act,
         }
     }
 }
@@ -306,12 +355,14 @@ impl Default for InputPacket {
 }
 
 impl InputPacket {
-    /// Encodes into `buf`, returning the byte length: at most 68 for four commands (110 + 4 × 108
-    /// bits), 99 if all four fly locked on (110 + 4 × 170), and 107 if they fire converging too
-    /// (110 + 4 × 186). Each command is 8 + 32 + 24 + 8 + 16 + 10 + 8 + 1 + 1 bits: view delta,
-    /// aim, thrust, roll, buttons, lock target, shot sequence, whether a lock-on ([`LockOn`]:
-    /// 42 + 20 bits) follows, and whether a crosshair's range ([`InputCmd::converge`]: 16 bits)
-    /// does.
+    /// Encodes into `buf`, returning the byte length: at most 69 for four commands (110 + 4 × 109
+    /// bits), 100 if all four fly locked on (110 + 4 × 171), 108 if they fire converging too
+    /// (110 + 4 × 187), 81 for four walker's commands each with an act (110 + 4 × 133), and 120
+    /// with all of it (110 + 4 × 211). Each
+    /// command is 8 + 32 + 24 + 8 + 16 + 10 + 8 + 1 + 1 + 1 bits: view delta, aim, thrust, roll,
+    /// buttons, lock target, shot sequence, whether a lock-on ([`LockOn`]: 42 + 20 bits) follows,
+    /// whether a crosshair's range ([`InputCmd::converge`]: 16 bits) does, and whether a walker's
+    /// act ([`FootAct`]: [`FOOT_ACT_BITS`]) does.
     pub fn encode(&self, buf: &mut [u8]) -> Option<usize> {
         let count = self.count.clamp(1, MAX_CMDS as u8);
         let mut w = BitWriter::new(buf);
@@ -379,12 +430,14 @@ mod tests {
                 // One of them locked on, its target at rest.
                 lockon: (i == 1).then_some(LockOn { ref_vel: Vec3::new(-412.3, 0.0, 77.7), up: Vec3::Y }),
                 converge: 0,
+                // And one of them a walker's act.
+                act: (i == 2).then_some(FootAct { kind: act::SIT, arg: 41 }),
             }
             .quantized();
         }
         let mut buf = [0u8; 128];
         let n = p.encode(&mut buf).unwrap();
-        assert!(n <= 75, "{n}");
+        assert!(n <= 78, "{n}");
         let back = InputPacket::decode(&buf[..n]).unwrap();
         assert_eq!(back.count, 3);
         for i in 0..3 {
@@ -395,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn four_commands_fit_in_68_bytes_99_locked_on_and_107_converging() {
+    fn four_commands_fit_in_69_bytes_100_locked_on_and_108_converging() {
         let mut p = InputPacket {
             ack_stream: u8::MAX,
             ack_seq: u16::MAX,
@@ -415,17 +468,59 @@ mod tests {
             };
         }
         let mut buf = [0u8; 128];
-        assert_eq!(p.encode(&mut buf), Some(68));
+        assert_eq!(p.encode(&mut buf), Some(69));
+        // A walker's four, each with an act.
+        let mut walking = p;
+        for c in &mut walking.cmds {
+            c.act = Some(FootAct { kind: u8::MAX, arg: u16::MAX });
+        }
+        assert_eq!(walking.encode(&mut buf), Some(81));
         for c in &mut p.cmds {
             c.lockon = Some(LockOn { ref_vel: Vec3::splat(-5_000.0), up: Vec3::NEG_Z });
         }
-        assert_eq!(p.encode(&mut buf), Some(99));
+        assert_eq!(p.encode(&mut buf), Some(100));
         for c in &mut p.cmds {
             c.converge = u16::MAX;
         }
-        assert_eq!(p.encode(&mut buf), Some(107));
-        let back = InputPacket::decode(&buf[..107]).unwrap();
+        assert_eq!(p.encode(&mut buf), Some(108));
+        let back = InputPacket::decode(&buf[..108]).unwrap();
         assert!(back.cmds.iter().all(|c| c.converge == u16::MAX));
+        // The most a packet takes: locked on, converging and acting, four times (110 + 4 × 211).
+        for c in &mut p.cmds {
+            c.act = Some(FootAct { kind: u8::MAX, arg: u16::MAX });
+        }
+        assert_eq!(p.encode(&mut buf), Some(120));
+    }
+
+    #[test]
+    fn a_walkers_act_goes_round_and_is_done_once() {
+        let mut p = InputPacket { count: 4, ..InputPacket::default() };
+        let acts = [act::SIT, act::STAND, act::LIFT, act::GET_OUT];
+        for (i, kind) in acts.into_iter().enumerate() {
+            let act = Some(FootAct { kind, arg: 1_000 + i as u16 });
+            p.cmds[i] = InputCmd {
+                tick: 500 - i as u32,
+                view_tick_q4: (500 - i as u32) << 4,
+                act,
+                ..InputCmd::default()
+            };
+        }
+        p.cmds[1].act = None;
+        let mut buf = [0u8; 128];
+        let n = p.encode(&mut buf).unwrap();
+        let back = InputPacket::decode(&buf[..n]).unwrap();
+        for i in 0..4 {
+            assert_eq!(back.cmds[i].act, p.cmds[i].act, "{i}");
+            assert_eq!(back.cmds[i].act, p.cmds[i].quantized().act, "quantized keeps it");
+        }
+        // A stand-in never does it again, and a hands-off command never carries one.
+        let last =
+            InputCmd { tick: 40, act: Some(FootAct { kind: act::TAKE, arg: 1 }), ..InputCmd::default() };
+        for missing in 1..=NEUTRAL_AFTER + LOCKON_KEEP + 2 {
+            assert_eq!(InputCmd::stand_in(&last, 40 + missing, missing).act, None, "{missing}");
+        }
+        assert_eq!(InputCmd::neutral(41, Vec3::X, u16::MAX).act, None);
+        const { assert!(act::SIT != 0 && act::GET_OUT < u8::MAX) };
     }
 
     #[test]
@@ -535,6 +630,7 @@ mod tests {
             shot_seq: 3,
             lockon: None,
             converge: 0,
+            act: None,
         };
         // Repeated without firing, on the same view delay.
         let r = InputCmd::stand_in(&last, 103, 3);

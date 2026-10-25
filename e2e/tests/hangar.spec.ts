@@ -49,9 +49,9 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   // Second-hand inside too: its radiators are tired. A new arrival is told where they are.
   expect(s.bay_faults).toBe(1);
   await expect(page.locator("#news")).toContainText("ARRIVAL", { timeout: 30_000 });
-  // On foot: the bay's line (its number, the credits) and a dot to aim by.
+  // On foot: the bay's line (its number, the credits, how fed the pilot is) and a dot to aim by.
   await expect(page.locator("#bay-line")).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator("#bay-line")).toHaveText(/^BAY \d\d · [\d,]+ CR$/);
+  await expect(page.locator("#bay-line")).toHaveText(/^BAY \d\d · [\d,]+ CR · FED$/);
   await expect(page.locator("#dot")).toBeVisible();
 
   // The exchange: 50 kg of titanium alloy from the colony, at its ask. The bay's terminal trades at

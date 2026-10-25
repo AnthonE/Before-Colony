@@ -19,7 +19,9 @@ colony; its phases (below) are built the way `ROADMAP.md` builds its items.
 | Phase | State |
 |---|---|
 | L0: the framework: seats, the body, meals (`bc_econ::{seats, body, food}`, `bc_sim::content::body`) | built |
-| L1 onwards | planned |
+| L1: eating at The Arrival (`Request::Eat`, `Update::Body`, the `menu` tab) | built |
+| L2: being fed in flight (the own snapshot's fed condition, v38) | built |
+| L3 onwards | planned |
 
 ## What it has to be
 
@@ -133,11 +135,15 @@ For scale: a pilot bears 6 g headward (twice that pressed into the seat, half di
 cockpit 5, and a stim gives 1 g more for a minute. Starving costs what a damaged cockpit does;
 nothing about hunger kills.
 
-**How it reaches flight (L2).** As the stim does: anything that changes flight goes through
-`bc_sim::tuning`, from state the own snapshot carries (`CLAUDE.md`). The condition is 3 bits
-(`Fed::BITS`) in the own snapshot, `Fed::Fed` being 0 so a zeroed field changes nothing; the server
-sets it at launch and as it changes; `own_tuning` adds `fed_g` where it adds `stim_g`. A protocol
-bump.
+**How it reaches flight (L2, built).** As the stim does: anything that changes flight goes through
+`bc_sim::tuning`, from state the own snapshot carries (`CLAUDE.md`). The condition became 3 bits
+(`Fed::BITS`, `bc_proto::snapshot::FED_BITS`) in the own snapshot, after the stim's clock, `Fed::Fed`
+being 0 so a zeroed field changes nothing (protocol v38). The session sends it to the sector
+(`Control::Fed`, `Sim::set_fed`) right after each word that seats the pilot (a launch, a sleeper
+woken, a launch into the colony, a trainer boarded) and whenever it changes while they fly;
+`tuning::flown` adds `fed_g` where it adds `stim_g`, for the server and the owner's prediction
+alike. The cockpit's suit panel says what it does (`HUNGRY -0.5G`), and on foot a hungry pilot is
+pointed at The Arrival (`Hint::Hungry`).
 
 ## 3. The clock: a real day, or the colony's 48 minutes
 
@@ -237,18 +243,27 @@ Each is PR-sized and tested end to end, as `ROADMAP.md`'s items are.
 - **L0: the framework** (built). `bc_econ::seats` (jobs, seats, skills, quality, pay),
   `bc_econ::body` (the clock, eating, the condition), `bc_econ::food` (dishes and meals) and
   `bc_sim::content::body` (the conditions and their G). Unit tests for each; nothing on the wire yet.
-- **L1: eating at The Arrival.** The body on the pilot's record (`PilotRecord`), woken on entering
-  and put to sleep on leaving (`session.rs`'s `enter` and `leave`), settled on the session's tick.
-  `Request::Eat { dish }` at The Arrival's counter (`Request::desk` names it The Arrival's, and the
-  server's `at_desk(PlaceKind::Bar)` checks it as it checks the desks' requests: the plaza's last
-  pose inside its room), paid in credits to the staff (a sink); `Update::Body` with the condition
-  and the food left. The on-foot HUD shows the condition. The Arrival's door already opens the Most
-  Wanted (`Panel::Arrival`, the terminals' `wanted` tab); the menu joins it at `Panel::Arrival` as
-  a second tab, `menu` (ui.js's `DESK_TABS` gives The Arrival `wanted` alone today, and `menu`
-  then). Tests: `bc-server/tests/life.rs` (a pilot eats, logs out, wakes peckish), and a step in
-  the `colony` e2e.
-- **L2: being fed in flight.** The condition in the own snapshot, `fed_g` in `own_tuning` and the
-  sector's tuning, the HUD's line in the cockpit. A protocol bump; the predictor's tests.
+- **L1: eating at The Arrival** (built). The body went on the pilot's record (`PilotRecord::body`,
+  kept asleep, so a server stopped with them in the world burns their downtime at the sleeping
+  rate), woken at the top of `session.rs`'s `enter`, before anything seats them, and put to sleep in
+  `leave`; it is settled on the session's second. `Request::Eat { dish }` at The Arrival's counter
+  (`Request::desk` names it The Arrival's, and the server's `at_desk(PlaceKind::Bar)` checks it as
+  it checks the desks' requests: the plaza's last pose inside its room; never in the cockpit; with
+  the colony shut, the bay's terminal serves meals), paid in credits to the staff
+  (`body::eat_at_counter`, a sink: charged only when eaten); `Update::Body` with the condition and
+  the food left, on entering, after a meal, when the condition changes and each minute on foot. The
+  on-foot line shows the condition (`BAY 07 · 12,480 CR · PECKISH`). The Arrival's door opens the
+  Most Wanted (`Panel::Arrival`, the terminals' `wanted` tab), and the menu is its second tab,
+  `menu`: the staff's dishes with their hours and prices, EAT off for one that wouldn't fit or that
+  the pilot can't pay for. Every survival pilot has a body, guests (for the visit) and agents
+  alike. Tests: `bc-server/tests/life.rs` (a pilot eats, logs out, wakes peckish; sleep never
+  starves anyone), and a step in the `colony` e2e.
+- **L2: being fed in flight** (built). The condition went into the own snapshot (v38), `fed_g` into
+  `own_tuning` and the sector's tuning, and the HUD's line into the cockpit; the trainers fly with
+  the pilot's condition too. Tests: `bc-sim/tests/body.rs`, the predictor over the real wire
+  (`bc-sector/tests/netcode.rs`, a starving pilot's hard pulls), `survival_net.rs`, and
+  `bc-server/tests/life.rs` (a starving pilot flies short of G inside the colony, eats at The
+  Arrival, and launches into space fed).
 - **L3: the cook's seat.** `Seats` kept by the server (one per colony, in its data directory, as the
   Proving Ground's board is); `Request::{TakeSeat, LeaveSeat}`; the kitchen line as the cook's
   minigame, its score into `Skills::quality`; meals cooked by an Arrival sold at their quality, paid

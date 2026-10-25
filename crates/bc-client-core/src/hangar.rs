@@ -32,6 +32,8 @@ pub struct HangarState {
     pub homes: HomesView,
     /// Into the city by waking at home (H3): where they get up, until the city's started there.
     pub wake: Option<bc_econ::wire::Wake>,
+    /// The pilot's body (`bc_econ::body`): how fed they are, and for how long.
+    pub body: Option<bc_econ::body::BodyView>,
     /// The book (and price history) of the item the pilot is watching.
     pub book: Option<(Depth, Vec<u64>)>,
     /// What to tell the pilot (the text, and whether it was done or refused), oldest first. The
@@ -101,8 +103,14 @@ impl HangarState {
             Update::Said { from, text } => self.said.push((from, text)),
             Update::Proving(view) => self.proving = Some(view),
             Update::Homes(view) => self.homes = view,
+            Update::Body(view) => self.body = Some(view),
         }
         false
+    }
+
+    /// How fed the pilot is, once the server has said.
+    pub fn fed(&self) -> Option<bc_sim::content::body::Fed> {
+        self.body.map(|b| b.fed)
     }
 
     /// Whether the pilot came into the city out of a trainer (at the Blast Hall's gantry, not down
@@ -219,6 +227,12 @@ mod tests {
         h.apply(Update::Note { text: "MADE 80 kg STEEL".into(), ok: true });
         assert_eq!(h.notes.len(), 1);
         assert_eq!(h.version, 7);
+        // The body, once the server has said.
+        assert_eq!(h.fed(), None);
+        let peckish = bc_sim::content::body::Fed::Peckish;
+        h.apply(Update::Body(bc_econ::body::BodyView { fed: peckish, food_s: 2_400, well_fed_s: 0 }));
+        assert_eq!(h.fed(), Some(peckish));
+        assert_eq!(h.body.map(|b| b.food_s), Some(2_400));
         // Into a trainer from the city, and out of it onto the hall's floor; then up the lift.
         assert!(!h.off_a_trainer());
         assert!(h.apply(place(Place::Space, None, true)), "the city's watching is done with");

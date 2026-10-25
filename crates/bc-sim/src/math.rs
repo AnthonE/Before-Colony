@@ -20,6 +20,14 @@ pub fn cos(x: f32) -> f32 {
     libm::cosf(x)
 }
 #[inline]
+pub fn hypot(x: f32, y: f32) -> f32 {
+    libm::hypotf(x, y)
+}
+#[inline]
+pub fn tan(x: f32) -> f32 {
+    libm::tanf(x)
+}
+#[inline]
 pub fn atan2(y: f32, x: f32) -> f32 {
     libm::atan2f(y, x)
 }
@@ -38,6 +46,14 @@ pub fn floor(x: f32) -> f32 {
 #[inline]
 pub fn cbrt(x: f32) -> f32 {
     libm::cbrtf(x)
+}
+
+/// `x` wrapped into `0..TAU`, as `f32::rem_euclid(TAU)` does (`fmod` is exact, so every machine
+/// agrees to the bit).
+#[inline]
+pub fn wrap_tau(x: f32) -> f32 {
+    let r = libm::fmodf(x, core::f32::consts::TAU);
+    if r < 0.0 { r + core::f32::consts::TAU } else { r }
 }
 
 /// Length that never divides by zero.

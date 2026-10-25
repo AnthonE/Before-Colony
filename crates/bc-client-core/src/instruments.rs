@@ -205,6 +205,22 @@ fn clamp01(v: f32) -> f32 {
     if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) }
 }
 
+/// The suit panel's note for how fed the pilot is (the own state's `fed`): what it does to the G
+/// they bear, under the real flight rules as the stim's line says it (`WELL FED +0.5G`). Fed and
+/// peckish cost nothing, and say nothing; nor does a condition the wire doesn't know.
+pub fn fed_note(fed: u8) -> Option<String> {
+    use bc_sim::content::body::{Fed, fed_g};
+    let f = Fed::from_index(fed)?;
+    let g = fed_g(f);
+    (g != 0.0).then(|| format!("{} {g:+}G", f.tag()))
+}
+
+/// Whether the pilot's condition (the own state's `fed`) costs them G: the suit panel's notes warn.
+pub fn fed_warns(fed: u8) -> bool {
+    use bc_sim::content::body::{Fed, fed_g};
+    Fed::from_index(fed).is_some_and(|f| fed_g(f) < 0.0)
+}
+
 /// A holdup's words split at their middle dot: the cause (`OVERHEATED`), for the weapon's row, and
 /// what to do about it (`let it cool`), for the notes.
 pub fn cause_and_cure(words: &str) -> (&str, Option<&str>) {
@@ -217,6 +233,19 @@ pub fn cause_and_cure(words: &str) -> (&str, Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_condition_says_what_it_does_to_the_g() {
+        use bc_sim::content::body::Fed;
+        assert_eq!(fed_note(Fed::WellFed as u8).as_deref(), Some("WELL FED +0.5G"));
+        assert_eq!(fed_note(Fed::Fed as u8), None);
+        assert_eq!(fed_note(Fed::Peckish as u8), None);
+        assert_eq!(fed_note(Fed::Hungry as u8).as_deref(), Some("HUNGRY -0.5G"));
+        assert_eq!(fed_note(Fed::Starving as u8).as_deref(), Some("STARVING -1G"));
+        assert_eq!(fed_note(5), None, "not a condition");
+        assert!(fed_warns(Fed::Hungry as u8) && fed_warns(Fed::Starving as u8));
+        assert!(!fed_warns(Fed::WellFed as u8) && !fed_warns(Fed::Peckish as u8) && !fed_warns(9));
+    }
 
     #[test]
     fn stores_warn_empty_and_loads_warn_full() {

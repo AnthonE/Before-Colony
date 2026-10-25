@@ -58,7 +58,13 @@ fn playing() -> View {
 }
 
 fn survival(place: &'static str) -> View {
-    View { survival: true, signed_in: true, place, bay_line: "BAY 07 · 12,480 CR".into(), ..playing() }
+    View {
+        survival: true,
+        signed_in: true,
+        place,
+        bay_line: "BAY 07 · 12,480 CR · PECKISH".into(),
+        ..playing()
+    }
 }
 
 fn scene(name: &'static str, about: &'static str, expect: &'static str, view: View) -> Scene {
@@ -118,6 +124,12 @@ fn hangar_state(place: Place) -> HangarState {
         charter: Some(bc_econ::charter::Board::new().view(ME, NOW)),
         proving: Some(board.view(ME, NOW)),
         book: Some((ex.depth(watched, 8), ex.history(watched))),
+        // Forty minutes of food left in them: time for The Arrival.
+        body: Some(bc_econ::body::BodyView {
+            fed: bc_sim::content::body::Fed::Peckish,
+            food_s: 40 * 60,
+            well_fed_s: 0,
+        }),
         ..HangarState::default()
     }
 }
@@ -363,6 +375,13 @@ pub fn gallery() -> Gallery {
         terminal("charter", "The Charter Board's desk.", "city", "charter", None),
         terminal("proving", "The Proving Ground's desk, at the Blast Hall.", "city", "proving", None),
         terminal("wanted", "The Most Wanted, behind The Arrival's bar.", "city", "wanted", None),
+        terminal(
+            "menu",
+            "The Arrival's menu: the staff's kitchen, and how fed the pilot is.",
+            "city",
+            "menu",
+            None,
+        ),
         terminal("home-door", "A free home's door.", "city", "home", Some((home, false))),
         terminal("home-inside", "Inside a home.", "city", "home", Some((home, true))),
     ];

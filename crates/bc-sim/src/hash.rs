@@ -56,6 +56,10 @@ pub fn state_hash(sim: &Sim) -> u64 {
         if !s.kits[i].is_empty() || st.stim > 0 || st.chaff > 0 {
             h.u32(u32::from(s.kits[i].0) | u32::from(st.chaff) << 8 | u32::from(st.stim) << 16);
         }
+        // The pilot's condition (only while not plainly fed).
+        if st.fed != crate::content::body::Fed::Fed {
+            h.u32(0xFED0_0000 | u32::from(st.fed as u8));
+        }
         let (k, g, right) = s.held[i];
         h.u32(u32::from(k) | u32::from(g) << 16 | u32::from(right) << 24);
         // One of the Almagest's aces (only then).

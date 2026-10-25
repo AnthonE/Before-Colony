@@ -235,6 +235,10 @@ pub struct PilotRecord {
     /// tugs did with the suit they left flying inside the colony).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub word: Vec<String>,
+    /// Survival: the pilot's body on the wall clock (`bc_econ::body`), kept asleep. An old record
+    /// wakes an Arrival.
+    #[serde(default)]
+    pub body: bc_econ::body::Body,
 }
 
 impl PilotRecord {
@@ -252,6 +256,7 @@ impl PilotRecord {
             parked: None,
             proving: bc_econ::proving::Bests::default(),
             word: Vec::new(),
+            body: bc_econ::body::Body::default(),
         }
     }
 }

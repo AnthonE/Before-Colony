@@ -1075,6 +1075,324 @@ fn walkers_golden_wasm() {
     assert_eq!(walkers_hash(), WALKERS_GOLDEN);
 }
 
+/// Hash of 16 walkers (`bc_sim::foot`, the tick's and the predictor's) on three strips for 600
+/// ticks of scripted strides: walking and running the avenue, turning, jumping, into a building's
+/// wall and along it, and up a block of flats' stairs. The server's tick and the pilot's own
+/// prediction step these bits alike.
+const FOOT_GOLDEN: u64 = 0x9582_5aee_9f48_fce8;
+
+fn foot_hash() -> u64 {
+    use bc_sim::colony::city::{self, KERB, Stage};
+    use bc_sim::colony::frame::{CityPos, STRIP_WIDTH};
+    use bc_sim::colony::homes;
+    use bc_sim::foot::{CityGround, Stride, Walker};
+    use bc_sim::math::{atan2, sin};
+    use glam::Vec3;
+
+    // A block of flats on each strip, and a building's wall to walk into.
+    let flats = |strip: u8| -> homes::Plan {
+        for bx in city::CITY.0..city::CITY.1 {
+            for row in 1..=city::ROWS {
+                let Some(b) = city::block(strip, bx, row, Stage(0)) else { continue };
+                for bd in city::lots(&b).as_slice() {
+                    if let Some(p) = homes::plan(&b, bd)
+                        && p.kind == homes::Kind::Flats
+                        && p.storeys >= 3
+                        && p.sides != 0
+                    {
+                        return p;
+                    }
+                }
+            }
+        }
+        panic!("no flats on strip {strip}");
+    };
+    let wall = |strip: u8| -> (f32, f32) {
+        for bx in 20..city::CITY.1 {
+            let Some(b) = city::block(strip, bx, -3, Stage(0)) else { continue };
+            let all = city::lots(&b);
+            if let Some(bd) = all.as_slice().iter().max_by(|a, c| a.foot.s1.total_cmp(&c.foot.s1)) {
+                return (b.rect.s1 + 6.0, bd.foot.middle().1);
+            }
+        }
+        panic!("no block on strip {strip}");
+    };
+    let ((gate_s, gate_x), _) = city::place_door(city::place("hub_gate_1").unwrap().1);
+
+    struct One {
+        ground: CityGround,
+        w: Walker,
+        way: Vec<Vec3>,
+    }
+    let mut people: Vec<One> = (0..16u32)
+        .map(|k| {
+            let strip = (k % 3) as u8;
+            let ground = CityGround { strip, stage: Stage(0) };
+            let (w, way) = match k % 4 {
+                0 => {
+                    let p = flats(strip);
+                    let mut way = vec![
+                        (p.point(0.0, -homes::SHELL - 1.2), KERB),
+                        (p.point(0.0, 0.8), KERB),
+                        (p.point(0.0, homes::NEAR * 0.5), KERB),
+                    ];
+                    way.extend(p.stairs_up(0, 0));
+                    way.extend(p.stairs_up(1, 0));
+                    let ((s, x), h) = way[0];
+                    let w = Walker::at(CityPos::new(strip, x, s, h + 0.05).walker(), Vec3::X);
+                    (w, way.iter().map(|&((s, x), h)| CityPos::new(strip, x, s, h).walker()).collect())
+                }
+                2 => {
+                    let (s, x) = wall(strip);
+                    (Walker::at(CityPos::new(strip, x + k as f32, s, 0.3).walker(), Vec3::Z), Vec::new())
+                }
+                _ => {
+                    let (s, x) = if strip == 0 {
+                        (gate_s, gate_x + k as f32 * 3.0)
+                    } else {
+                        (STRIP_WIDTH * 0.5 + 12.0 + k as f32, -12_000.0 + k as f32 * 9.0)
+                    };
+                    (Walker::at(CityPos::new(strip, x, s, 0.6).walker(), Vec3::X), Vec::new())
+                }
+            };
+            One { ground, w, way }
+        })
+        .collect();
+
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    for n in 0..600u32 {
+        for (k, one) in people.iter_mut().enumerate() {
+            let k = k as u32;
+            let stride = if let Some(&to) = one.way.first() {
+                let flat = Vec3::new(to.x - one.w.feet.x, 0.0, to.z - one.w.feet.z);
+                if flat.length() < 0.35 && (to.y - one.w.feet.y).abs() < 1.0 {
+                    one.way.remove(0);
+                }
+                one.w.yaw = atan2(flat.x, flat.z);
+                Stride { forward: 1.0, ..Stride::default() }
+            } else {
+                match (k % 4, (n / 75 + k) % 4) {
+                    // Into the wall, then along it, then back out and in at a run.
+                    (2, 0) => Stride { forward: 1.0, ..Stride::default() },
+                    (2, 1) => Stride { forward: 0.3, right: 1.0, ..Stride::default() },
+                    (2, 2) => Stride { forward: -1.0, right: -0.2, ..Stride::default() },
+                    (2, _) => {
+                        Stride { forward: 1.0, run: true, jump: n.is_multiple_of(40), ..Stride::default() }
+                    }
+                    // The avenue: walking, running and turning, jumping now and then.
+                    (_, 0) => Stride { forward: 1.0, ..Stride::default() },
+                    (_, 1) => Stride { forward: 1.0, run: true, jump: n % 33 == k, ..Stride::default() },
+                    (_, 2) => Stride { forward: 0.6, right: -0.8, run: true, ..Stride::default() },
+                    (_, _) => Stride { jump: n.is_multiple_of(45), ..Stride::default() },
+                }
+            };
+            if one.way.is_empty() && k % 4 != 2 {
+                one.w.turn(0.03 * sin(n as f32 * 0.05 + k as f32), 0.01 * sin(n as f32 * 0.02));
+            }
+            one.w.tick(&one.ground, &stride);
+            let w = &one.w;
+            for v in [w.feet.x, w.feet.y, w.feet.z, w.vel.x, w.vel.y, w.vel.z, w.yaw, w.pitch] {
+                fnv(&mut h, v.to_bits());
+            }
+            fnv(&mut h, u32::from(w.grounded));
+        }
+    }
+    for one in people.iter().step_by(4) {
+        assert!(one.w.feet.y > homes::level(2) - 0.1, "up the stairs: {:?}", one.ground.place(one.w.feet));
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn foot_golden_native() {
+    let h = foot_hash();
+    assert_eq!(h, foot_hash(), "must be reproducible within a process");
+    assert_eq!(h, FOOT_GOLDEN, "the walkers' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn foot_golden_wasm() {
+    assert_eq!(foot_hash(), FOOT_GOLDEN);
+}
+
+/// Hash of 8 cars and 4 scooters (`bc_sim::car`, the tick's and the driver's) taken from the motor
+/// pools on three strips and driven 900 ticks: away down the avenue, turning across it onto the
+/// kerbs and into the walls and posts, braking, reversing and the handbrake.
+const CARS_GOLDEN: u64 = 0xfac7_195f_8bf0_05a1;
+
+fn cars_hash() -> u64 {
+    use bc_sim::car::{Drive, Kind, Vehicle};
+    use bc_sim::colony::pools::{POOLS, pool, pool_near};
+    use core::f32::consts::{FRAC_PI_2, PI};
+
+    let mut cars: Vec<Vehicle> = (0..12usize)
+        .map(|k| {
+            let strip = (k % 3) as u8;
+            let i = (k * 5) % POOLS;
+            let (s, x) = pool(strip, i);
+            assert_eq!(pool_near(strip, s, x), Some(i), "taken at a pool");
+            let kind = if k < 8 { Kind::Car } else { Kind::Scooter };
+            let yaw = [FRAC_PI_2, FRAC_PI_2 * 3.0, 0.0, PI][k % 4];
+            Vehicle::new(kind, strip, s, x, yaw)
+        })
+        .collect();
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    let mut knocks = 0;
+    for n in 0..900u32 {
+        for (k, v) in cars.iter_mut().enumerate() {
+            let k = k as u32;
+            let d = match (n / 100 + k) % 6 {
+                0 => Drive { throttle: 1.0, ..Drive::default() },
+                1 => Drive { throttle: 0.7, steer: 1.0, ..Drive::default() },
+                2 => Drive { throttle: 1.0, steer: -0.6, ..Drive::default() },
+                3 => Drive { throttle: -1.0, ..Drive::default() },
+                4 => Drive { throttle: 0.4, steer: 0.3, handbrake: n % 100 > 70 },
+                _ => Drive { throttle: 1.0, steer: if n % 40 < 20 { 0.9 } else { -0.9 }, ..Drive::default() },
+            };
+            let before = v.speed;
+            v.tick(&d);
+            knocks += usize::from(before > 1.0 && v.speed < 0.0);
+            for b in [v.x, v.s, v.yaw, v.speed, v.wheel] {
+                fnv(&mut h, b.to_bits());
+            }
+        }
+    }
+    assert!(knocks > 0, "something was run into");
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn cars_golden_native() {
+    let h = cars_hash();
+    assert_eq!(h, cars_hash(), "must be reproducible within a process");
+    assert_eq!(h, CARS_GOLDEN, "the cars' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn cars_golden_wasm() {
+    assert_eq!(cars_hash(), CARS_GOLDEN);
+}
+
+/// Hash of six Markabs (`bc_sim::markab`, the tick's and the driver's) for 900 ticks: up the Blast
+/// Hall's back wall onto its ceiling and down again, backed up Hub Gate's terminal and dropped off
+/// it with the fan cut, boosted down the avenue into a leap and a barrel roll, slid on the
+/// handbrake, and over a wall's top: every face, corner and flight, to the bit native and wasm.
+const MARKAB_GOLDEN: u64 = 0xf7bf_243a_2e1d_c0c9;
+
+fn markab_hash() -> u64 {
+    use bc_sim::colony::frame::STRIP_WIDTH;
+    use bc_sim::colony::hall::hall;
+    use bc_sim::colony::pools::pool;
+    use bc_sim::markab::{Controls, Markab, On};
+    use bc_sim::math::atan2;
+    use core::f32::consts::FRAC_PI_2;
+
+    let r = hall();
+    let (ds, dx) = r.inward;
+    let at_the_doors = |u: f32| {
+        let (s, x) = r.front.point(u, -25.0);
+        Markab::new(r.strip, s, x, atan2(dx, -ds))
+    };
+    let (ps, px) = pool(0, 0);
+    let mut cars = [
+        at_the_doors(12.0),
+        Markab::new(0, ps, px, FRAC_PI_2),
+        Markab::new(1, STRIP_WIDTH * 0.5 - 15.0, -12_000.0, FRAC_PI_2),
+        Markab::new(2, STRIP_WIDTH * 0.5 - 15.0, -9_000.0, FRAC_PI_2),
+        at_the_doors(-35.0),
+        Markab::new(0, STRIP_WIDTH * 0.5 + 15.0, -11_000.0, 3.0 * FRAC_PI_2),
+    ];
+    let idle = Controls::default();
+    let go = Controls { throttle: 1.0, ..idle };
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    let (mut faces, mut corners, mut flights) = (0, 0, 0);
+    for n in 0..900u32 {
+        for (k, m) in cars.iter_mut().enumerate() {
+            let c = match (k, n) {
+                // Up the hall's wall, along its ceiling, and back down tail first.
+                (0, 0..500) => go,
+                (0, _) => Controls { throttle: -1.0, ..idle },
+                // Backed up the terminal, held there, the fan cut, and a leap.
+                (1, 0..400) => Controls { throttle: -1.0, ..idle },
+                (1, 400..460) => idle,
+                (1, 460..700) => idle,
+                (1, _) => Controls { lift: n % 120 < 20, ..idle },
+                // Boosted down the avenue, off it, rolled and steered in the air.
+                (2, 0..90) => Controls { boost: true, ..go },
+                (2, 90..115) => Controls { lift: true, ..idle },
+                (2, 115..160) => Controls { roll: 1.0, lift: true, ..idle },
+                (2, 160..190) => Controls { throttle: 0.5, steer: -1.0, ..idle },
+                (2, _) => Controls { steer: if n % 200 < 100 { 0.6 } else { -0.6 }, ..go },
+                // Fast, then the handbrake on a turn, again and again.
+                (3, _) if n % 150 < 100 => Controls { boost: n % 150 < 40, ..go },
+                (3, _) => Controls { steer: 1.0, handbrake: true, ..idle },
+                // Up the hall's front and fast over its top.
+                (4, _) => go,
+                // Slow about the avenue's walk, into its posts and trees.
+                (_, _) => Controls { throttle: 0.4, steer: if n % 90 < 45 { 1.0 } else { -0.4 }, ..idle },
+            };
+            if k == 1 && (n == 460 || n == 640) {
+                m.toggle_fan();
+            }
+            m.tick(&c);
+            let st = m.state();
+            match st.on {
+                On::Face(nrm, s) => {
+                    faces += 1;
+                    fnv(&mut h, 1);
+                    for v in [nrm.x, nrm.y, nrm.z, s.min.x, s.min.y, s.min.z, s.max.x, s.max.y, s.max.z] {
+                        fnv(&mut h, v.to_bits());
+                    }
+                }
+                On::Corner(c) => {
+                    corners += 1;
+                    fnv(&mut h, 2);
+                    for v in [
+                        c.pivot.x, c.pivot.y, c.pivot.z, c.axis.x, c.axis.y, c.axis.z, c.angle, c.round,
+                        c.along,
+                    ] {
+                        fnv(&mut h, v.to_bits());
+                    }
+                }
+                On::Air => {
+                    flights += 1;
+                    fnv(&mut h, 3);
+                }
+            }
+            for v in [st.pos.x, st.pos.y, st.pos.z, st.rot.x, st.rot.y, st.rot.z, st.rot.w] {
+                fnv(&mut h, v.to_bits());
+            }
+            for v in
+                [st.vel.x, st.vel.y, st.vel.z, st.spin.x, st.spin.y, st.spin.z, st.wheel, st.gas, st.stopped]
+            {
+                fnv(&mut h, v.to_bits());
+            }
+            let flags = [st.fan, st.lifting, st.jets.lift, st.jets.boost, st.jets.turn];
+            fnv(&mut h, flags.iter().enumerate().map(|(i, f)| u32::from(*f) << i).sum());
+        }
+    }
+    assert!(faces > 0 && corners > 0 && flights > 0, "{faces} {corners} {flights}");
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn markab_golden_native() {
+    let h = markab_hash();
+    assert_eq!(h, markab_hash(), "must be reproducible within a process");
+    assert_eq!(h, MARKAB_GOLDEN, "the Markabs' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn markab_golden_wasm() {
+    assert_eq!(markab_hash(), MARKAB_GOLDEN);
+}
+
 /// Hash after 600 ticks of suits flying the colony's inside: launched from the inner gate, some on
 /// flight assist weaving among the towers, some falling to the floor and the roofs, firing all the
 /// while (which the colony's law ignores), and two with their grips armed, landing on the avenue
