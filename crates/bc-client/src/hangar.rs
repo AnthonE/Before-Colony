@@ -395,11 +395,11 @@ pub fn setup_bay(
             piece(
                 &mut commands,
                 Vec3::new(0.0, y, z),
-                Vec3::new(13.6, 0.5, 0.5),
+                Vec3::new(14.8, 0.5, 0.5),
                 HullTag::paint(paint::YELLOW, 40).tag(),
             );
         }
-        for x in [-6.5, 6.5] {
+        for x in [-7.1, 7.1] {
             piece(
                 &mut commands,
                 Vec3::new(x, y, (front + 9.1) / 2.0),

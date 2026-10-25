@@ -256,11 +256,12 @@ impl Layout {
             Block::new([1.3, CATWALK_Y, CATWALK_Z[1]], [9.0, CATWALK_Y + 1.1, CATWALK_Z[1] + 0.15], Rail),
             Block::new([-13.2, 0.0, 1.7], [-12.8, CATWALK_Y - 0.4, 2.1], Pillar),
             Block::new([8.4, 0.0, 1.7], [8.8, CATWALK_Y - 0.4, 2.1], Pillar),
-            // The gantry the suit stands in: a pillar at each corner, up to the crane's rail.
-            Block::new([-6.8, 0.0, 4.2], [-6.2, GANTRY_TOP, 4.8], Pillar),
-            Block::new([6.2, 0.0, 4.2], [6.8, GANTRY_TOP, 4.8], Pillar),
-            Block::new([-6.8, 0.0, 8.8], [-6.2, GANTRY_TOP, 9.4], Pillar),
-            Block::new([6.2, 0.0, 8.8], [6.8, GANTRY_TOP, 9.4], Pillar),
+            // The gantry the suit stands in: a pillar at each corner, up to the crane's rail, wide
+            // enough apart for any suit's wings and the gun it carries at its side.
+            Block::new([-7.4, 0.0, 4.2], [-6.8, GANTRY_TOP, 4.8], Pillar),
+            Block::new([6.8, 0.0, 4.2], [7.4, GANTRY_TOP, 4.8], Pillar),
+            Block::new([-7.4, 0.0, 8.8], [-6.8, GANTRY_TOP, 9.4], Pillar),
+            Block::new([6.8, 0.0, 8.8], [7.4, GANTRY_TOP, 9.4], Pillar),
             // The suit: its legs and its body, so nobody walks through it.
             Block::new([-2.7, 0.0, 4.3], [-0.2, 9.2, 7.6], Suit),
             Block::new([0.2, 0.0, 4.3], [2.7, 9.2, 7.6], Suit),

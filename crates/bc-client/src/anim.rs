@@ -29,9 +29,9 @@
 //! whatever the network does. Rotations are kept as scaled axes (radians) in the parent's frame.
 
 use bc_client_core::gait::{Gait, Stand};
-use bc_model::{Sockets, hold};
 use bc_model::ik::{ANKLE_TO_SOLE, SHIN, THIGH, two_bone};
 use bc_model::rig::{self, BONES, Bone};
+use bc_model::{Sockets, hold};
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{FrameId, Part, WeaponKind};
 use bc_sim::config::DT;
