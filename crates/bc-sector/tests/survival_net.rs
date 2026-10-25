@@ -203,3 +203,29 @@ fn a_wreck_is_towed_at_once_when_its_pilot_goes_and_not_at_all_when_blown_up() {
     }
     assert!(lease.reports.pop().is_err(), "no tugs for a suit blown apart");
 }
+
+#[test]
+fn the_pilots_condition_reaches_the_suit() {
+    use bc_sim::content::body::{Fed, HUNGRY_G};
+    use bc_sim::tuning::own_tuning;
+    let (mut sector, shared, lease) = sector();
+    let s = lease.slot;
+    let built = Loadout::full(FrameId::Argo);
+    assert_eq!(send(&mut sector, &shared, s, join(s, Some(built))), (SlotState::Active, Outcome::Fresh));
+    let (idx, _) = shared.slots[s as usize].suit_id().unwrap();
+    let i = usize::from(idx);
+    let fed = own_tuning(&sector.sim.own_state(i)).g_tolerance;
+    send(&mut sector, &shared, s, Control::Fed { slot: s, fed: Fed::Hungry });
+    let own = sector.sim.own_state(i);
+    assert_eq!(own.fed, 3);
+    assert_eq!(own_tuning(&own).g_tolerance, fed + HUNGRY_G);
+    assert_eq!(sector.sim.tuning(i).g_tolerance, fed + HUNGRY_G);
+    // A word for a slot nobody holds changes nothing.
+    let free = s ^ 1;
+    assert_eq!(shared.slots[free as usize].state(), SlotState::Free);
+    send(&mut sector, &shared, free, Control::Fed { slot: free, fed: Fed::Starving });
+    assert_eq!(sector.sim.own_state(i).fed, 3);
+    // Out of range too.
+    send(&mut sector, &shared, s, Control::Fed { slot: 999, fed: Fed::Starving });
+    assert_eq!(sector.sim.own_state(i).fed, 3);
+}

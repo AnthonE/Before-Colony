@@ -4,6 +4,7 @@ use bc_proto::NO_SLOT;
 
 use super::Sim;
 use crate::content::System;
+use crate::content::body::Fed;
 use crate::content::kits::{CHAFF_TICKS, CRASH_TICKS, Kit, STIM_TICKS};
 use crate::content::systems::{DAMAGED, FAILED, OK};
 use crate::handle::SuitId;
@@ -50,6 +51,22 @@ impl Sim {
             self.suits.retune(i);
         }
         used
+    }
+
+    /// Suit `id`'s pilot is `fed` (the session's word, from their body on the wall clock): alive or
+    /// asleep, the stat sheet follows at once. Whether it changed anything.
+    pub fn set_fed(&mut self, id: SuitId, fed: Fed) -> bool {
+        if !self.suits.valid(id) {
+            return false;
+        }
+        let i = id.idx();
+        let st = &mut self.suits.status[i];
+        if st.fed == fed {
+            return false;
+        }
+        st.fed = fed;
+        self.suits.retune(i);
+        true
     }
 
     /// A field repair on suit `i`: a leaking tank first, then the worst-off system it can reach

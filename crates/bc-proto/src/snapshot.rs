@@ -203,6 +203,9 @@ pub struct OwnState {
     /// A stim's clock, ticks: the pilot bears more G while it's past the crash's length, less
     /// during it (`bc_sim::content::kits::stim_g`). The client's stat sheet takes it in.
     pub stim: u16,
+    /// How fed the pilot is: `bc_sim::content::body::Fed`'s index, where 0 is fed and changes
+    /// nothing (up to [`FED_MAX`]). The client's stat sheet takes it in, as it does the stim.
+    pub fed: u8,
     /// Mass beyond the frame's own: cargo and anything in hand, less the parts shot off, kg. The
     /// flight model (and so prediction) uses exactly this.
     pub extra_mass_kg: i32,
@@ -359,7 +362,7 @@ pub const ARMS_MAX_SALVO_GAP: u8 = (1 << SALVO_GAP_BITS) - 1;
 
 /// Encoded size of a free suit's own state (after its presence bit), in bits: the flight and combat
 /// state (503), systems, equipment and the propellant's grade (24 + 20 + 2 + 7 + 7 + 4 + 7), the
-/// rack and a stim (8 + 12), salvage (18 + 13 per cargo kind + 24 + a chunk id), lock and special (10 + 4 + 8 + 8), the arms, then the footing and the cover
+/// rack, a stim and the fed condition (8 + 12 + 3), salvage (18 + 13 per cargo kind + 24 + a chunk id), lock and special (10 + 4 + 8 + 8), the arms, then the footing and the cover
 /// (2 + 2), the doom (5), and the impact, the stagger and the target's impact (3 + 5 + 3).
 pub const OWN_BITS_FREE: usize = 503
     + SYSTEMS_BITS as usize
@@ -370,6 +373,7 @@ pub const OWN_BITS_FREE: usize = 503
     + STATUS_TICK_BITS as usize
     + KITS_BITS as usize
     + STIM_BITS as usize
+    + FED_BITS as usize
     + 18
     + CARGO_BITS as usize * CARGO_KINDS
     + 24
@@ -402,6 +406,9 @@ const LOCK_PROGRESS_BITS: u32 = 4;
 /// Bits for [`OwnState::kits`] and [`OwnState::stim`] (up to 136 s of ticks).
 pub const KITS_BITS: u32 = 8;
 pub const STIM_BITS: u32 = 12;
+/// Bits for [`OwnState::fed`], and the largest condition it holds (starving).
+pub const FED_BITS: u32 = 3;
+pub const FED_MAX: u8 = 4;
 const EXTRA_MASS_BITS: u32 = 18;
 /// Bits for each of [`OwnState::cargo_kg`]: up to 8,191 kg of a kind (the largest hold, an Argo's
 /// with a cargo rack, takes 4,000 kg in all).
@@ -440,6 +447,7 @@ impl Default for OwnState {
             respawn_in: 0,
             kits: 0,
             stim: 0,
+            fed: 0,
             extra_mass_kg: 0,
             cargo_kg: [0; CARGO_KINDS],
             credits: 0,
@@ -730,6 +738,8 @@ impl<'a> SnapshotWriter<'a> {
         w.write_u8(o.respawn_in);
         w.write_bits(u32::from(o.kits), KITS_BITS);
         w.write_bits(u32::from(o.stim).min((1 << STIM_BITS) - 1), STIM_BITS);
+        // Unclamped: the reader refuses a condition past starving.
+        w.write_bits(u32::from(o.fed) & ((1 << FED_BITS) - 1), FED_BITS);
         let reach = (1 << (EXTRA_MASS_BITS - 1)) - 1;
         w.write_i32(o.extra_mass_kg.clamp(-reach, reach), EXTRA_MASS_BITS);
         for c in o.cargo_kg {
@@ -1045,6 +1055,10 @@ impl<'a> SnapshotReader<'a> {
         o.respawn_in = r.read_u8();
         o.kits = r.read_bits(KITS_BITS) as u8;
         o.stim = r.read_bits(STIM_BITS) as u16;
+        o.fed = r.read_bits(FED_BITS) as u8;
+        if o.fed > FED_MAX {
+            return Err(DecodeError::Invalid);
+        }
         o.extra_mass_kg = r.read_i32(EXTRA_MASS_BITS);
         for c in &mut o.cargo_kg {
             *c = r.read_bits(CARGO_BITS) as u16;
@@ -1262,7 +1276,25 @@ mod tests {
             let back = SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap();
             assert_eq!((back.surface, back.cover), (own.surface, own.cover));
         }
-        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (811, 825, 831));
+        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (814, 828, 834));
+    }
+
+    #[test]
+    fn a_fed_of_5_is_invalid() {
+        let mut buf = [0u8; 256];
+        let mut w = SnapshotWriter::new(&mut buf, 256);
+        w.header(&SnapshotHeader::default());
+        w.own(Some(&OwnState { fed: 5, ..OwnState::default() }));
+        let n = w.finish().unwrap();
+        assert_eq!(SnapshotReader::new(&buf[..n]).unwrap().own(), Err(DecodeError::Invalid));
+        for fed in 0..=FED_MAX {
+            let mut buf = [0u8; 256];
+            let mut w = SnapshotWriter::new(&mut buf, 256);
+            w.header(&SnapshotHeader::default());
+            w.own(Some(&OwnState { fed, ..OwnState::default() }));
+            let n = w.finish().unwrap();
+            assert_eq!(SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap().fed, fed);
+        }
     }
 
     #[test]

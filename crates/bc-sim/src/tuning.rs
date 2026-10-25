@@ -10,6 +10,7 @@ use bc_proto::Part;
 use bc_proto::quant::{dequantize_unit, quantize_unit};
 use glam::Vec3;
 
+use crate::content::body::Fed;
 use crate::content::modules::{self as md, ModuleKind, Modules};
 use crate::content::propellant::Grade;
 use crate::content::systems::{self as sys, FAILED, System, Systems};
@@ -222,12 +223,12 @@ pub fn own_gone(own: &bc_proto::OwnState) -> u8 {
     gone
 }
 
-/// The stat sheet a suit flies with: [`tuning`], with what its pilot took (a stim's clock: they
-/// bear more G, or less) and what's in its tank (its [`Grade`] goes further). The server
+/// The stat sheet a suit flies with: [`tuning`], with what its pilot took and how fed they are
+/// (a stim's clock and the fed condition: they bear more G, or less) and what's in its tank (its [`Grade`] goes further). The server
 /// (`Suits::retune`) and the owner's client ([`own_tuning`]) both build it here.
-pub fn flown(gone: u8, systems: Systems, modules: Modules, stim: u16, grade: Grade) -> Tuning {
+pub fn flown(gone: u8, systems: Systems, modules: Modules, stim: u16, fed: Fed, grade: Grade) -> Tuning {
     let mut t = tuning(gone, systems, modules);
-    t.g_tolerance += crate::content::kits::stim_g(stim);
+    t.g_tolerance += crate::content::kits::stim_g(stim) + crate::content::body::fed_g(fed);
     t.isp *= grade.isp();
     t
 }
@@ -235,7 +236,14 @@ pub fn flown(gone: u8, systems: Systems, modules: Modules, stim: u16, grade: Gra
 /// The owner's client's copy of its suit's stat sheet, from the snapshot: the same as the one the
 /// server flies the next tick with.
 pub fn own_tuning(own: &bc_proto::OwnState) -> Tuning {
-    flown(own_gone(own), Systems(own.systems), Modules(own.modules), own.stim, Grade::from_code(own.grade))
+    flown(
+        own_gone(own),
+        Systems(own.systems),
+        Modules(own.modules),
+        own.stim,
+        Fed::from_index(own.fed).unwrap_or_default(),
+        Grade::from_code(own.grade),
+    )
 }
 
 /// The flight model's modifiers from a suit's stat sheet under the sector's `rules`, before what

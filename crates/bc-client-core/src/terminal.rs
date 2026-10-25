@@ -1,6 +1,7 @@
 //! The hangar's terminals as the page takes them (survival rules), as JSON: the catalogue, once
 //! (every item by slug: its name, whether it's counted in kilograms, what the colony values it at,
-//! whether it's Lodestar technology; every recipe; each frame line's tank and weapon mounts), and
+//! whether it's Lodestar technology; every recipe; each frame line's tank and weapon mounts; the
+//! staff's dishes at The Arrival, and how much food a pilot holds), and
 //! the pilot's hangar, with what the suit's console works out from it (what could be fitted, what
 //! repairs and overhauls would take, the suit's stat sheet, whether it would launch), the exchange
 //! and the book they're watching, the Charter Board, the home whose door or panel is open, and the
@@ -9,11 +10,13 @@
 
 use std::collections::VecDeque;
 
+use bc_econ::body::{FULL_S, PECKISH_S};
 use bc_econ::catalogue::{
     desk, lodestar_tech, munitions_per_load, propellant_item, recipes, rounds_per_load, tank_kg, value,
 };
 use bc_econ::exchange::FEE_BP;
 use bc_econ::faults::overhaul_cost;
+use bc_econ::food::Dish;
 use bc_econ::item::{LINES, part_name, part_slug};
 use bc_econ::suit::{Suit, repair_cost};
 use bc_econ::wear::{SERVICE_FROM, service_cost};
@@ -114,6 +117,11 @@ pub fn catalogue() -> Value {
         .map(|s| json!({ "slug": s.slug(), "name": s.name(), "tag": s.tag(), "part": part_slug(s.part()) }))
         .collect();
     let mounts: Vec<&str> = MOUNTS.iter().map(|p| part_slug(*p)).collect();
+    // The Arrival's kitchen: the colony's staff cook every dish.
+    let dishes: Vec<Value> = Dish::ALL
+        .iter()
+        .map(|d| json!({ "slug": d.slug(), "name": d.name(), "food_s": d.food_s(), "price": d.price() }))
+        .collect();
     json!({
         "items": items,
         "recipes": recipes,
@@ -122,6 +130,9 @@ pub fn catalogue() -> Value {
         "systems": systems,
         "module_mounts": mounts,
         "fee_bp": FEE_BP,
+        "dishes": dishes,
+        "body_full_s": FULL_S,
+        "peckish_s": PECKISH_S,
     })
 }
 
@@ -282,6 +293,27 @@ pub fn hangar_json(
         "proving": h.proving,
         "book": h.book.as_ref().map(|(depth, history)| json!({ "depth": depth, "history": history })),
         "console": h.view.as_ref().map(console),
+        "body": h.body,
         "log": log,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_catalogue_lists_every_dish_once_with_its_price() {
+        let c = catalogue();
+        let dishes = c["dishes"].as_array().expect("the dishes");
+        assert_eq!(dishes.len(), Dish::COUNT);
+        for d in Dish::ALL {
+            let listed: Vec<&Value> = dishes.iter().filter(|v| v["slug"] == d.slug()).collect();
+            assert_eq!(listed.len(), 1, "{d:?}");
+            assert_eq!(listed[0]["price"], d.price());
+            assert_eq!(listed[0]["food_s"], d.food_s());
+            assert_eq!(listed[0]["name"], d.name());
+        }
+        assert_eq!((c["body_full_s"].as_u64(), c["peckish_s"].as_u64()), (Some(8 * 3_600), Some(3_600)));
+    }
 }

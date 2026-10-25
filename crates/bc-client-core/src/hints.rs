@@ -3,7 +3,8 @@
 //! Flying hints come while flying, and the hangar bay's (survival rules) while on foot in it, the
 //! colony's city's while on foot there. The surface's come when they mean something: arming the
 //! grip near a body, walking once on one, hiding once in a hide spot; and the way home when it's
-//! near (the docking hub's face to land on, the inner gate inside the colony).
+//! near (the docking hub's face to land on, the inner gate inside the colony); and on foot, hungry,
+//! where meals are served.
 
 /// A hint. Each one's bit in the seen set is its discriminant: new ones go at the end.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,17 +48,20 @@ pub enum Hint {
     Hover,
     /// Flying one of the Charter Board's trainers: home is its gantry in the Blast Hall.
     Gantry,
+    /// On foot, hungry or starving (`docs/LIFE.md`): where meals are served.
+    Hungry,
 }
 
 impl Hint {
     /// In the order they're shown.
-    pub const ALL: [Hint; 23] = [
+    pub const ALL: [Hint; 24] = [
         Hint::Walk,
         Hint::Use,
         // Down into the city first (the Proving Ground is there), then out.
         Hint::Airlock,
         Hint::City,
         Hint::Launch,
+        Hint::Hungry,
         Hint::Thrust,
         Hint::Map,
         Hint::Boost,
@@ -84,7 +88,7 @@ impl Hint {
 
     /// Shown on foot, in the hangar bay or the colony's city (else while flying).
     fn on_foot(self) -> bool {
-        matches!(self, Hint::Walk | Hint::Use | Hint::Launch | Hint::Airlock | Hint::City)
+        matches!(self, Hint::Walk | Hint::Use | Hint::Launch | Hint::Airlock | Hint::City | Hint::Hungry)
     }
 
     /// Whether it's where it belongs: the bay's in the bay, the city's in the city, the inner gate's
@@ -118,6 +122,7 @@ impl Hint {
             Hint::Hide => i.grounded && i.in_hide_spot,
             Hint::Lock => i.hostile_near && !i.locked,
             Hint::Step => i.locked,
+            Hint::Hungry => i.hungry,
             _ => true,
         }
     }
@@ -189,6 +194,10 @@ impl Hint {
                 "Y (or the middle button) locks on: W closes in, A / D circle it, ◆ shows where to lead. Hold Y to let go."
             }
             Hint::Step => "Double-tap a direction (W A S D, Space, C) to burst-step that way: a quick dodge.",
+            Hint::Hungry if colony => {
+                "Hungry, you bear less G in flight. The Arrival, off Charter Square, serves meals: its MENU."
+            }
+            Hint::Hungry => "Hungry, you bear less G in flight. Your bay's terminal serves meals: its MENU.",
         }
     }
 
@@ -196,7 +205,7 @@ impl Hint {
     fn max_secs(self) -> f64 {
         match self {
             Hint::Thrust | Hint::Fire | Hint::Walk => 20.0,
-            Hint::Use | Hint::Launch | Hint::Airlock | Hint::City | Hint::HubLanding => 30.0,
+            Hint::Use | Hint::Launch | Hint::Airlock | Hint::City | Hint::HubLanding | Hint::Hungry => 30.0,
             Hint::InnerGate | Hint::Gantry => 15.0,
             Hint::Hover => 18.0,
             Hint::Dock | Hint::Camera | Hint::Grip | Hint::Hide | Hint::Map | Hint::Lock | Hint::Step => 15.0,
@@ -257,6 +266,8 @@ pub struct HintInput {
     pub near_hub: bool,
     /// Flying one of the Charter Board's trainers (it docks on its gantry, not at the inner gate).
     pub trainer: bool,
+    /// The pilot's body is hungry or starving (survival: the server's word).
+    pub hungry: bool,
 }
 
 /// Seconds between one hint and the next.
@@ -322,6 +333,8 @@ impl Hints {
                 Hint::InnerGate | Hint::Gantry => i.docking,
                 Hint::Hover => false,
                 Hint::HubLanding => i.docking || i.gripping,
+                // Fed again.
+                Hint::Hungry => !i.hungry,
             };
             self.doing = if acting { self.doing + dt } else { self.doing };
             self.hopped |= i.hopped;
@@ -343,6 +356,7 @@ impl Hints {
                     | Hint::InnerGate
                     | Hint::Gantry
                     | Hint::HubLanding
+                    | Hint::Hungry
             );
             // The surface's: a second of walking, and a hop.
             let done = if h == Hint::Surface {
@@ -560,6 +574,29 @@ mod tests {
         bits.sort_unstable();
         bits.dedup();
         assert_eq!(bits.len(), Hint::ALL.len(), "every hint listed once");
+    }
+
+    #[test]
+    fn a_hungry_pilot_on_foot_is_sent_to_the_arrival() {
+        assert_eq!(Hint::Hungry.bit(), 1 << 23, "appended: the seen bits before it hold");
+        let (mut h, mut t) = (Hints::default(), 0.0);
+        let mut seen = Hint::ALL.iter().filter(|h| **h != Hint::Hungry).fold(0, |a, h| a | h.bit());
+        let bay = HintInput { walking: true, survival: true, colony: true, ..Default::default() };
+        assert_eq!(run(&mut h, &mut seen, &mut t, 5.0, bay), None, "fed: nothing");
+        // Hungry, flying: it waits for their feet.
+        let flying = HintInput { flying: true, survival: true, hungry: true, ..Default::default() };
+        assert_eq!(run(&mut h, &mut seen, &mut t, 5.0, flying), None);
+        let hungry = HintInput { hungry: true, ..bay };
+        assert_eq!(run(&mut h, &mut seen, &mut t, 0.1, hungry), Some(Hint::Hungry));
+        // In the city too, and gone once they've eaten.
+        assert_eq!(
+            run(&mut h, &mut seen, &mut t, 0.1, HintInput { in_city: true, ..hungry }),
+            Some(Hint::Hungry)
+        );
+        run(&mut h, &mut seen, &mut t, 0.05, HintInput { in_city: true, ..bay });
+        assert!(seen & Hint::Hungry.bit() != 0);
+        assert!(Hint::Hungry.text(true, true).contains("The Arrival, off Charter Square"));
+        assert!(Hint::Hungry.text(false, true).contains("bay's terminal"));
     }
 
     #[test]

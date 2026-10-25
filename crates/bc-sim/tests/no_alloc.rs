@@ -595,3 +595,33 @@ fn the_ward_never_allocates() {
     assert!(warded > 0, "the fields should stop beams");
     assert_eq!(total, 0, "heap operations inside the tick: {total}");
 }
+
+#[test]
+fn the_pilots_condition_never_allocates() {
+    // The busy sector, its pilots' condition moving through every one now and then (the session's
+    // word, `Sim::set_fed`): each retunes the suit in place.
+    use bc_sim::content::body::Fed;
+    let (mut sim, players) = common::arena(64, 256, 29);
+    common::run(&mut sim, &players, 120);
+    let (mut total, mut changed) = (0, 0);
+    for step in 0..600u32 {
+        let t = sim.next_tick();
+        let mut cmds = [bc_proto::InputCmd::default(); 64];
+        for (k, &id) in players.iter().enumerate() {
+            cmds[k] = common::scripted(&sim, id, t);
+        }
+        let ((), n) = bc_alloc::count(|| {
+            for (k, &id) in players.iter().enumerate() {
+                if (step + k as u32).is_multiple_of(37) {
+                    let fed = Fed::ALL[(step as usize / 37 + k) % Fed::COUNT];
+                    changed += usize::from(sim.set_fed(id, fed));
+                }
+                sim.set_input(id, cmds[k]);
+            }
+            sim.step();
+        });
+        total += n;
+    }
+    assert!(changed > 0, "no condition changed");
+    assert_eq!(total, 0, "heap operations inside the tick: {total}");
+}

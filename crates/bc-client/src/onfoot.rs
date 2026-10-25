@@ -1187,7 +1187,7 @@ fn city_verb(p: &PlaceDef) -> String {
         PlaceKind::HubGate => "THE CAP LIFT, UP TO YOUR BAY".into(),
         PlaceKind::Exchange => "THE EXCHANGE FLOOR · ORDERS THAT WAIT ON THE BOOK".into(),
         PlaceKind::Charter => "THE CHARTER BOARD · CONTRACTS, PATROLS AND THE CHARTER".into(),
-        PlaceKind::Bar => "THE ARRIVAL · THE MOST WANTED".into(),
+        PlaceKind::Bar => "THE ARRIVAL · MEALS AND THE MOST WANTED".into(),
         PlaceKind::Proving => "THE PROVING GROUND · THE BOARD AND THE TEST RANGE".into(),
     }
 }
@@ -1961,9 +1961,11 @@ pub fn drive_onfoot(
         s if s.skippable() => "SPACE  SKIP".into(),
         _ => String::new(),
     };
-    // Indoors (the bay, the city, a sequence there): the bay's line. Flying, the HUD has the corner.
+    // Indoors (the bay, the city, a sequence there): the bay's line, and how fed the pilot is once
+    // the server has said. Flying, the HUD has the corner.
     ui.bay_line = if inside {
-        format!("BAY {:02} · {} CR", g.core.hangar.bay, thousands(g.core.hangar.credits()))
+        let fed = g.core.hangar.fed().map_or(String::new(), |f| format!(" · {}", f.tag()));
+        format!("BAY {:02} · {} CR{fed}", g.core.hangar.bay, thousands(g.core.hangar.credits()))
     } else {
         String::new()
     };

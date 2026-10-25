@@ -1,8 +1,14 @@
-# Before Colony wire protocol (v37)
+# Before Colony wire protocol (v38)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v38 (from v37): the own state carries the pilot's fed condition (`bc_sim::content::body::Fed`,
+`docs/LIFE.md`), 3 bits after the stim's clock: 0 fed, which changes nothing; 1 well fed; 2 peckish;
+3 hungry; 4 starving. Anything above 4 is invalid. The client's stat sheet adds what it does to the G
+the pilot bears, as it does the stim's, so its prediction stays exact. The own state grows from
+811..831 bits to 814..834; flying free, a full datagram now holds 39 suits on bodies whole, not 40.
 
 v37 (from v36): acks for every datagram, suits' records as deltas, and more than one datagram a
 tick (`docs/NETCODE.md`, "The wire's road"). A snapshot's header carries its datagram's number
@@ -203,7 +209,7 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (140 bits) | kind=2, tick, seq (16), stream (8), ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 811..831 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, orrery_strain, orrery_mode, flags, systems (24), modules (20), the propellant's grade (2), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 13 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
+| own (1 + 814..834 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, orrery_strain, orrery_mode, flags, systems (24), modules (20), the propellant's grade (2), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), the fed condition (3: 0 fed, 1 well fed, 2 peckish, 3 hungry, 4 starving; v38), extra mass (kg, i18), cargo ×4 (kg, 13 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
 | The Orrery (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
@@ -227,11 +233,11 @@ the Orrery's presence bit and the five lists' terminators.
 
 | | Own flying free | Own on a rock (the largest) |
 |---|---|---|
-| Fixed | 944 bits | 964 bits |
+| Fixed | 947 bits | 967 bits |
 | Free suits whole (1 + 212 bits each), nothing else | 36 | 36 |
-| Suits on bodies whole (1 + 195 bits each), nothing else | 40 | 39 |
+| Suits on bodies whole (1 + 195 bits each), nothing else | 39 | 39 |
 | Room kept for six of the largest objects (6 × 233 bits) | 30 free / 32 riders | 30 / 32 |
-| With the Orrery on (+200 bits) | 35 / 39 | 35 / 38 |
+| With the Orrery on (+200 bits) | 35 / 38 | 35 / 38 |
 | A 256-byte connection (2 048 bits) | 5 / 5 | 5 / 5 |
 | Suits as deltas: at rest (1 + 30), moving (1 + about 90) | 96 (the most a snapshot lists) / about 86 | 96 / about 86 |
 
@@ -592,6 +598,7 @@ Client → server (`Request`):
 | `contribute` | `work` (`second_foundry`, `militia_hangar`), `item`, `qty` | deliver to one of the colony's great works |
 | `sign` | | sign the charter (the vote open, and the pilot of standing; desk: the Charter Board's) |
 | `ace_terms` | `salvage` | the Most Wanted: take an ace's bounty as the rights to its wreck (`true`: the tugs bring it home; only with standing, unless already on those terms) or as pay (`false`, the default) (desk: The Arrival) |
+| `eat` | `dish` (`ration_bar`, `orchard_plate`, `breakfast`, `noodles`, `fish_supper`) | a dish from the colony's staff, paid for from the bay's credits (`bc_econ::food::Dish::price`; the money leaves the economy) and answered with a `note` (`NOODLE BOWL · 25 CR · FED`) and a `body`. Refused short of the price (`a noodle bowl is 25 cr`), in flight (`you can't eat in the cockpit`), or when more than half of it wouldn't fit (`you couldn't eat another bite`) (desk: The Arrival) |
 | `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
 | `eject` | `destruct` (default false) | in flight, under any rules: eject from the suit, or (`destruct`, doomed) blow it up aboard. Nothing answers but the loss (`sortie`, and under survival the tugs' `news` on the wreck 45 s on) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
@@ -599,14 +606,14 @@ Client → server (`Request`):
 **Desks** (`Request::desk`, the colony open: the Welcome's COLONY flag). A request marked with a
 desk above is that place's alone, and the server takes it only from a pilot on foot in the city
 standing in that place's room (the plaza's last pose; the whole room counts). Anywhere else
-(the bay, another desk, the street) `post`, `take_patrol`, `sign`, `ace_terms` and `trainer` are
+(the bay, another desk, the street) `post`, `take_patrol`, `sign`, `ace_terms`, `eat` and `trainer` are
 refused with a `note` saying where to go (the page shows it as `CAN'T: ` and the text in capitals):
 
 | Desk | Refusal |
 |---|---|
 | the Exchange floor | `a price that waits on the book is placed at the exchange floor's counter, on charter square` (never sent: see below) |
 | the Charter Board's | `that's done in person at the charter board's desk, in its hall on charter square` |
-| The Arrival | `your terms for an ace's bounty are settled at the arrival's counter, off charter square` |
+| The Arrival | `meals and terms for an ace's bounty are at the arrival's counter, off charter square` |
 | the Proving Ground | `the test range is picked at the proving ground's desk, in the blast hall` |
 
 An `order` with `rest: true` away from the floor isn't refused: it's taken as `rest: false` (it
@@ -655,7 +662,10 @@ on the colony's radio, the speaker's own included,
 from the moment the pilot was welcomed, in the order the server heard them); `proving` (the
 Proving Ground's board, in the colony: `course` and `drill`, the day's best as [{`name`, `ms`,
 `you`}] fastest first, `course_record` and `drill_record` the best ever, `course_par_ms` and
-`drill_par_ms`, and `mine` {`course_ms`, `drill_ms`}, the pilot's own bests; no keys of anyone's). A suit (in the bay, or out) carries
+`drill_par_ms`, and `mine` {`course_ms`, `drill_ms`}, the pilot's own bests; no keys of anyone's); `body`
+{`fed` (`well_fed`, `fed`, `peckish`, `hungry` or `starving`), `food_s`, `well_fed_s`} (the pilot's
+body, `docs/LIFE.md`: how fed they are, and the seconds awake the food in them, and its glow, last;
+sent on entering, after a meal, when the condition changes, and each minute on foot). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`), and `grade`, its propellant's (absent:
 `standard`); a part on the shelf carries its own `faults`.

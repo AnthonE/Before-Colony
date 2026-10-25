@@ -15,6 +15,7 @@ the bay, space, home).
 | Objectives that lead somewhere, desks worth the walk: nineteen objectives from the cap lift to siderium, each city desk's one thing, the Charter Board's pay at its desk, a flight certificate's beam rifle, The Arrival's Most Wanted (below) | built |
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
+| Living in the colony, L1 and L2: meals at The Arrival, felt in flight (`LIFE.md`) | built |
 | The loop's loose ends, first pass: the colony open by default, launching out of the pilot's own bay door, landing on the docking hub and walking in, hints along the way (below) | built |
 | The loop's loose ends, since: a strip chosen at the airlock, second keys for F1 and F10, the nightly browser suites, the auto-nav on an ion drive's crawl (below) | built |
 | Propulsion: bigger tanks, the extended tank, propellant grades, the ion drive (`DESIGN.md`) | built |
@@ -77,11 +78,14 @@ Built since, each a PR of its own:
   the trip plans on what's left of it and then the drive. Tests: `nav`'s units (a dry Argo with a
   drive stops short of a point 5 km off, where it used to go 4.2 km past).
 
+- **The Arrival's menu** (`LIFE.md`, L1: eating). *Built.* Its door opens the Most Wanted, pinned
+  up behind the bar (`Panel::Arrival`, the terminals' `wanted` tab), and the menu is its second
+  tab, `menu`, at the same door: the colony's staff's dishes, their hours and prices, and how fed
+  the pilot is (`Request::Eat`, `Update::Body`; with the colony shut, the bay's terminal serves
+  them). The on-foot line names the condition, and the cockpit what it does to the G (L2).
+
 Next, each a PR of its own:
 
-- **The Arrival's menu** (`LIFE.md`, L1: eating). Its door now opens the Most Wanted, pinned up
-  behind the bar (`Panel::Arrival`, the terminals' `wanted` tab); the menu joins it there as a
-  second tab, `menu`, at the same door.
 - **The Blast Hall's floor markings and the gantry's stairs** (`TRAINING.md`'s first ten minutes).
 - **The launch shot's clocks.** The ring is drawn on the view clock and the own suit on the input
   clock; on the throw the suit's drawn place blends between them (`own.rs`), which shows as a lurch
@@ -274,8 +278,9 @@ agents of another faction (the Alliance: nobody but the drones flies for the Alm
 **Living in the colony** (`LIFE.md`). Jobs in the colony as seats, worked by Arrivals or, when none
 sits down, by the colony's staff; the pilot's body, fed on the wall clock while awake; meals cooked at
 The Arrival, carried up the cap lift and felt in flight. **L0 is built** (`bc_econ::{seats, body, food}`,
-`bc_sim::content::body`); its phases L1 to L9 say how the rest lands, the first being a meal eaten at
-The Arrival (`Request::Eat`, the body on the pilot's record).
+`bc_sim::content::body`), and so are L1 and L2: a meal eaten at The Arrival (`Request::Eat`, the body
+on the pilot's record) and the condition felt in flight (three bits of the own snapshot, v38). Its
+phases L3 to L9 say how the rest lands, the first being the cook's seat.
 
 ## P2: depth, once the above is in
 

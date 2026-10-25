@@ -11,6 +11,7 @@ use bc_client_core::settings::{
     self, CameraView, FlightControls, GfxChoice, Loaded, SETTINGS_VERSION, Settings,
 };
 use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
+use bc_sim::content::body::Fed;
 use bevy::prelude::*;
 use js_sys::{Function, Reflect};
 use wasm_bindgen::{JsCast, JsValue};
@@ -171,7 +172,7 @@ pub fn update_hints(
     game: NonSend<GameClient>,
     time: Res<Time<Real>>,
 ) {
-    let (alive, survival, feet, hidden, hostile_near, locked, colony, inside, near_hub, trainer) = {
+    let (alive, survival, feet, hidden, hostile_near, locked, colony, inside, near_hub, trainer, hungry) = {
         let g = game.borrow();
         let own = g.core.world.own.filter(|o| o.alive);
         // A hostile within a couple of kilometres: something to lock on to.
@@ -200,6 +201,8 @@ pub fn update_hints(
                 !g.core.inside() && from.distance(mouth) < 2_000.0
             },
             g.core.hangar.trainer,
+            // The body's word: hungry or starving, The Arrival's meals are pointed at.
+            matches!(g.core.hangar.fed(), Some(Fed::Hungry | Fed::Starving)),
         )
     };
     let grounded = feet.footing == bc_sim::ground::Footing::Grounded;
@@ -245,6 +248,7 @@ pub fn update_hints(
         went_down: used && onfoot.focus == Some(bc_client_core::bay::Spot::Airlock),
         near_hub,
         trainer: inside && trainer,
+        hungry,
     };
     let mut seen = settings.0.hints_seen;
     let hint = state.hints.step(&mut seen, now_s(), f64::from(time.delta_secs()), &input);

@@ -351,6 +351,12 @@ fn survival_launches_docks_and_losses_never_allocate() {
             let kit = bc_sim::content::Kit::ALL[(step / 3 % 4) as usize];
             shared.control.push(Control::UseKit { slot, kit }).unwrap();
         }
+        // And their sessions tell the sector how fed they are, as the body's clock moves.
+        if step >= 300 && step % 3 == 2 {
+            let slot = ((step / 3) % 64) as u16;
+            let fed = bc_sim::content::body::Fed::ALL[(step / 3 % 5) as usize];
+            shared.control.push(Control::Fed { slot, fed }).unwrap();
+        }
         // And now and then one is shot down (as the damage step leaves a suit it destroys).
         if step >= 300 && step % 7 == 3 {
             let slot = ((step / 7) % 64) as u16;
