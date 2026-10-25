@@ -1,0 +1,20 @@
+{
+  "_": "Before Colony's raw footage for the Elo Pros platform trailer: clean 1920x1080 clips, no captions, cut and mixed elsewhere. Filmed with film.mjs as make.sh does (BC_URL serving web/dist): node film.mjs shots/elopros.json OUTDIR, then each OUTDIR/<name>/%03d.jpg to H.264 at 30 fps. The launch is the cockpit's view as the bay's doors stand open and down the tunnel (the colony's own launch from bay 1 happens in the colony's shadow, too dark to read). The colony with Earth behind pushes in faster than 6 km/s, where the dust stops streaking (ambience.rs). The Markab and the city take SwiftShader minutes a frame: the Markab is filmed at 1600x900 (scaled up after), and the city's two are single frames (len 0) a clip pushes in on. Of the Markab's 1.6 s only its first half-second (15 frames) was filmed in time.",
+  "fps": 30,
+  "size": [1920, 1080],
+  "quality": "high",
+  "shots": [
+    {"name": "01-tunnel", "scene": "hangar", "cam": 5, "t": 6.6, "len": 3.4, "query": "frame=argo", "move": {"fwd": [0, 12], "ease": "in"}},
+    {"name": "03-lodestars", "scene": "lodestars", "cam": 1, "t": 7.4, "len": 2.5, "pre": 0.3, "move": {"yaw": [0.06, -0.06], "zoom": [0.68, 0.54]}},
+    {"name": "04-salvo", "scene": "lodestars", "cam": 2, "t": 6.0, "len": 3.0, "pre": 0.3, "move": {"yaw": [-0.05, 0.1], "zoom": [1.0, 0.92]}},
+    {"name": "07-lineup", "scene": "lineup", "cam": 2, "t": 5.0, "len": 2.5, "pre": 0.3, "move": {"yaw": [-0.12, 0.12]}},
+    {"name": "08-duel-beam", "scene": "duel", "cam": 2, "t": 1.5, "len": 2.0, "pre": 0.3, "move": {"follow": 0, "zoom": [0.17, 0.13]}},
+    {"name": "10-kill", "scene": "duel", "cam": 1, "t": 6.5, "len": 2.5, "pre": 0.3, "move": {"follow": 2, "zoom": [0.14, 0.19]}},
+    {"name": "11-ward", "scene": "pair", "cam": 1, "t": 7.0, "len": 3.0, "pre": 0.6, "move": {"yaw": [-0.06, 0.06], "zoom": [0.75, 0.62]}},
+    {"name": "13-markab-wall", "scene": "markab", "cam": 5, "t": 5.5, "len": 1.6, "warm": 3, "size": [1600, 900], "move": {"pan": true, "pitch": [0.3, -0.25]}},
+    {"name": "15-city-night", "scene": "city", "cam": 1, "t": 1900, "warm": 3},
+    {"name": "16-city-day", "scene": "city", "cam": 1, "t": 480, "warm": 3},
+    {"name": "17-cockpit", "scene": "chase", "cam": 2, "t": 4.7, "len": 2.5, "pre": 0.3},
+    {"name": "18-colony-earth", "scene": "colony", "cam": 1, "t": 6.0, "len": 3.0, "move": {"yaw": 1.84, "pitch": 0.17, "zoom": [1.1, 0.55], "ease": "lin"}}
+  ]
+}
