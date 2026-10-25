@@ -12,6 +12,7 @@ pub mod ai;
 pub mod aim;
 pub mod arms;
 pub mod bodies;
+pub mod car;
 pub mod chunks;
 pub mod collide;
 pub mod colony;

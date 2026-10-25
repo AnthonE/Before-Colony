@@ -1217,6 +1217,66 @@ fn foot_golden_wasm() {
     assert_eq!(foot_hash(), FOOT_GOLDEN);
 }
 
+/// Hash of 8 cars and 4 scooters (`bc_sim::car`, the tick's and the driver's) taken from the motor
+/// pools on three strips and driven 900 ticks: away down the avenue, turning across it onto the
+/// kerbs and into the walls and posts, braking, reversing and the handbrake.
+const CARS_GOLDEN: u64 = 0xfac7_195f_8bf0_05a1;
+
+fn cars_hash() -> u64 {
+    use bc_sim::car::{Drive, Kind, Vehicle};
+    use bc_sim::colony::pools::{POOLS, pool, pool_near};
+    use core::f32::consts::{FRAC_PI_2, PI};
+
+    let mut cars: Vec<Vehicle> = (0..12usize)
+        .map(|k| {
+            let strip = (k % 3) as u8;
+            let i = (k * 5) % POOLS;
+            let (s, x) = pool(strip, i);
+            assert_eq!(pool_near(strip, s, x), Some(i), "taken at a pool");
+            let kind = if k < 8 { Kind::Car } else { Kind::Scooter };
+            let yaw = [FRAC_PI_2, FRAC_PI_2 * 3.0, 0.0, PI][k % 4];
+            Vehicle::new(kind, strip, s, x, yaw)
+        })
+        .collect();
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    let mut knocks = 0;
+    for n in 0..900u32 {
+        for (k, v) in cars.iter_mut().enumerate() {
+            let k = k as u32;
+            let d = match (n / 100 + k) % 6 {
+                0 => Drive { throttle: 1.0, ..Drive::default() },
+                1 => Drive { throttle: 0.7, steer: 1.0, ..Drive::default() },
+                2 => Drive { throttle: 1.0, steer: -0.6, ..Drive::default() },
+                3 => Drive { throttle: -1.0, ..Drive::default() },
+                4 => Drive { throttle: 0.4, steer: 0.3, handbrake: n % 100 > 70 },
+                _ => Drive { throttle: 1.0, steer: if n % 40 < 20 { 0.9 } else { -0.9 }, ..Drive::default() },
+            };
+            let before = v.speed;
+            v.tick(&d);
+            knocks += usize::from(before > 1.0 && v.speed < 0.0);
+            for b in [v.x, v.s, v.yaw, v.speed, v.wheel] {
+                fnv(&mut h, b.to_bits());
+            }
+        }
+    }
+    assert!(knocks > 0, "something was run into");
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn cars_golden_native() {
+    let h = cars_hash();
+    assert_eq!(h, cars_hash(), "must be reproducible within a process");
+    assert_eq!(h, CARS_GOLDEN, "the cars' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn cars_golden_wasm() {
+    assert_eq!(cars_hash(), CARS_GOLDEN);
+}
+
 /// Hash after 600 ticks of suits flying the colony's inside: launched from the inner gate, some on
 /// flight assist weaving among the towers, some falling to the floor and the roofs, firing all the
 /// while (which the colony's law ignores), and two with their grips armed, landing on the avenue

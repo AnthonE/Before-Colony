@@ -427,6 +427,33 @@ fn the_street_walks_without_allocating() {
 }
 
 #[test]
+fn the_cars_drive_without_allocating() {
+    // 48 cars and scooters (`bc_sim::car`) from every strip's motor pools, driven 900 ticks into
+    // whatever's there.
+    use bc_sim::car::{Drive, Kind, Vehicle};
+    use bc_sim::colony::pools::{POOLS, pool};
+    let mut cars: Vec<Vehicle> = (0..48usize)
+        .map(|k| {
+            let (s, x) = pool((k % 3) as u8, k % POOLS);
+            let kind = if k % 4 == 0 { Kind::Scooter } else { Kind::Car };
+            Vehicle::new(kind, (k % 3) as u8, s, x, k as f32 * 0.7)
+        })
+        .collect();
+    let ((), n) = bc_alloc::count(|| {
+        for t in 0..900u32 {
+            for (k, v) in cars.iter_mut().enumerate() {
+                let k = k as u32;
+                let steer = [0.0, 1.0, -0.7][((t / 60 + k) % 3) as usize];
+                let throttle = [1.0, 0.5, -1.0, 1.0][((t / 150 + k) % 4) as usize];
+                v.tick(&Drive { throttle, steer, handbrake: (t + k) % 200 > 190 });
+            }
+        }
+    });
+    assert!(cars.iter().all(|v| v.x.is_finite() && v.s.is_finite()));
+    assert_eq!(n, 0, "heap operations driving: {n}");
+}
+
+#[test]
 fn the_overlay_answers_without_allocating() {
     // The homes' overlay (`colony::homes::Overlay`), sized once: homes put in, shut, opened and
     // taken out, and walkers' boxes asked of it all along the street, as the tick will.
