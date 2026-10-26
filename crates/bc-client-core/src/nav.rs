@@ -25,7 +25,10 @@ use bc_sim::content::salvage::{DOCK_CENTER, DOCK_RADIUS};
 use bc_sim::content::{FrameSpec, drone_name, frame, frame_name};
 use bc_sim::field::FIELD_CENTER;
 use bc_sim::flight::{FA_G_CAP, FlightMods, ion_thrust};
-use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS, colony_sweep};
+use bc_sim::world::{
+    COLONY_CENTER, COLONY_HALF_WIDTH, COLONY_RADIUS, COLONY_REACH, colony_clearance, colony_surface,
+    colony_sweep,
+};
 use glam::Vec3;
 
 use crate::InputContext;
@@ -50,7 +53,7 @@ pub const STANDOFF: f32 = 150.0;
 pub const OVER_SPOT: f32 = 120.0;
 /// And this far off a suit it was sent to, alongside it.
 pub const ALONGSIDE: f32 = 300.0;
-/// And this far off the colony's hull (it can't be landed on: its hull moves at 177 m/s).
+/// And this far off the colony's hull (it can't be landed on: its rim moves at 99 m/s).
 pub const OFF_HULL: f32 = 800.0;
 /// The auto-nav cruises no faster than this, m/s, whatever the frame's flight assist allows: fast
 /// enough to cross the sector in two minutes, slow enough to turn round the colony's ring.
@@ -226,7 +229,7 @@ impl Place {
         let still = |pos: Vec3, reach: f32| Some(Located { pos, vel: Vec3::ZERO, reach });
         let bodies = &world.bodies;
         match self {
-            Place::Colony => still(COLONY_CENTER, COLONY_HALF_LENGTH),
+            Place::Colony => still(COLONY_CENTER, COLONY_REACH),
             Place::Dock => still(DOCK_CENTER, DOCK_RADIUS),
             Place::Field => still(FIELD_CENTER, 0.0),
             Place::Landmark(k) => {
@@ -271,17 +274,15 @@ impl Place {
         let still = |point: Vec3, body: Option<Body>| Some(Arrival { point, vel: Vec3::ZERO, body });
         match self {
             Place::Colony => {
-                // Off the hull (or a cap) where it's nearest.
+                // Off the ring where it's nearest: its hull or a side (from the hole, off the side
+                // nearer, rather than across the ceiling).
+                let (at, normal) = colony_surface(from);
                 let rel = from - COLONY_CENTER;
-                let x = rel.x.clamp(-COLONY_HALF_LENGTH, COLONY_HALF_LENGTH);
-                let radial = Vec3::new(0.0, rel.y, rel.z).normalize_or(Vec3::Y);
-                let hull = COLONY_CENTER + Vec3::new(x, 0.0, 0.0) + radial * COLONY_RADIUS;
-                let point = if rel.x.abs() > COLONY_HALF_LENGTH
-                    && Vec3::new(0.0, rel.y, rel.z).length() < COLONY_RADIUS
-                {
-                    COLONY_CENTER + Vec3::new(rel.x.signum() * (COLONY_HALF_LENGTH + OFF_HULL), rel.y, rel.z)
+                let point = if normal.dot(Vec3::new(0.0, rel.y, rel.z)) < 0.0 {
+                    let side = if rel.x < 0.0 { -1.0 } else { 1.0 };
+                    COLONY_CENTER + Vec3::new(side * (COLONY_HALF_WIDTH + OFF_HULL), rel.y, rel.z)
                 } else {
-                    hull + radial * OFF_HULL
+                    at + normal * OFF_HULL
                 };
                 still(point, None)
             }
@@ -453,14 +454,6 @@ impl Course {
     }
 }
 
-/// How far `p` is outside the colony's solid (its hull or a cap), m; negative inside.
-pub fn colony_clearance(p: Vec3) -> f32 {
-    let rel = p - COLONY_CENTER;
-    let radial = Vec3::new(0.0, rel.y, rel.z).length() - COLONY_RADIUS;
-    let along = rel.x.abs() - COLONY_HALF_LENGTH;
-    if radial > 0.0 && along > 0.0 { (radial * radial + along * along).sqrt() } else { radial.max(along) }
-}
-
 /// What a course must keep off: the colony, and the landmarks where they are at a moment.
 struct Obstacles {
     /// Each landmark's pose, shape and reach.
@@ -534,13 +527,14 @@ impl Obstacles {
         true
     }
 
-    /// The points a course may turn at: a ring round the colony at five stations along it, and
-    /// fourteen round each landmark (along its axes and its diagonals).
+    /// The points a course may turn at: a ring round the colony at three stations along its axis
+    /// (beyond each side and over its middle), and fourteen round each landmark (along its axes and
+    /// its diagonals; the docking hub's among them).
     fn waypoints(&self) -> Vec<Vec3> {
         let mut out = Vec::new();
         let r = COLONY_RADIUS + COLONY_CLEAR;
-        let ends = COLONY_HALF_LENGTH + COLONY_CLEAR;
-        for x in [-ends, -COLONY_HALF_LENGTH * 0.5, 0.0, COLONY_HALF_LENGTH * 0.5, ends] {
+        let ends = COLONY_HALF_WIDTH + COLONY_CLEAR;
+        for x in [-ends, 0.0, ends] {
             for k in 0..8 {
                 let a = k as f32 * core::f32::consts::TAU / 8.0;
                 out.push(COLONY_CENTER + Vec3::new(x, r * a.cos(), r * a.sin()));

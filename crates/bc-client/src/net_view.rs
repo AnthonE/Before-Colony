@@ -16,7 +16,6 @@ use bc_sim::content::{SPECIAL_MOUNT, SpecialKind, frame, weapon};
 use bc_sim::flight::{Thrusters, thrusters};
 use bc_sim::ground::{GRIP_ACCEL, LAND_SPEED_MAX};
 use bc_sim::tuning::{Tuning, flight_mods};
-use bc_sim::world::COLONY_CENTER;
 use bevy::prelude::*;
 
 use crate::input::Aim;
@@ -471,10 +470,7 @@ pub fn sync_view(
                     .pose(bc_sim::bodies::Body::Landmark(id))
                     .zip(bodies.set.shape(bc_sim::bodies::Body::Landmark(id)))
                     .map_or(-dir, |(p, shape)| p.rot * shape.probe(p.to_local(at)).normal),
-                _ => {
-                    let rel = at - COLONY_CENTER;
-                    Vec3::new(0.0, rel.y, rel.z).normalize_or(Vec3::Y)
-                }
+                _ => bc_sim::world::colony_surface(at).1,
             };
             (at, normal)
         });

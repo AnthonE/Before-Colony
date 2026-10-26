@@ -1,8 +1,14 @@
-# Before Colony wire protocol (v39)
+# Before Colony wire protocol (v40)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v40 (from v39): the First Colony is a ring (`docs/RING.md`). Nothing on the wire changes shape, but
+what both ends simulate does, so they must agree: the colony is a ring 1 km in radius and 600 m wide,
+centred at (−16,250, −4,200, 0) and turning once every 1,903 ticks; the docking hub landmark is its
+drum, spine and spokes on the same centre; the pilots' bays are on the drum's forward face, 400 m
+from the axis (0.4 g); and a lock-on's up is the sector's +Y (`bc_sim::world::up_at`).
 
 v39 (from v38): the walkers' codecs, for the street in the tick (`docs/OPEN_CITY.md`). No server
 walks anyone in the tick yet (that comes behind a later `--street`), so nothing below is sent by

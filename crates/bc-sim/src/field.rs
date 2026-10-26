@@ -12,7 +12,6 @@ use glam::{Quat, Vec3};
 use crate::flight::FlightState;
 use crate::math::{Rng, floor, length, normalize_or, quat_axis_angle, sqrt};
 use crate::storage::{BitSet, boxed};
-use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
 
 /// Ore kinds: nickel-iron (common), titanium, volatiles (ices), and exotic metals, the feedstock of
 /// zero-G alloys (rare).
@@ -22,9 +21,10 @@ pub const SHAPES: u8 = 12;
 /// How close a suit's centre comes to a rock's surface, m.
 pub const SUIT_CLEARANCE: f32 = 8.0;
 
-/// Centre of the field (the combat zone above the colony).
+/// Centre of the field (the combat zone, 16 km out from the colony along its axis).
 pub const FIELD_CENTER: Vec3 = Vec3::new(0.0, 900.0, 0.0);
-/// Keep-out zones: the faction spawn bases (see `sim::spawn_point`), and room around the colony.
+/// Keep-out zones: the faction spawn bases (see `sim::spawn_point`), and the volume the colony once
+/// filled.
 pub(crate) const SPAWN_BASES: [Vec3; 3] = [
     Vec3::new(-4_200.0, 700.0, -3_200.0),
     Vec3::new(4_200.0, 700.0, -3_200.0),
@@ -32,6 +32,12 @@ pub(crate) const SPAWN_BASES: [Vec3; 3] = [
 ];
 const SPAWN_CLEARANCE: f32 = 500.0;
 const COLONY_CLEARANCE: f32 = 150.0;
+/// The volume the field keeps clear of: the cylinder the First Colony was before it was a ring
+/// (`docs/RING.md`), kept so the field (its rocks, Fornax's neighbours, every hiding place pilots
+/// know) is where it was. The ring sits in it, at its −X end.
+const CLEARED_CENTER: Vec3 = Vec3::new(0.0, -4_200.0, 0.0);
+const CLEARED_RADIUS: f32 = 3_200.0;
+const CLEARED_HALF_LENGTH: f32 = 16_000.0;
 
 /// Broad-phase grid: cell edge (m) and hash buckets.
 const CELL: f32 = 256.0;
@@ -242,10 +248,10 @@ impl Field {
 
     /// Whether a rock of `radius` at `pos` would sit inside a keep-out zone.
     fn keep_out(pos: Vec3, radius: f32) -> bool {
-        let rel = pos - COLONY_CENTER;
+        let rel = pos - CLEARED_CENTER;
         let radial = sqrt(rel.y * rel.y + rel.z * rel.z);
-        let colony = rel.x.abs() <= COLONY_HALF_LENGTH + COLONY_CLEARANCE + radius
-            && radial <= COLONY_RADIUS + COLONY_CLEARANCE + radius;
+        let colony = rel.x.abs() <= CLEARED_HALF_LENGTH + COLONY_CLEARANCE + radius
+            && radial <= CLEARED_RADIUS + COLONY_CLEARANCE + radius;
         colony || SPAWN_BASES.iter().any(|b| length(*b - pos) < SPAWN_CLEARANCE + radius)
     }
 

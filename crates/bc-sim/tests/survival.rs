@@ -57,14 +57,14 @@ fn a_suit_launches_as_it_was_built() {
     let i = id.idx();
     let spec = frame(FrameId::Argo);
     // In its bay's cradle, standing in the door facing out of it, carried round the axis with
-    // the bay at its 125 m/s, its head toward the axis.
+    // the bay at its 40 m/s, its head toward the axis.
     let Body::Bay(n) = sim.suits.anchor[i].body else { panic!("in its bay") };
     assert!(sim.in_bay(i) && sim.footing(i) == Footing::Grounded);
     let door = bay_pose(n, sim.tick(), 0.0);
     let f = sim.suits.flight[i];
     assert!((f.pos - door.to_world(BAY_RIDE_LOCAL)).length() < 0.01);
     assert!((f.rot * Vec3::Z).dot(-Vec3::X) > 0.99);
-    assert!((f.vel - door.point_vel(f.pos)).length() < 0.01 && (f.vel.length() - 124.7).abs() < 1.0);
+    assert!((f.vel - door.point_vel(f.pos)).length() < 0.01 && (f.vel.length() - 39.6).abs() < 1.0);
     assert!((f.rot * Vec3::Y).dot(-(door.rot * Vec3::Y)) > 0.99);
     assert_eq!(f.propellant, 1_200.0);
     assert_eq!(sim.suits.part_hp[i][Part::Torso as usize], spec.part_hp[Part::Torso as usize] * 0.8);
@@ -239,14 +239,14 @@ fn too_fast_or_asleep_it_doesnt_dock() {
     assert!(sim.dock(id).is_none());
     assert!(sim.wake(id));
     assert!(sim.dock(id).is_some());
-    // Launches come out of their bays' doors, each its own, round the ring.
+    // Launches come out of their bays' doors, each its own, round the hub's mouth.
     let mut bays = Vec::new();
     for _ in 0..12 {
         let id = sim.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &stripped_argo()).unwrap();
         let Body::Bay(n) = sim.suits.anchor[id.idx()].body else { panic!("in its bay") };
         let door = bay_pose(n, sim.tick(), 0.0);
         assert!((sim.suits.flight[id.idx()].pos - door.to_world(BAY_RIDE_LOCAL)).length() < 0.01);
-        assert!((sim.suits.flight[id.idx()].pos - DOCK_CENTER).length() > DOCK_RADIUS + 1_000.0);
+        assert!((sim.suits.flight[id.idx()].pos - DOCK_CENTER).length() > DOCK_RADIUS + 200.0);
         assert!(!bays.contains(&n));
         bays.push(n);
     }
@@ -340,11 +340,11 @@ fn a_suit_lands_on_the_docking_hub_walks_onto_its_deck_hatch_and_docks() {
     fly_out(&mut sim, id);
     let hub = Body::Landmark(DOCKING_HUB);
     let pose = |sim: &Sim| Bodies::at(&sim.field, sim.landmarks(), sim.tick()).pose(hub).unwrap();
-    // At rest 20 m off the hub's mouth, 70 m off its axis, facing it, its grip armed: caught by the
-    // face (which moves there at under 4 m/s), it lands.
+    // At rest 20 m off the hub's mouth, 40 m off its axis, facing it, its grip armed: caught by the
+    // face (which moves there at 4 m/s), it lands.
     let p = pose(&sim);
     let f = &mut sim.suits.flight[i];
-    f.pos = p.to_world(Vec3::new(HUB_MOUTH_X - 20.0, 70.0, 0.0));
+    f.pos = p.to_world(Vec3::new(HUB_MOUTH_X - 20.0, 40.0, 0.0));
     f.vel = Vec3::ZERO;
     f.ang_vel = Vec3::ZERO;
     f.rot = look_rotation(Vec3::X, Vec3::Y);

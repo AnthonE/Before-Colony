@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0xc0b8_924e_5dfa_1705;
+const GOLDEN: u64 = 0x2c22_37ed_2539_f900;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Lodestars duelling in pairs among drones: every blade, the
 /// Pincer Strike, the Talon, the flamethrower, the Eclipse, guided missiles, Full Salvo,
 /// Aquila and the Lodestars' guns (changes deliberately as their mechanics arrive).
-const LODESTARS_GOLDEN: u64 = 0xdabf_caea_d2b7_5323;
+const LODESTARS_GOLDEN: u64 = 0xf546_c352_c62e_b633;
 
 fn lodestars_hash() -> u64 {
     use bc_proto::events::Event;
@@ -109,7 +109,7 @@ fn lodestars_golden_wasm() {
 /// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
 /// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
 /// circling, burst-stepping now and then, among drones.
-const LOCKON_GOLDEN: u64 = 0x43b0_44d0_8ba4_760a;
+const LOCKON_GOLDEN: u64 = 0xae9d_80e2_bccb_f121;
 
 fn lockon_hash() -> u64 {
     let (mut sim, duels) = common::lodestar_crowd(8, 12, 21);
@@ -469,9 +469,9 @@ fn sleepers_golden_wasm() {
 }
 
 /// Hash after launches from the bays (survival): eight suits ride their bays' cradles round the
-/// ring, a few firing (which the bays' law clears), let go a few ticks apart and are thrown out of
+/// hub's mouth, a few firing (which the bays' law clears), let go a few ticks apart and are thrown out of
 /// their doors, and fly on under flight assist, some under the stick.
-const BAYS_GOLDEN: u64 = 0x6475_b9ab_de9f_3a06;
+const BAYS_GOLDEN: u64 = 0x4f81_f781_1177_19fb;
 
 fn bays_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};

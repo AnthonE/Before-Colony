@@ -12,10 +12,11 @@ use glam::Vec3;
 
 use crate::colony::city::{Stage, solid};
 use crate::colony::frame::{CityPos, gravity};
-use crate::math::{atan2, cos, sin, wrap_tau};
+use crate::math::{atan2, cos, sin, sqrt, wrap_tau};
 
-/// The pull where nothing says otherwise, m/s² (the bay's, at 0.7 g).
-pub const GRAVITY: f32 = 6.9;
+/// The pull where nothing says otherwise, m/s²: the bays', on the docking hub's drum at 0.4 g
+/// (`colony::hub::bay_g`).
+pub const GRAVITY: f32 = 3.92;
 
 /// What a walker walks among, in its frame (Y up).
 pub trait Solid {
@@ -45,8 +46,11 @@ pub const STEP: f32 = 0.45;
 pub const WALK: f32 = 4.2;
 /// Running speed, m/s.
 pub const RUN: f32 = 7.0;
-/// A jump's speed off the ground, m/s.
+/// A jump's speed off the ground, m/s, under 0.9 g or more.
 pub const JUMP: f32 = 3.6;
+/// How high a jump goes in a lighter pull, m: as high as at 0.9 g, so a walker in the hub's 0.4 g
+/// vaults nothing a walker in the town couldn't (a half wall is 1.5 m).
+const JUMP_HEIGHT: f32 = JUMP * JUMP / (2.0 * 0.9 * crate::config::G0);
 /// How fast the legs change the body's speed on the ground, m/s².
 pub const ACCEL_GROUND: f32 = 40.0;
 /// And in the air, m/s².
@@ -150,7 +154,8 @@ impl Walker {
         self.vel.x += change.x;
         self.vel.z += change.z;
         if s.jump && self.grounded {
-            self.vel.y = JUMP;
+            let g = bay.gravity(self.feet);
+            self.vel.y = if 2.0 * g * JUMP_HEIGHT < JUMP * JUMP { sqrt(2.0 * g * JUMP_HEIGHT) } else { JUMP };
             self.grounded = false;
         }
         self.vel.y -= bay.gravity(self.feet) * dt;

@@ -222,7 +222,7 @@ pub fn publish_game(
     dev.set("lock_slot", game.hard.slot().map_or(-1, i32::from));
     let (range, level) = match (game.hard.target(w, t), core.own_view()) {
         (Some(p), Some(v)) => {
-            let up = bc_sim::world::colony_up(v.pos);
+            let up = bc_sim::world::up_at(v.pos);
             let r = p.pos - v.pos;
             ((r - up * r.dot(up)).length(), r.dot(up))
         }

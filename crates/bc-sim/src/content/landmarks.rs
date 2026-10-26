@@ -11,10 +11,13 @@
 //!   a bowl in the aft module's end face on the spin axis, is a hide spot.
 //! - **Hermit**, a big asteroid 1.8 km long: static, and it can't be mined or broken. A crater bowl
 //!   at each of three poles is a hide spot.
-//! - **The docking hub** off the colony's −X end cap ([`DOCKING_HUB`]): its spire and the modules
-//!   stacked on it, turning with the colony (`colony::hub`). Near its middle its end face moves
-//!   slowly enough to land on, and a suit standing on the deck hatch there docks. (The colony draws
-//!   it; it's a landmark so that it's solid, and walked like any other.)
+//! - **The docking hub** on the ring's axis ([`DOCKING_HUB`]): its drum, forward of the ring, the
+//!   spine through the ring's hole and the six spokes out to its ceiling, turning with the colony
+//!   (`colony::hub`). Near its middle the drum's forward face (the mouth) moves slowly enough to
+//!   land on, and a suit standing on the deck hatch there docks. (The colony draws it; it's a
+//!   landmark so that it's solid, and walked like any other.) It has no hide spots, so reshaping it
+//!   from the cylinder's spire to the ring's drum (`docs/RING.md`) left [`LANDMARKS_VERSION`] where
+//!   it was: nothing saved about the landmarks keys on it, and a suit parked in a hide spot stays.
 //!
 //! Hide spots are bowls cut from the shape (exact spheres), so their rims are real cover.
 
@@ -22,9 +25,8 @@ use glam::{Quat, Vec3};
 
 use super::names;
 use crate::bodies::{Base, Prim, Shape, SphereCut};
-use crate::colony::hub::{SPIRE_RADIUS, SPIRE_TIERS};
-use crate::content::salvage::DOCK_HUB_LENGTH;
-use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_SPIN_PERIOD_TICKS};
+use crate::colony::hub::{HUB_PRIMS, MOUTH_X};
+use crate::world::{COLONY_CENTER, COLONY_SPIN_PERIOD_TICKS};
 
 /// Bumped with `PROTOCOL_VERSION` on any change to [`LANDMARKS`] (it keys what's saved about them).
 pub const LANDMARKS_VERSION: u16 = 2;
@@ -137,15 +139,12 @@ const HERMIT: LandmarkDef = LandmarkDef {
     colony: false,
 };
 
-/// The docking hub's middle: halfway along its spire, on the colony's axis.
-const HUB_CENTER: Vec3 =
-    Vec3::new(COLONY_CENTER.x - COLONY_HALF_LENGTH - DOCK_HUB_LENGTH * 0.5, COLONY_CENTER.y, COLONY_CENTER.z);
-/// Where its end face (the spire's mouth) is, in its frame: x.
-pub const HUB_MOUTH_X: f32 = -DOCK_HUB_LENGTH * 0.5;
+/// Where its forward face (the mouth) is, in its frame (centred on the ring's middle): x.
+pub const HUB_MOUTH_X: f32 = MOUTH_X;
 
 const HUB: LandmarkDef = LandmarkDef {
     name: "DOCKING HUB",
-    center: HUB_CENTER,
+    center: COLONY_CENTER,
     orbit_radius: 0.0,
     orbit_period: 0,
     orbit_phase: 0,
@@ -154,27 +153,12 @@ const HUB: LandmarkDef = LandmarkDef {
     spin_axis: Vec3::X,
     spin_period: COLONY_SPIN_PERIOD_TICKS,
     shape: Shape { base: Base::Union(&HUB_PRIMS), cuts: &[] },
-    // The widest tier's rim at the cap's end: (450, 560) out.
-    bound: 720.0,
+    // The drum's rim at its mouth: (650, 440) out.
+    bound: 790.0,
     grippable: true,
     hides: &[],
     colony: true,
 };
-
-/// The spire, its mouth at x = −450 and its root in the end cap at +450, and the modules stacked
-/// on it (`colony::hub::SPIRE_TIERS`, in its frame).
-const HUB_PRIMS: [Prim; 5] = [
-    Prim::CylinderX { c: Vec3::ZERO, half_len: DOCK_HUB_LENGTH * 0.5, r: SPIRE_RADIUS, round: 6.0 },
-    hub_tier(0),
-    hub_tier(1),
-    hub_tier(2),
-    hub_tier(3),
-];
-
-const fn hub_tier(k: usize) -> Prim {
-    let (x, r, t) = SPIRE_TIERS[k];
-    Prim::CylinderX { c: Vec3::new(x - HUB_CENTER.x, 0.0, 0.0), half_len: t * 0.5, r, round: 4.0 }
-}
 
 /// A crater bowl at each of three poles (exact surface points, whose normals are the axes): each
 /// about 30 m deep with a 60 m rim.
@@ -190,12 +174,12 @@ mod tests {
     use crate::bodies::{Bodies, Body, MAX_CUTS, MAX_LANDMARKS, Probe};
     use crate::colony::hub::{BAYS, bay_pose};
     use crate::config::{DT, SECTOR_LIMIT, SimConfig};
-    use crate::content::salvage::{DOCK_CENTER, DOCK_HUB_LENGTH, DOCK_RADIUS};
+    use crate::content::salvage::{DOCK_CENTER, DOCK_RADIUS};
     use crate::field::{FIELD_CENTER, Field, SPAWN_BASES};
     use crate::math::{Rng, angle_between, cos, length, normalize_or, sin, sqrt};
     use crate::sim::Sim;
     use crate::world::COLONY_SPIN_PERIOD_TICKS;
-    use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
+    use crate::world::{COLONY_CENTER, colony_clearance};
     use core::f32::consts::{PI, TAU};
 
     /// A normal jump between steps bigger than this is a wall, not an edge to walk over (the
@@ -324,9 +308,9 @@ mod tests {
             assert!(p.rot.dot(want).abs() > 1.0 - 1e-6, "tick {t}");
             assert_eq!(p.pos, hub.center);
         }
-        // Its mouth where the colony draws it, its root in the end cap.
-        assert_eq!(hub.center.x + HUB_MOUTH_X, crate::colony::hub::SPIRE_MOUTH_X);
-        assert_eq!(hub.center.x - HUB_MOUTH_X, COLONY_CENTER.x - COLONY_HALF_LENGTH);
+        // Its mouth where the colony draws it; nowhere on it to hide.
+        assert_eq!(hub.center + Vec3::X * HUB_MOUTH_X, COLONY_CENTER + Vec3::X * crate::colony::hub::MOUTH_X);
+        assert!(hub.hides.is_empty());
     }
 
     #[test]
@@ -334,14 +318,9 @@ mod tests {
         const CLEAR: f32 = 2_000.0;
         // The field's rocks lie 1.2 to 7.2 km from its centre, with half-axes up to 64 × 1.6 m.
         const FIELD_REACH: f32 = 7_200.0 + 102.4;
-        // The colony with its docking hub (off the −X cap) and the axis port (500 m off +X).
-        let colony = |p: Vec3| {
-            let rel = p - COLONY_CENTER;
-            let (lo, hi) = (-COLONY_HALF_LENGTH - DOCK_HUB_LENGTH, COLONY_HALF_LENGTH + 500.0);
-            let along = (lo - rel.x).max(rel.x - hi).max(0.0);
-            let out = (sqrt(rel.y * rel.y + rel.z * rel.z) - COLONY_RADIUS).max(0.0);
-            sqrt(along * along + out * out)
-        };
+        // The colony: the ring, and its docking hub within the hub's bound.
+        let hub = &LANDMARKS[usize::from(DOCKING_HUB)];
+        let colony = |p: Vec3| colony_clearance(p).min(length(p - COLONY_CENTER) - hub.bound);
         let fixed = [
             Vec3::new(0.0, 5_000.0, 9_000.0),
             Vec3::new(0.0, 4_000.0, 0.0),

@@ -5,8 +5,8 @@
 //! ([`shape`]): W closes on it and stops short of it (never faster than the suit can brake from), S
 //! backs off, A/D circle it at the range it's at, and with Space and C let go the suit settles onto
 //! the target's level, the fight's floor. Space and C rise off it or drop below it; let go and the
-//! suit comes back. The fight's up is away from the colony (`bc_sim::world::colony_up`), shared by
-//! both pilots; a target standing on a body is fought with that body's ground for the floor.
+//! suit comes back. The fight's up is the sector's (`bc_sim::world::up_at`), shared by both pilots;
+//! a target standing on a body is fought with that body's ground for the floor.
 //!
 //! None of it is the server's to work out. What the keys come to goes out in the command as an
 //! ordinary stick, with the [`LockOn`] that flight assist holds it relative to (the target's
@@ -21,7 +21,7 @@ use bc_sim::config::DT;
 use bc_sim::content::{frame, weapon};
 use bc_sim::flight::{FA_RESPONSE, fa_cruise, thrusters};
 use bc_sim::ground::{Footing, GRIP_ACCEL, lockon_assist};
-use bc_sim::world::{colony_altitude, colony_up};
+use bc_sim::world::{altitude, up_at};
 use glam::Vec3;
 
 use crate::InputContext;
@@ -219,16 +219,15 @@ pub fn shape(cmd: InputCmd, lock: &mut Lock, ctx: &InputContext) -> InputCmd {
     let q = pose.pos + pose.vel * ahead;
     let vt = pose.vel;
     let r = q - s.pos;
-    // The fight's up: the colony's, or the ground of the body the target stands on (then there's
+    // The fight's up: the sector's, or the ground of the body the target stands on (then there's
     // no floor to settle on: its ground is in the way).
     let (up, floor) = match pose.ground {
         Some(g) => (g.up, false),
-        None => (colony_up(s.pos), true),
+        None => (up_at(s.pos), true),
     };
-    // How far above the suit's level the target is: over the colony's curve, its altitude less the
-    // suit's (a target a few kilometres round the hull at the same height is on the same floor);
-    // over a body's ground, along its up. And how far off it is along the ground.
-    let h = if floor { colony_altitude(q) - colony_altitude(s.pos) } else { r.dot(up) };
+    // How far above the suit's level the target is: its altitude less the suit's, or over a body's
+    // ground, along its up. And how far off it is along the ground.
+    let h = if floor { altitude(q) - altitude(s.pos) } else { r.dot(up) };
     let flat = r - up * r.dot(up);
     let d = (r.length_squared() - h * h).max(0.0).sqrt();
     // (Straight above or below it, any way across will do: the nose's.)

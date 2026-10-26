@@ -117,7 +117,7 @@ fn drones_have_no_body_to_black_out() {
 fn the_colony_hull_is_solid() {
     let spec = frame(FrameId::Argo);
     let mut s = FlightState {
-        pos: Vec3::new(0.0, -800.0, 0.0),
+        pos: bc_sim::world::COLONY_CENTER + Vec3::Y * (bc_sim::world::COLONY_RADIUS + 200.0),
         vel: Vec3::new(0.0, -300.0, 0.0),
         ..fresh(FrameId::Argo)
     };

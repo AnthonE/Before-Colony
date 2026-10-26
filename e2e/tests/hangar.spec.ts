@@ -147,9 +147,10 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await page.screenshot({ path: "artifacts/hangar-launch.png" });
   s = await until(page, "thrown out of the door", (s) => s.footing === "free" && s.launch_shots >= 1, 10_000);
   const [x, y, z] = String(s.pos).split(",").map(Number);
-  // Out by the bay ring (2.25 km off the colony's axis, past its −X face), far from the dock.
-  expect(Math.hypot(y + 4200, z)).toBeGreaterThan(1_800);
-  expect(x).toBeLessThan(-16_400);
+  // Out by the hub's mouth (the bays' doors are 400 m off the colony's axis on the drum's forward
+  // face), clear of the dock's approach.
+  expect(Math.hypot(y + 4200, z)).toBeGreaterThan(300);
+  expect(x).toBeLessThan(-16_900);
   // Out here there's nothing to dock: Enter opens the radio, and asks the dock nothing (no
   // "CAN'T: COME TO REST..." from it). Esc closes the line.
   await page.focus("#bc");

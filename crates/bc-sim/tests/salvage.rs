@@ -224,7 +224,7 @@ fn chunks_bounce_off_rocks() {
 #[test]
 fn chunks_bounce_off_the_colony() {
     let mut sim = sim(false);
-    let above = COLONY_CENTER + Vec3::new(500.0, COLONY_RADIUS + 60.0, 0.0);
+    let above = COLONY_CENTER + Vec3::new(100.0, COLONY_RADIUS + 60.0, 0.0);
     let k = free_ore(&mut sim, above, Vec3::new(0.0, -30.0, 2.0));
     step_idle(&mut sim, 120);
     let seg = free_seg(&sim, k);

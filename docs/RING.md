@@ -24,8 +24,8 @@ this one wins.
 | Phase | State |
 |---|---|
 | R1.0: this plan | written |
-| R1.1: the cylinder's inside closed by default (its code kept behind the server's `--colony` until it's cleared) | to do |
-| R1.2, R1.3: the ring in space: its hull, hub, bays, spokes and louvres, in the sector and on every screen | to do |
+| R1.1: the cylinder's inside closed by default (its code kept behind the server's `--colony` until it's cleared) | done; no rent runs meanwhile (`Homes::hold`) |
+| R1.2, R1.3: the ring in space: its hull, hub, bays, spokes and louvres, in the sector and on every screen | done (protocol 40): `world`'s ring, `colony::hub`'s drum, spine, spokes and bays at 0.4 g, `colony::louvres`, the hub landmark, the field kept, the dock's approach, nav and the salvage routes round it, up as +Y, and a first exterior of slabs and lights (`bc-client`'s `colony.rs`) and the chart's |
 | L1: the look test, painted anime on one camera, signed off by the owner | to do |
 | R1.4: the outside dressed: slab panels, light grids, beacons | to do |
 | R2: Gates' building pieces in `bc_sim::pieces`; the decks; a walkable test building | to do |
