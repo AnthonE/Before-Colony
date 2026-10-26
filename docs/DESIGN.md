@@ -933,7 +933,9 @@ the same code the agents walk with), and uses things by looking at them within r
 - **The suit's maintenance console** (by its feet): fit and strip parts, weapons and equipment,
   repair armour, overhaul systems, dismantle, the suit's stat sheet as it would launch (delta-v,
   acceleration, sensors, energy, heat, hold, the G its pilot bears, damage taken), and whether it
-  would launch.
+  would launch. While it's open the view stands off the suit in its gantry, and the console reads
+  like a mech lab: a tab per slot, the choices for it as cards that say what each would change,
+  the chosen one in full (`docs/UI.md`, "The suit's console").
 - **The cockpit hatch** (on the catwalk): board and launch.
 - **The airlock** (left wall): the way out of the bay (leave the game), or, when the colony's
   open, to the cap lifts down into it: E rides the Charter strip's, and Q chooses the next

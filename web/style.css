@@ -116,7 +116,7 @@ canvas#bc {
   inherits: true;
   initial-value: 12px;
 }
-.card, .front-pane, .frame, .prompt, .debrief, .map, .term-body .slot, .term-body .step-n {
+.card, .front-pane, .frame, .prompt, .debrief, .map, .term-body .slot, .term-body .step-n, .refit .rc, .refit .callout, .refit-pad {
   --ticks:
     linear-gradient(var(--tick), var(--tick)) left top / var(--tick-len) 1px no-repeat,
     linear-gradient(var(--tick), var(--tick)) left top / 1px var(--tick-len) no-repeat,
@@ -915,6 +915,168 @@ html.front-up #boot { display: none; }
 .term-body .status { padding: var(--s2) var(--s3); box-shadow: inset 2px 0 0 var(--cyan); background: linear-gradient(90deg, color-mix(in srgb, var(--cyan) 8%, transparent), transparent); margin-bottom: var(--s3); font-size: 12px; line-height: 1.6; }
 .term-body .status.warn { box-shadow: inset 2px 0 0 var(--amber); background: linear-gradient(90deg, color-mix(in srgb, var(--amber) 8%, transparent), transparent); }
 .term-body .status.bad { box-shadow: inset 2px 0 0 var(--red); background: linear-gradient(90deg, color-mix(in srgb, var(--red) 8%, transparent), transparent); }
+/* --- The suit's console (docs/UI.md, "The suit's console"), laid out like a mech lab: the suit
+   stands in the panel's middle, through clear glass (the game's camera stands off it in its gantry);
+   the slots as numbered tabs, the choices as cards down the left, the chosen one in full on the
+   right, the keys along the bottom. Each part is its own pane of glass, so the middle stays clear. */
+#terminal.refitting { background: radial-gradient(ellipse 34% 60% at 50% 52%, transparent 60%, rgba(0, 0, 0, 0.35) 100%); backdrop-filter: none; }
+#terminal.refitting .card.terminal {
+  max-width: 1480px;
+  height: min(94vh, 900px);
+  padding: var(--s3) var(--s4);
+  gap: var(--s2);
+  background: var(--ticks);
+  backdrop-filter: none;
+}
+#terminal.refitting .term-head, #terminal.refitting .term-log { background: var(--scan), var(--glass-deep); padding: 0 var(--s3); backdrop-filter: blur(6px); }
+#terminal.refitting .term-log { max-height: 46px; padding-top: var(--s1); padding-bottom: var(--s1); }
+#terminal.refitting .term-body { overflow: hidden; padding-right: 0; }
+.refit { height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: var(--s2); }
+.refit-top, .refit-slots, .refit-list, .refit-detail, .refit-keys { background: var(--scan), var(--glass-deep); backdrop-filter: blur(6px); }
+.refit .lbl { font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: var(--track); color: var(--label); }
+
+/* The top: the suit, whether it would launch, the totals (small labels, large numbers). */
+.refit-top { display: flex; align-items: center; gap: var(--s5); padding: var(--s2) var(--s4); }
+.refit-name { display: flex; flex-direction: column; gap: 2px; padding-left: var(--s3); box-shadow: inset 3px 0 0 var(--cyan); }
+.refit-name b { font-family: var(--label-font); font-weight: 600; font-size: var(--t-head); letter-spacing: 0.3em; color: var(--white); }
+.refit-name .des { font-size: var(--t-small); color: var(--label); letter-spacing: 0.16em; }
+.refit-launch { display: flex; flex-direction: column; gap: 2px; font-size: var(--t-small); padding-left: var(--s4); border-left: 1px solid var(--hair); color: color-mix(in srgb, var(--white) 75%, transparent); max-width: 34ch; }
+.refit-launch .lbl { color: var(--cyan); }
+.refit-launch.bad, .refit-launch.bad .lbl { color: var(--red); }
+.refit-totals { margin-left: auto; display: flex; gap: var(--s5); }
+.refit-totals > div { display: flex; flex-direction: column; align-items: flex-end; }
+.refit-totals b { font-weight: normal; font-size: 24px; color: var(--white); line-height: 1.1; }
+.refit-totals .u { font-size: var(--t-label); color: var(--label); letter-spacing: 0.12em; min-height: 1em; }
+
+/* The slots: numbered, the open one underlined; a dot where something needs doing. */
+.refit-slots { display: flex; flex-wrap: wrap; padding: 0 var(--s2); }
+.refit-slots button, .refit-mounts button {
+  border: none;
+  background: none;
+  padding: var(--s2) var(--s3);
+  font-size: var(--t-small);
+  letter-spacing: 0.2em;
+  color: color-mix(in srgb, var(--white) 55%, transparent);
+  box-shadow: inset 0 -2px 0 transparent;
+}
+.refit-slots button:hover, .refit-mounts button:hover { color: var(--white); background: none; box-shadow: inset 0 -2px 0 var(--edge); }
+.refit-slots button.active, .refit-mounts button.active { color: var(--cyan); background: none; box-shadow: inset 0 -2px 0 var(--cyan); }
+.refit .n { font-family: var(--mono); color: var(--label); opacity: 0.7; margin-right: 0.7em; letter-spacing: 0; }
+.refit .need { display: inline-block; width: 6px; height: 6px; margin-left: 0.6em; vertical-align: 1px; background: var(--amber); }
+.refit .need.bad { background: var(--red); }
+
+.refit-main { display: grid; grid-template-columns: minmax(320px, 26%) minmax(0, 1fr) minmax(290px, 24%); gap: var(--s3); min-height: 0; }
+.refit-detail { display: flex; flex-direction: column; }
+.refit-list, .refit-detail { overflow-y: auto; min-height: 0; padding: var(--s3); scrollbar-width: thin; scrollbar-color: var(--edge) transparent; }
+.refit-list h4 { margin: 0 0 var(--s3); display: flex; align-items: baseline; font-family: var(--label-font); font-weight: 600; font-size: var(--t-small); letter-spacing: 0.3em; color: var(--white); }
+.refit-list h4 .count { margin-left: auto; font-size: var(--t-label); letter-spacing: 0.16em; color: var(--label); font-weight: 400; }
+.refit-mounts { display: flex; flex-wrap: wrap; margin: calc(-1 * var(--s2)) 0 var(--s3); border-bottom: 1px solid var(--hair); }
+.refit-mounts button { padding: var(--s1) var(--s2); font-size: var(--t-label); }
+.refit-mounts button.on::after { content: "●"; margin-left: 0.4em; color: var(--cyan); }
+
+/* A choice: its name and plate, a line under it, a row per stat it changes. The chosen one's head
+   is an inverted plate (docs/UI.md, rule 3). */
+.refit .rc { padding: var(--s2) var(--s3) var(--s3); margin-bottom: var(--s2); background: var(--ticks), color-mix(in srgb, var(--label) 5%, transparent); --tick-len: 8px; --tick: var(--edge); cursor: pointer; transition: background-color 0.12s; }
+.refit .rc:hover { background: var(--ticks), color-mix(in srgb, var(--label) 10%, transparent); }
+.refit .rc.chosen { --tick: var(--cyan); background: var(--ticks), color-mix(in srgb, var(--cyan) 7%, transparent); }
+.refit .rc-head { display: flex; align-items: center; gap: var(--s2); margin: 0 calc(-1 * var(--s3)) var(--s1); padding: var(--s1) var(--s3); }
+.refit .rc.chosen .rc-head { background: var(--white); }
+.refit .rc.chosen .rc-title { color: var(--ink); }
+.refit .rc-title { font-family: var(--label-font); font-weight: 600; font-size: var(--t-body); letter-spacing: 0.12em; color: var(--white); }
+.refit .rc-sub { font-size: var(--t-small); color: color-mix(in srgb, var(--white) 60%, transparent); margin-bottom: var(--s2); display: flex; gap: var(--s1); flex-wrap: wrap; align-items: center; }
+.refit .plate { margin-left: auto; font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: 0.18em; padding: 1px 6px; color: var(--cyan); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cyan) 50%, transparent); white-space: nowrap; }
+.refit .plate.bad { color: var(--red); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 60%, transparent); }
+.refit .plate.warn { color: var(--amber); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 60%, transparent); }
+.refit .plate.dim { color: var(--label); box-shadow: inset 0 0 0 1px var(--hair); }
+.refit .rc.chosen .rc-head .plate { color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.refit .sl { display: grid; grid-template-columns: 8.5em minmax(32px, 1fr) 5.8em 4.6em; align-items: center; gap: var(--s2); font-size: 12px; line-height: 1.75; }
+.refit .sl-k { font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: 0.18em; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.refit .sl-bar { position: relative; height: 3px; background: color-mix(in srgb, var(--cyan) 14%, transparent); }
+.refit .sl-bar > i { display: block; height: 100%; background: var(--cyan); }
+.refit .sl-bar.worn > i, .refit .sl-bar.load > i { background: color-mix(in srgb, var(--white) 70%, transparent); }
+.refit .sl-bar.worn > i { background: var(--amber); }
+.refit .sl-bar.bad > i { background: var(--red); }
+.refit .sl-bar > b { position: absolute; top: -3px; width: 1px; height: 9px; background: var(--white); }
+.refit .sl-v { text-align: right; white-space: nowrap; }
+.refit .sl-d { text-align: right; white-space: nowrap; font-size: var(--t-small); }
+.refit .up { color: var(--green); }
+.refit .down { color: var(--red); }
+.refit .sys { font-size: var(--t-label); letter-spacing: 0.08em; padding: 1px 5px; color: var(--cyan); background: color-mix(in srgb, var(--cyan) 10%, transparent); }
+.refit .sys.damaged { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
+.refit .sys.failed { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); text-decoration: line-through; }
+.refit b.damaged { color: var(--amber); font-weight: normal; }
+.refit b.failed { color: var(--red); font-weight: normal; }
+.refit .cap { display: inline-block; font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: 0.08em; color: var(--white); padding: 0 5px; margin-right: 0.6em; box-shadow: inset 0 0 0 1px var(--edge); line-height: 1.6; }
+
+/* The suit, through the glass: its slots called out down either side, the suit's right on the
+   left as it faces you. Drag turns it, the wheel brings it nearer. */
+.refit-pad { position: relative; display: flex; justify-content: space-between; align-items: center; padding: var(--s3) 0 var(--s6); cursor: grab; touch-action: none; user-select: none; background: var(--ticks); --tick: color-mix(in srgb, var(--cyan) 45%, transparent); --tick-len: 18px; }
+.refit-pad:active { cursor: grabbing; }
+.refit-pad .co { display: flex; flex-direction: column; gap: var(--s3); width: min(190px, 30%); }
+.refit .callout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  border: none;
+  background: var(--ticks), var(--glass);
+  --tick-len: 6px;
+  --tick: var(--edge);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+.refit .callout .what { font-family: var(--mono); font-weight: 400; font-size: 12px; letter-spacing: 0.06em; color: var(--white); }
+.refit .callout .what .bad { color: var(--red); font-style: normal; }
+.refit .callout:hover { background: var(--ticks), color-mix(in srgb, var(--ink) 60%, var(--label) 20%); }
+.refit .callout.active { background: var(--white); }
+.refit .callout.active .lbl, .refit .callout.active .what { color: var(--ink); }
+.refit .pad-hint { position: absolute; left: 0; right: 0; bottom: var(--s2); display: flex; justify-content: center; gap: var(--s5); font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: 0.24em; color: color-mix(in srgb, var(--label) 80%, transparent); text-shadow: 0 0 6px var(--ink); pointer-events: none; }
+
+/* The chosen card, in full. */
+.refit-detail h3 { margin-top: var(--s4); }
+.refit .rd-plate { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); }
+.refit .rd-plate .plate { margin-left: 0; color: var(--ink); background: var(--white); box-shadow: none; }
+.refit .rd-plate .plate.bad { background: var(--red); }
+.refit .rd-plate .plate.warn { background: var(--amber); }
+.refit .rd-plate .plate.dim { background: var(--label); }
+.refit .rd-title { font-family: var(--label-font); font-weight: 600; font-size: 18px; letter-spacing: 0.14em; margin-bottom: var(--s1); }
+.refit .rd-about { font-size: 12px; line-height: 1.55; margin: var(--s2) 0 var(--s3); color: color-mix(in srgb, var(--white) 82%, transparent); }
+.refit .fires { display: flex; flex-direction: column; gap: var(--s1); font-size: 12px; }
+.refit .fire { display: flex; align-items: baseline; gap: var(--s1); }
+.refit .fire .cap { min-width: 3.2em; text-align: center; }
+.refit .fire em { margin-left: auto; font-style: normal; font-size: var(--t-label); color: var(--label); letter-spacing: 0.1em; }
+.refit .fire.off span { opacity: 0.5; }
+.refit .fire.off em { color: var(--red); }
+.refit .rd-sheet { width: 100%; border-collapse: collapse; font-size: 12px; }
+.refit .rd-sheet td { padding: 2px 0; border-bottom: 1px solid color-mix(in srgb, var(--label) 6%, transparent); }
+.refit .rd-sheet td.dim { font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: 0.18em; color: var(--label); opacity: 1; }
+.refit .rd-sheet td.num { text-align: right; white-space: nowrap; }
+.refit .rd-sheet s { opacity: 0.45; }
+.refit .rd-sheet td:last-child { width: 1.4em; }
+.refit-detail .note { margin: 0 0 var(--s2); }
+/* What to do stays in reach at the pane's foot, however long the sheet above it. */
+.refit .rd-acts { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: auto; padding-top: var(--s3); position: sticky; bottom: calc(-1 * var(--s3)); padding-bottom: var(--s3); background: linear-gradient(transparent, var(--ink) var(--s3)); }
+.refit .rd-acts:empty { display: none; }
+.refit .rd-acts button { padding: var(--s2) var(--s4); font-size: var(--t-small); }
+.refit .rd-acts button.primary { flex: 1 1 100%; padding: var(--s3) var(--s5); }
+
+/* The keys. */
+.refit-keys { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s3); padding: var(--s2) var(--s4); font-size: var(--t-small); color: var(--label); letter-spacing: 0.08em; }
+.refit-keys .cap { margin-right: 0.4em; }
+.refit-keys .gap { margin-left: auto; }
+
+/* Narrow: the suit's view gives way to the list and its detail. */
+@media (max-width: 1100px) {
+  .refit-main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .refit-pad { display: none; }
+  .refit-top { flex-wrap: wrap; }
+  .refit-totals { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refit .rc { transition: none; }
+}
 /* A desk read as steps (the Proving Ground's): a number, a heading, a plain line to act on. */
 .term-body .steps { display: flex; flex-direction: column; gap: var(--s4); }
 .term-body .step { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--s3); margin-bottom: 0; }

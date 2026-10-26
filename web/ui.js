@@ -787,6 +787,7 @@
     } else if (!termOpen && terminalShown) {
       terminalShown = false;
       desk = "";
+      suitView(false);
       watch("");
       watchBoard(false);
     }
@@ -1280,13 +1281,333 @@
     return out + `</table></section>`;
   }
 
-  // The suit's maintenance console: what's fitted, what could be, repairs, and the launch check.
+  // --- The suit's console, laid out like a mech lab (docs/UI.md, "The suit's console"): the slots
+  // as numbered tabs along the top; the open slot's choices down the left as cards, each with what
+  // it would change against the suit as it stands (the console's `refit`: the stat sheet with each
+  // thing on, or without it); the suit itself in the middle, seen through the glass (the game swings
+  // the camera round it in its gantry, `suit_view`: drag to turn, the wheel to come nearer); the
+  // chosen card in full on the right, with the one thing to do; the keys along the bottom. ---
+  const SUIT_SLOTS = [
+    { id: "head", label: "HEAD", part: "head" },
+    { id: "torso", label: "TORSO", part: "torso" },
+    { id: "arm_r", label: "R ARM", part: "arm_r" },
+    { id: "arm_l", label: "L ARM", part: "arm_l" },
+    { id: "legs", label: "LEGS", part: "legs" },
+    { id: "backpack", label: "BACKPACK", part: "backpack" },
+    { id: "weapons", label: "WEAPONS" },
+    { id: "equipment", label: "EQUIPMENT" },
+    { id: "service", label: "SERVICE" },
+  ];
+  // The stat sheet's rows: the field, its label, how it reads, its bar's full scale, and whether
+  // less is better.
+  const SUIT_STATS = [
+    ["mass_kg", "MASS", (x) => `${(x / 1000).toFixed(2)} t`, 16000, true],
+    ["delta_v", "DELTA-V", (x) => `${fmt(Math.round(x))} m/s`, 5000],
+    ["accel_g", "ACCEL", (x) => `${x.toFixed(2)} g`, 10],
+    ["boost_g", "BOOSTING", (x) => `${x.toFixed(2)} g`, 14],
+    ["boost_s", "BOOST", (x) => `${Math.round(x)} s`, 120],
+    ["armour", "DAMAGE TAKEN", (x) => `×${x.toFixed(2)}`, 1.2, true],
+    ["energy", "ENERGY", (x) => fmt(Math.round(x)), 300],
+    ["regen", "REGEN", (x) => `${x.toFixed(1)}/s`, 30],
+    ["heat", "HEAT SHED", (x) => `${x.toFixed(1)}/s`, 30],
+    ["sensor_m", "SENSORS", (x) => `${(x / 1000).toFixed(1)} km`, 12000],
+    ["signature", "SIGNATURE", (x) => `×${x.toFixed(2)}`, 2, true],
+    ["hold_kg", "HOLD", (x) => `${fmt(x)} kg`, 6000],
+    ["tank_kg", "TANK", (x) => `${fmt(x)} kg`, 6000],
+    ["ion_g", "ION DRIVE", (x) => `${x.toFixed(2)} g`, 0.5],
+    ["g_tolerance", "PILOT BEARS", (x) => `${x.toFixed(1)} g`, 12],
+  ];
+  // The open slot ("" until the console first shows a suit: then the first that needs work), the
+  // card chosen in each (by slot, and by mount for the equipment), the equipment mount open, and
+  // the view of the suit the page has asked the game for.
+  let suitSlot = "";
+  const suitPick = {};
+  let suitMount = -1;
+  const suitCam = { yaw: 0.35, zoom: 1 };
+  let suitViewOn = false;
+  function suitView(on) {
+    if (on === suitViewOn) return;
+    suitViewOn = on;
+    send("suit_view", { on, yaw: suitCam.yaw, zoom: suitCam.zoom });
+  }
+  const pct100 = (p) => Math.max(0, Math.min(100, p));
+  const health = (c) => (c < 35 ? "bad" : c < 75 ? "worn" : "");
+  const costLine = (cost) => (cost || []).map(([s, q]) => `${amount(s, q)} ${esc(nameOf(s))}`).join(", ");
+  // What `then` changes of `now`: a row per stat that moves, mass first, then the biggest moves.
+  function statRows(now, then, limit) {
+    if (!now || !then) return [];
+    const rows = [];
+    for (const [k, label, read, full, less] of SUIT_STATS) {
+      const a = now[k] ?? 0;
+      const b = then[k] ?? 0;
+      const rel = Math.abs(b - a) / Math.max(Math.abs(a), Math.abs(b), 1e-6);
+      if (rel < 0.004) continue;
+      const d = b - a;
+      const sign = d > 0 ? "+" : "−";
+      const delta = k === "armour" || k === "signature" ? `${sign}${Math.abs(d).toFixed(2)}` : k === "mass_kg" ? `${sign}${(Math.abs(d) / 1000).toFixed(2)} t` : `${sign}${read(Math.abs(d)).replace(/^×/, "")}`;
+      rows.push({ k, label, text: read(b), pct: (100 * b) / full, was: (100 * a) / full, delta, good: d > 0 !== !!less, rel });
+    }
+    rows.sort((x, y) => (y.k === "mass_kg") - (x.k === "mass_kg") || y.rel - x.rel);
+    return limit ? rows.slice(0, limit) : rows;
+  }
+  // A row of a card: a label, a bar (with a tick where it was), the number, what it changes.
+  const statLine = (r) =>
+    `<div class="sl"><span class="sl-k">${esc(r.label)}</span>` +
+    `<span class="sl-bar ${r.cls || ""}"><i style="width:${pct100(r.pct)}%"></i>${r.was != null ? `<b style="left:${pct100(r.was)}%"></b>` : ""}</span>` +
+    `<span class="sl-v">${esc(r.text)}</span><span class="sl-d ${r.delta ? (r.good ? "up" : "down") : ""}">${esc(r.delta || "")}</span></div>`;
+  const cap = (k) => `<span class="cap">${esc(k)}</span>`;
+
+  // The cards for a slot, each: its key, title, plate (and the plate's look), a line under the
+  // title, its rows, the stat sheet it would leave (`then`), and its detail: what it is (`about`),
+  // the one thing to do (`act`: a button's label, its data and class), others, and notes.
+  function suitCards(slot, suit, con, line) {
+    const st = con.stats;
+    const refit = con.refit || {};
+    const fits = new Set(con.fits || []);
+    const lineName = (line?.name || suit.line).toUpperCase();
+    if (slot.part) {
+      const p = slot.part;
+      const pi = catalogue.parts.findIndex((x) => x.slug === p);
+      const c = suit.parts[pi];
+      const r = refit[`part.${p}`] || {};
+      const item = `part.${suit.line}.${p}`;
+      const spare = (con.spares || {})[p];
+      const inside = catalogue.systems.filter((x) => x.part === p);
+      const broken = (con.overhauls || []).filter((o) => o.part === p);
+      const rep = (con.repairs || []).find((x) => x.part === p);
+      const tags = inside.map((x) => {
+        const o = broken.find((b) => b.system === x.slug);
+        return `<span class="sys ${o ? o.level : "ok"}" title="${esc(x.name)}${o ? ": " + o.level : ""}">${esc(x.tag)}</span>`;
+      }).join(" ");
+      const cards = [];
+      if (c != null) {
+        const notes = [];
+        if (rep) notes.push(`Repair to 100%: ${costLine(rep.cost)}.`);
+        for (const o of broken) notes.push(`Overhaul the ${esc(systemName(o.system))} (${o.level}): ${costLine(o.cost)}.`);
+        const others = [];
+        if (rep && broken.length) others.push(button("OVERHAUL", { act: "overhaul", part: p }));
+        others.push(button("STRIP", { act: "strip-part", part: p }));
+        cards.push({
+          key: "fitted",
+          title: `${lineName} ${slot.label}`,
+          plate: "FITTED",
+          sub: tags,
+          rows: [{ label: "ARMOUR", pct: c, text: `${c}%`, cls: health(c) }],
+          about: `Its systems: ${inside.map((x) => {
+            const o = broken.find((b) => b.system === x.slug);
+            return `${esc(x.name)}${o ? ` <b class="${o.level}">${o.level.toUpperCase()}</b>` : ""}`;
+          }).join(" · ") || "none"}.`,
+          act: rep ? ["REPAIR", { act: "repair", part: p }] : broken.length ? ["OVERHAUL", { act: "overhaul", part: p }] : null,
+          others,
+          notes,
+        });
+      } else {
+        cards.push({
+          key: "fitted",
+          title: `${slot.label}: NOT FITTED`,
+          plate: "NOT FITTED",
+          plateCls: "bad",
+          sub: tags,
+          rows: [],
+          about: `Nothing on the ${esc(partName(p))}: what it carries (${inside.map((x) => esc(x.name)).join(", ") || "nothing inside"}) is missing, and so is whatever hangs on it.`,
+          act: fits.has(item) ? ["FIT", { act: "fit", item }] : null,
+          notes: fits.has(item) ? [] : [`No ${esc(lineName)} ${esc(partName(p))} in the stores: make one at the fabricator, or buy one at the Exchange.`],
+        });
+      }
+      if (spare) {
+        const then = (r.with || {})[item];
+        const rows = [{ label: "ARMOUR", pct: spare.best, text: `${spare.best}%`, cls: health(spare.best), was: c, delta: c != null && spare.best !== c ? `${spare.best > c ? "+" : "−"}${Math.abs(spare.best - c)}%` : "", good: c == null || spare.best > c }];
+        const better = c == null || spare.best > c;
+        cards.push({
+          key: "spare",
+          title: `SPARE ${slot.label}`,
+          plate: "IN THE STORES",
+          sub: `${spare.count} in the stores · the best at ${spare.best}%`,
+          rows: rows.concat(statRows(st, then, 3)),
+          then,
+          about: c == null ? "It goes on as the best of them there is." : better ? `Swapped for the one fitted (${c}%), which goes back to the stores.` : `The one fitted (${c}%) is in better shape: a swap would only put it back on.`,
+          act: c == null ? (fits.has(item) ? ["FIT", { act: "fit", item }] : null) : better ? ["SWAP", { act: "swap", kind: "part", part: p, item }] : null,
+        });
+      }
+      if (c != null) {
+        const then = r.without;
+        cards.push({
+          key: "without",
+          title: `WITHOUT THE ${slot.label}`,
+          plate: "STRIP",
+          sub: p === "torso" ? "the last to come off" : "into the stores",
+          rows: statRows(st, then, 4),
+          then,
+          about: p === "torso" ? "The torso is the cockpit and the reactor: it comes off last, and leaves the gantry empty." : `Taken off into the stores, and whatever hangs on it with it.`,
+          act: ["STRIP", { act: "strip-part", part: p }],
+        });
+      }
+      return cards;
+    }
+    if (slot.id === "weapons") {
+      const mounts = (line?.mounts || []).map((m, k) => m && { ...m, k }).filter(Boolean);
+      const all = catalogue.lines.flatMap((l) => l.mounts.filter(Boolean));
+      const most = (f) => Math.max(1, ...all.map((m) => m[f] || 0));
+      const fire = mounts.map((m) => `<div class="fire ${suit.mounts[m.k] ? "" : "off"}">${cap(m.key)}<span>${esc(m.name.toUpperCase())}</span><em>${suit.mounts[m.k] ? "" : "NOT FITTED"}</em></div>`).join("") +
+        (line?.special ? `<div class="fire">${cap("H")}<span>${esc(line.special.split(":")[0].toUpperCase())}</span><em>${esc(line.special.split(":").slice(1).join(":").trim())}</em></div>` : "");
+      return mounts.map((m) => {
+        const on = suit.mounts[m.k];
+        const r = refit[`mount.${m.k}`] || {};
+        const then = on ? r.without : (r.with || {})[m.weapon];
+        const rows = [
+          { label: "DAMAGE", pct: (100 * m.damage_s) / most("damage_s"), text: `${fmt(m.damage_s)}/s` },
+          { label: "RANGE", pct: (100 * Math.log10(1 + m.range)) / Math.log10(1 + most("range")), text: m.range >= 1000 ? `${(m.range / 1000).toFixed(1)} km` : `${fmt(m.range)} m` },
+          { label: "HEAT", pct: (100 * m.heat_s) / most("heat_s"), text: `${m.heat_s}/s`, cls: "load" },
+        ];
+        if (m.rounds) rows.push({ label: "ROUNDS", pct: on ? (100 * suit.ammo[m.k]) / m.rounds : 0, text: `${fmt(on ? suit.ammo[m.k] : 0)}/${fmt(m.rounds)}`, cls: on ? "" : "bad" });
+        return {
+          key: `mount.${m.k}`,
+          title: m.name.toUpperCase(),
+          plate: on ? "FITTED" : "NOT FITTED",
+          plateCls: on ? "" : "bad",
+          sub: `${cap(m.key)} ${esc(m.class.toUpperCase())} · ${esc(partName(m.part).toUpperCase())}`,
+          rows: on ? rows : rows.concat(statRows(st, then, 1)),
+          then,
+          about: `${m.energy_s ? `Draws ${m.energy_s} energy a second firing. ` : ""}${m.rounds ? `${fmt(m.rounds)} rounds a load, ${fmt(m.munitions)} kg of munitions; the magazines are topped up from the stores at launch.` : "No rounds to load."}`,
+          fire,
+          act: on ? ["STRIP", { act: "strip-mount", mount: m.k }] : fits.has(m.weapon) ? ["FIT", { act: "fit", item: m.weapon }] : null,
+          notes: on || fits.has(m.weapon) ? [] : [`No ${esc(m.name)} in the stores: make one at the fabricator, or buy one at the Exchange.`],
+        };
+      });
+    }
+    if (slot.id === "equipment") {
+      const k = suitMount;
+      const part = (catalogue.module_mounts || [])[k];
+      const kind = (suit.modules || [])[k];
+      const r = refit[`module.${k}`] || {};
+      const partOn = suit.parts[catalogue.parts.findIndex((x) => x.slug === part)] != null;
+      const cards = [];
+      if (kind) {
+        const slug = `module.${kind}`;
+        cards.push({
+          key: slug,
+          title: nameOf(slug).toUpperCase(),
+          plate: "FITTED",
+          sub: esc(items.get(slug)?.summary),
+          rows: statRows(r.without, st, 4),
+          about: `On the ${esc(partName(part))}. Its rows say what it gives the suit against the mount empty.`,
+          act: ["STRIP", { act: "strip-module", module: k }],
+        });
+      } else {
+        cards.push({
+          key: "empty",
+          title: `${partName(part).toUpperCase()} MOUNT: EMPTY`,
+          plate: "EMPTY",
+          plateCls: "dim",
+          sub: partOn ? "" : `fit the ${esc(partName(part))} first`,
+          rows: [],
+          about: partOn ? "Equipment for it comes from the fabricator or the Exchange. One of each kind to a suit." : `The mount is on the ${esc(partName(part))}, and there's no ${esc(partName(part))}.`,
+        });
+      }
+      for (const [slug, then] of Object.entries(r.with || {})) {
+        cards.push({
+          key: slug,
+          title: nameOf(slug).toUpperCase(),
+          plate: "IN THE STORES",
+          sub: esc(items.get(slug)?.summary),
+          rows: statRows(st, then, 4),
+          then,
+          about: kind ? `In place of the ${esc(nameOf(`module.${kind}`))}, which goes back to the stores.` : `On the ${esc(partName(part))}'s mount.`,
+          act: kind ? ["SWAP", { act: "swap", kind: "module", module: k, item: slug }] : ["FIT", { act: "fit", item: slug }],
+        });
+      }
+      return cards;
+    }
+    // The service: the propellant, the workshop, wear, and taking it all apart.
+    const tank = st?.tank_kg || line?.tank || 0;
+    const grades = con.grades || [];
+    const flying = grades.find((g) => g.grade === (con.grade || "standard")) || grades[0];
+    const cards = grades.map((g) => {
+      const mine = g === flying;
+      const rows = mine ? [{ label: "IN THE TANK", pct: (100 * suit.propellant) / Math.max(1, tank), text: `${fmt(suit.propellant)} kg`, cls: health((100 * suit.propellant) / Math.max(1, tank)) }] : [];
+      for (const [k, label, read, full] of SUIT_STATS.filter(([k]) => k === "delta_v" || k === "boost_s")) {
+        const d = g[k] - (flying?.[k] ?? g[k]);
+        rows.push({ label, pct: (100 * g[k]) / full, was: mine ? null : (100 * flying[k]) / full, text: read(g[k]), delta: Math.abs(d) > 0.5 ? `${d > 0 ? "+" : "−"}${read(Math.abs(d))}` : "", good: d > 0 });
+      }
+      return {
+        key: `grade.${g.grade}`,
+        title: `${g.name.toUpperCase()} PROPELLANT`,
+        plate: mine ? "IN THE TANK" : g.stores > 0 ? "IN THE STORES" : "NONE HELD",
+        plateCls: mine || g.stores > 0 ? "" : "dim",
+        sub: `${fmt(g.stores)} kg in the stores`,
+        rows,
+        about: "A purer grade goes further on the same tank. Fuelling with another pumps what's in the tank back to the stores.",
+        act: g.stores > 0 && (!mine || suit.propellant < tank) ? [mine ? "TOP UP" : `FUEL ${esc(g.name.toUpperCase())}`, { act: "fuel", grade: g.grade }] : null,
+      };
+    });
+    const repairs = con.repairs || [];
+    const overhauls = con.overhauls || [];
+    const wear = con.wear || [];
+    const serviceable = wear.some((w) => w.used * 100 >= (con.service_from_pct || 100));
+    cards.push({
+      key: "workshop",
+      title: "THE WORKSHOP",
+      plate: repairs.length || overhauls.length ? "WORK TO DO" : "ALL SOUND",
+      plateCls: repairs.length || overhauls.length ? "warn" : "",
+      sub: `${repairs.length} to repair · ${overhauls.length} to overhaul`,
+      rows: catalogue.parts.map((p, k) => suit.parts[k] != null && { label: p.name.toUpperCase(), pct: suit.parts[k], text: `${suit.parts[k]}%`, cls: health(suit.parts[k]) }).filter(Boolean),
+      about: "Every part's armour back to 100%, and every damaged or failed system restored, from the stores.",
+      act: repairs.length ? ["REPAIR ALL", { act: "repair", part: "" }] : overhauls.length || serviceable ? ["OVERHAUL ALL", { act: "overhaul", part: "" }] : null,
+      others: repairs.length && (overhauls.length || serviceable) ? [button("OVERHAUL ALL", { act: "overhaul", part: "" })] : [],
+      notes: repairs.map((x) => `${esc(partName(x.part))}: ${costLine(x.cost)}`).concat(overhauls.map((o) => `${esc(systemName(o.system))}: ${costLine(o.cost)}`)),
+    });
+    cards.push({
+      key: "wear",
+      title: "SERVICE LIFE",
+      plate: serviceable ? "DUE" : wear.length ? "IN SERVICE" : "AS NEW",
+      plateCls: serviceable ? "warn" : "",
+      sub: wear.length ? `${wear.length} systems worn` : "nothing worn yet",
+      rows: wear.map((w) => {
+        const used = Math.min(100, Math.round(w.used * 100));
+        return { label: systemName(w.system).toUpperCase(), pct: used, text: `${used}% used`, cls: used >= 75 ? "bad" : used >= 40 ? "worn" : "" };
+      }),
+      about: `Thruster hours, rounds fired and overheats wear systems down: at 100% one comes home a level worse. From ${con.service_from_pct}% OVERHAUL services it (${costLine(con.service_cost)} each) and its life starts again.`,
+      act: serviceable ? ["OVERHAUL ALL", { act: "overhaul", part: "" }] : null,
+    });
+    cards.push({
+      key: "dismantle",
+      title: "DISMANTLE",
+      plate: "ALL OF IT",
+      plateCls: "bad",
+      sub: "everything back in the stores",
+      rows: [],
+      about: "Strips the suit bare, torso and all, into the stores: the gantry stands empty until a torso goes on again.",
+      danger: ["DISMANTLE", { act: "dismantle" }],
+    });
+    return cards;
+  }
+
+  // What needs doing in a slot: "bad" (missing, failed, or what stops a launch), "warn" (worn,
+  // damaged, not loaded), or "".
+  function suitSlotState(slot, suit, con, line) {
+    if (slot.part) {
+      const pi = catalogue.parts.findIndex((x) => x.slug === slot.part);
+      const c = suit.parts[pi];
+      const faults = (con.overhauls || []).filter((o) => o.part === slot.part);
+      if (c == null || faults.some((o) => o.level === "failed")) return "bad";
+      return faults.length || c < 50 ? "warn" : "";
+    }
+    if (slot.id === "weapons") return (line?.mounts || []).some((m, k) => m && !suit.mounts[k]) ? "warn" : "";
+    if (slot.id === "service") {
+      const tank = con.stats?.tank_kg || line?.tank || 1;
+      return suit.propellant < tank / 4 ? "bad" : suit.propellant < tank / 2 ? "warn" : "";
+    }
+    return "";
+  }
+
   function renderSuit() {
     const v = hangar?.view;
     if (!v) return `<div class="note">Waiting for the bay…</div>`;
     const con = hangar.console || {};
     const fits = new Set(con.fits || []);
     const bay = v.bay;
+    // A new suit opens on what needs work again.
+    if (bay.state !== "docked") suitSlot = "";
     if (bay.state === "out") {
       return `<div class="status warn">YOUR ${esc(lines.get(bay.suit.line)?.name.toUpperCase())} IS OUT IN THE SECTOR. Bring it home: at rest inside the dock's ring of lights, press Enter.</div>`;
     }
@@ -1299,108 +1620,157 @@
     }
     const suit = bay.suit;
     const line = lines.get(suit.line);
-    let out = con.launch
-      ? `<div class="status bad">NOT READY TO LAUNCH: ${esc(con.launch)}.</div>`
-      : `<div class="status">READY TO LAUNCH. Climb the stairs to the catwalk and board at the cockpit hatch (E). The tank and the magazines are topped up from the stores as it goes.</div>`;
-    out += `<h3>${esc(line?.name.toUpperCase() || suit.line)}${line?.lodestar ? " · LODESTAR" : ""}</h3><div class="slots">`;
-    catalogue.parts.forEach((p, k) => {
-      const c = suit.parts[k];
-      const slug = `part.${suit.line}.${p.slug}`;
-      if (c == null) {
-        out += `<div class="slot empty"><div class="what">${esc(p.name.toUpperCase())}: NOT FITTED</div><div>` +
-          (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) : `<span class="note">none in the stores</span>`) + `</div></div>`;
-        return;
-      }
-      const rep = (con.repairs || []).find((r) => r.part === p.slug);
-      const cost = rep ? rep.cost.map(([s, q]) => `${amount(s, q)} ${esc(nameOf(s))}`).join(", ") : "";
-      // Its systems: working, or what's wrong and what restoring it takes.
-      const inside = catalogue.systems.filter((x) => x.part === p.slug);
-      const broken = (con.overhauls || []).filter((o) => o.part === p.slug);
-      const tags = inside.map((x) => {
-        const o = broken.find((b) => b.system === x.slug);
-        return `<span class="sys ${o ? o.level : "ok"}" title="${esc(x.name)}${o ? ": " + o.level : ""}">${esc(x.tag)}</span>`;
-      }).join(" ");
-      const ohCost = broken.map((o) => `${esc(systemName(o.system))}: ${o.cost.map(([s, q]) => `${amount(s, q)} ${esc(nameOf(s))}`).join(", ")}`).join("; ");
-      out += `<div class="slot"><div class="what">${esc(p.name.toUpperCase())}</div><div>${bar(c)}</div><div class="systems">${tags}</div><div>` +
-        (rep ? button("REPAIR", { act: "repair", part: p.slug }) + " " : "") +
-        (broken.length ? button("OVERHAUL", { act: "overhaul", part: p.slug }) + " " : "") +
-        button("STRIP", { act: "strip-part", part: p.slug }) + `</div>` +
-        (rep ? `<div class="note">repair: ${cost}</div>` : "") +
-        (broken.length ? `<div class="note">overhaul: ${ohCost}</div>` : "") + `</div>`;
-    });
-    // Equipment, on its parts' mounts.
-    (catalogue.module_mounts || []).forEach((part, k) => {
-      const kind = (suit.modules || [])[k];
-      if (suit.parts[catalogue.parts.findIndex((p) => p.slug === part)] == null) return;
-      if (!kind) {
-        const can = [...fits].filter((slug) => items.get(slug)?.kind === "module" && items.get(slug)?.part === part);
-        out += `<div class="slot empty"><div class="what">${esc(partName(part).toUpperCase())} MOUNT: EMPTY</div><div>` +
-          (can.length ? can.map((slug) => button(`FIT ${esc(nameOf(slug).toUpperCase())}`, { act: "fit", item: slug })).join(" ") : `<span class="note">no equipment for it in the stores</span>`) +
-          `</div></div>`;
-        return;
-      }
-      const slug = `module.${kind}`;
-      out += `<div class="slot"><div class="what">${esc(nameOf(slug).toUpperCase())}</div><div class="note">${esc(items.get(slug)?.summary)}</div><div>` +
-        button("STRIP", { act: "strip-module", module: k }) + `</div></div>`;
-    });
-    (line?.mounts || []).forEach((m, k) => {
-      if (!m) return;
-      if (!suit.mounts[k]) {
-        out += `<div class="slot empty"><div class="what">${esc(m.name.toUpperCase())}: NOT FITTED</div><div>` +
-          (fits.has(m.weapon) ? button("FIT", { act: "fit", item: m.weapon }) : `<span class="note">none in the stores</span>`) + `</div></div>`;
-        return;
-      }
-      const rounds = m.rounds ? `${fmt(suit.ammo[k])}/${fmt(m.rounds)} rounds` : "no rounds to load";
-      out += `<div class="slot"><div class="what">${esc(m.name.toUpperCase())}</div><div class="note">${rounds}</div><div>` +
-        button("STRIP", { act: "strip-mount", mount: k }) + `</div></div>`;
-    });
-    // The tank as the suit has it (an auxiliary or extended tank makes it bigger), and the grades
-    // it could fly on: a purer one goes further (fuelling with another pumps this one back).
-    const tank = con.stats?.tank_kg || line?.tank || 0;
-    const grades = con.grades || [];
-    const flying = grades.find((g) => g.grade === (con.grade || "standard"));
-    const stores = flying ? flying.stores : stockOf("mat.propellant");
-    out += `<div class="slot"><div class="what">PROPELLANT${flying ? ` · ${esc(flying.name.toUpperCase())}` : ""}</div>` +
-      `<div>${bar(Math.round((100 * suit.propellant) / Math.max(1, tank)))}</div>` +
-      `<div class="note">${fmt(suit.propellant)}/${fmt(tank)} kg · ${fmt(stores)} kg in the stores</div>` +
-      grades.filter((g) => g === flying || g.stores > 0).map((g) =>
-        `<div>${button(g === flying ? "TOP UP" : `FUEL ${esc(g.name.toUpperCase())}`, { act: "fuel", grade: g.grade })} ` +
-        `<span class="note">${esc(g.name)}: ${fmt(g.stores)} kg in the stores · delta-v ${fmt(Math.round(g.delta_v))} m/s · boost ${Math.round(g.boost_s)} s</span></div>`).join("") +
-      `</div></div>`;
-    const st = con.stats;
-    if (st) {
-      const row = (k, v) => `<div><span class="dim">${k}</span> ${v}</div>`;
-      out += `<section class="stats"><h3>AS IT WOULD LAUNCH</h3><div class="statgrid">` +
-        row("DELTA-V", `${fmt(Math.round(st.delta_v))} m/s`) +
-        row("ACCEL", `${st.accel_g.toFixed(1)} g (boost ${st.boost_g.toFixed(1)} g)`) +
-        row("MASS", `${fmt(st.mass_kg)} kg`) +
-        row("TANK", `${fmt(st.tank_kg)} kg`) +
-        row("BOOST", `${Math.round(st.boost_s)} s on a full tank`) +
-        (st.ion_g > 0 ? row("ION DRIVE", `${st.ion_g.toFixed(2)} g on the reactor alone`) : "") +
-        row("SENSORS", `${(st.sensor_m / 1000).toFixed(1)} km`) +
-        row("SIGNATURE", `×${st.signature.toFixed(2)}`) +
-        row("ENERGY", `${fmt(Math.round(st.energy))} (+${st.regen.toFixed(1)}/s)`) +
-        row("HEAT SHED", `${st.heat.toFixed(1)}/s`) +
-        row("HOLD", `${fmt(st.hold_kg)} kg`) +
-        row("PILOT BEARS", `${st.g_tolerance.toFixed(1)} g`) +
-        row("DAMAGE TAKEN", `×${st.armour.toFixed(2)}`) +
-        `</div></section>`;
+    const states = SUIT_SLOTS.map((s) => suitSlotState(s, suit, con, line));
+    if (!SUIT_SLOTS.some((s) => s.id === suitSlot)) {
+      suitSlot = SUIT_SLOTS[states.includes("bad") ? states.indexOf("bad") : Math.max(0, states.indexOf("warn"))].id;
     }
-    // Wear from use: how far through its service life each worn system is.
-    const wear = con.wear || [];
-    if (wear.length) {
-      const serviceCost = (con.service_cost || []).map(([s, q]) => `${amount(s, q)} ${esc(nameOf(s))}`).join(", ");
-      out += `<section><h3>SERVICE LIFE</h3><table>` + wear.map((w) => {
-        const pct = Math.min(100, Math.round(w.used * 100));
-        return `<tr><td>${esc(systemName(w.system))}</td><td><span class="bar ${pct >= 75 ? "bad" : pct >= 40 ? "worn" : ""}"><i style="width:${Math.max(2, pct)}%"></i></span>${pct}% used</td></tr>`;
-      }).join("") + `</table><div class="note">Thruster hours, rounds fired and overheats wear systems down: at 100% one comes home a level worse. From ${con.service_from_pct}% OVERHAUL services it (${serviceCost} each) and its life starts again.</div></section>`;
+    const slot = SUIT_SLOTS.find((s) => s.id === suitSlot);
+    const mounts = catalogue.module_mounts || [];
+    if (suitMount < 0 || suitMount >= mounts.length) {
+      // The first mount with something in the stores for it, else the first free one on a part
+      // that's there, else the first.
+      const offered = mounts.findIndex((p, k) => Object.keys(con.refit?.[`module.${k}`]?.with || {}).length);
+      const free = mounts.findIndex((p, k) => !(suit.modules || [])[k] && suit.parts[catalogue.parts.findIndex((x) => x.slug === p)] != null);
+      suitMount = offered >= 0 ? offered : Math.max(0, free);
     }
-    const serviceable = wear.some((w) => w.used * 100 >= (con.service_from_pct || 100));
-    out += `<div class="row">` + ((con.repairs || []).length ? button("REPAIR ALL", { act: "repair", part: "" }) : "") +
-      ((con.overhauls || []).length || serviceable ? button("OVERHAUL ALL", { act: "overhaul", part: "" }) : "") +
-      button("DISMANTLE", { act: "dismantle" }, "danger") + `<span class="note">Dismantling puts everything back in the stores.</span></div>`;
+    const cards = suitCards(slot, suit, con, line);
+    const pickKey = slot.id === "equipment" ? `equipment.${suitMount}` : slot.id;
+    let chosen = cards.find((c) => c.key === suitPick[pickKey]) || cards[0];
+    suitPick[pickKey] = chosen?.key;
+    const st = con.stats || {};
+
+    // The top: the suit, whether it would launch, and its totals.
+    let out = `<div class="refit"><header class="refit-top">` +
+      `<div class="refit-name"><span class="lbl">SUIT MAINTENANCE</span><b>${esc((line?.name || suit.line).toUpperCase())}</b><span class="des">${esc(line?.designation || "")}${line?.lodestar ? " · LODESTAR" : ""}</span></div>` +
+      (con.launch
+        ? `<div class="refit-launch bad"><span class="lbl">NOT READY TO LAUNCH</span>${esc(con.launch)}</div>`
+        : `<div class="refit-launch"><span class="lbl">READY TO LAUNCH</span>board at the cockpit hatch (E), up the stairs</div>`) +
+      `<div class="refit-totals">` +
+      [["MASS", `${((st.mass_kg || 0) / 1000).toFixed(1)}`, "t"], ["DELTA-V", fmt(Math.round(st.delta_v || 0)), "m/s"], ["ACCEL", (st.accel_g || 0).toFixed(1), "g"], ["DAMAGE TAKEN", `×${(st.armour || 0).toFixed(2)}`, ""]]
+        .map(([k, n, u]) => `<div><span class="lbl">${k}</span><b>${n}</b><span class="u">${u}</span></div>`).join("") +
+      `</div></header>`;
+    // The slots, numbered.
+    out += `<nav class="refit-slots">` + SUIT_SLOTS.map((s, k) =>
+      `<button type="button" data-act="refit-slot" data-slot="${s.id}" class="${s.id === suitSlot ? "active" : ""}"><span class="n">${k + 1}</span>${s.label}${states[k] ? `<i class="need ${states[k]}"></i>` : ""}</button>`).join("") + `</nav>`;
+    // The choices.
+    out += `<div class="refit-main"><section class="refit-list"><h4><span class="n">${SUIT_SLOTS.indexOf(slot) + 1}</span>${slot.label}<span class="count">${cards.length} ${cards.length === 1 ? "choice" : "choices"}</span></h4>`;
+    if (slot.id === "equipment") {
+      let torso = 0;
+      out += `<div class="refit-mounts">` + mounts.map((p, k) => {
+        const n = p === "torso" ? ` ${++torso}` : "";
+        return `<button type="button" data-act="refit-mount" data-mount="${k}" class="${k === suitMount ? "active" : ""}${(suit.modules || [])[k] ? " on" : ""}">${esc(partName(p).toUpperCase())}${n}</button>`;
+      }).join("") + `</div>`;
+    }
+    out += cards.map((c) =>
+      `<div class="rc${c === chosen ? " chosen" : ""}" data-act="refit-pick" data-key="${esc(c.key)}">` +
+      `<div class="rc-head"><span class="rc-title">${esc(c.title)}</span><span class="plate ${c.plateCls || ""}">${esc(c.plate)}</span></div>` +
+      (c.sub ? `<div class="rc-sub">${c.sub}</div>` : "") +
+      (c.rows.length ? c.rows.map(statLine).join("") : c.then ? `<div class="rc-sub">no change to the stat sheet</div>` : "") +
+      `</div>`).join("") + `</section>`;
+    // The suit, through the glass, its slots called out round it (the suit's right on the left).
+    const callout = (id) => {
+      const s = SUIT_SLOTS.find((x) => x.id === id);
+      let what;
+      if (s.part) {
+        const c = suit.parts[catalogue.parts.findIndex((x) => x.slug === s.part)];
+        what = c == null ? `<em class="bad">NOT FITTED</em>` : `${esc((line?.name || "").toUpperCase())} · ${c}%`;
+      } else if (id === "weapons") {
+        const ms = line?.mounts || [];
+        what = `${ms.filter((m, k) => m && suit.mounts[k]).length}/${ms.filter(Boolean).length} FITTED`;
+      } else {
+        what = `${(suit.modules || []).filter(Boolean).length}/${mounts.length} FITTED`;
+      }
+      const k = SUIT_SLOTS.indexOf(s);
+      return `<button type="button" data-act="refit-slot" data-slot="${id}" class="callout${id === suitSlot ? " active" : ""}"><span class="lbl">${s.label}${states[k] ? `<i class="need ${states[k]}"></i>` : ""}</span><span class="what">${what}</span></button>`;
+    };
+    out += `<section class="refit-pad"><div class="co">${["head", "arm_r", "torso", "legs"].map(callout).join("")}</div>` +
+      `<div class="co">${["backpack", "arm_l", "weapons", "equipment"].map(callout).join("")}</div>` +
+      `<div class="pad-hint"><span>DRAG TO TURN</span><span>WHEEL TO ZOOM</span></div></section>`;
+    // The chosen card in full.
+    out += `<section class="refit-detail">`;
+    if (chosen) {
+      out += `<div class="rd-plate"><span class="plate ${chosen.plateCls || ""}">${esc(chosen.plate)}</span><span class="lbl">${slot.label}</span></div>` +
+        `<div class="rd-title">${esc(chosen.title)}</div>` +
+        (chosen.sub ? `<div class="rc-sub">${chosen.sub}</div>` : "") +
+        `<p class="rd-about">${chosen.about || ""}</p>`;
+      for (const n of chosen.notes || []) out += `<div class="note">${n}</div>`;
+      if (chosen.rows.length) out += chosen.rows.map(statLine).join("");
+      if (chosen.fire) out += `<h3>HOW YOU FIRE</h3><div class="fires">${chosen.fire}</div>`;
+      // The stat sheet as it would launch: as it stands, or as this card would leave it.
+      const then = chosen.then || st;
+      const sheet = SUIT_STATS.filter(([k]) => (then[k] ?? 0) !== 0 || (st[k] ?? 0) !== 0).map(([k, label, read, full, less]) => {
+        const a = st[k] ?? 0;
+        const b = then[k] ?? 0;
+        const moved = Math.abs(b - a) / Math.max(Math.abs(a), Math.abs(b), 1e-6) >= 0.004;
+        return `<tr><td class="dim">${label}</td><td class="num">${moved ? `<s>${esc(read(a))}</s> ` : ""}${esc(read(b))}</td><td class="num ${moved ? (b > a !== !!less ? "up" : "down") : ""}">${moved ? (b > a ? "▲" : "▼") : ""}</td></tr>`;
+      }).join("");
+      out += `<h3>AS IT WOULD LAUNCH${chosen.then ? ", WITH THIS" : ""}</h3><table class="rd-sheet">${sheet}</table>`;
+      out += `<div class="rd-acts">` +
+        (chosen.act ? button(chosen.act[0], chosen.act[1], "primary") : "") +
+        (chosen.others || []).join("") +
+        (chosen.danger ? button(chosen.danger[0], chosen.danger[1], "danger") : "") + `</div>`;
+    }
+    out += `</section></div>`;
+    // The keys.
+    out += `<footer class="refit-keys">${cap("1-9")}slot ${cap("↑↓")}choice${slot.id === "equipment" ? ` ${cap("←→")}mount` : ""} ${cap("ENTER")}do it <span class="gap"></span>${cap("E")}step away ${cap("ESC")}back</footer></div>`;
     return out;
   }
+
+  // The console's keys: 1-9 a slot, ↑↓ a card, ←→ the equipment's mount, Enter the card's one
+  // thing to do. Only with its tab open, and not while typing.
+  function suitKey(e) {
+    if (tab !== "suit" || !suitViewOn || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return false;
+    const cards = [...document.querySelectorAll("#term-body .rc")];
+    const at = cards.findIndex((c) => c.classList.contains("chosen"));
+    if (/^[1-9]$/.test(e.key)) {
+      suitSlot = SUIT_SLOTS[Number(e.key) - 1].id;
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const next = cards[Math.max(0, Math.min(cards.length - 1, at + (e.key === "ArrowDown" ? 1 : -1)))];
+      if (!next) return true;
+      suitPick[suitSlot === "equipment" ? `equipment.${suitMount}` : suitSlot] = next.dataset.key;
+    } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && suitSlot === "equipment") {
+      const n = (catalogue.module_mounts || []).length;
+      suitMount = (suitMount + (e.key === "ArrowRight" ? 1 : n - 1)) % Math.max(1, n);
+    } else if (e.key === "Enter") {
+      document.querySelector("#term-body .refit-detail button.primary")?.click();
+      return true;
+    } else {
+      return false;
+    }
+    renderTerminal();
+    document.querySelector("#term-body .rc.chosen")?.scrollIntoView({ block: "nearest" });
+    return true;
+  }
+
+  // Drag across the suit to turn it, the wheel to come nearer: asked of the game a frame at a time.
+  let suitDrag = null;
+  let suitSent = 0;
+  function suitCamAsk() {
+    if (suitSent) return;
+    suitSent = requestAnimationFrame(() => {
+      suitSent = 0;
+      if (suitViewOn) send("suit_view", { on: true, yaw: suitCam.yaw, zoom: suitCam.zoom });
+    });
+  }
+  function suitPointer(e) {
+    if (e.type === "pointerdown") {
+      if (!(e.target instanceof Element) || !e.target.closest(".refit-pad") || e.target.closest(".callout")) return;
+      suitDrag = { x: e.clientX, yaw: suitCam.yaw };
+      e.target.closest(".refit-pad").setPointerCapture?.(e.pointerId);
+    } else if (e.type === "pointermove" && suitDrag) {
+      suitCam.yaw = Math.max(-1.2, Math.min(1.2, suitDrag.yaw - (e.clientX - suitDrag.x) * 0.006));
+      suitCamAsk();
+    } else if (e.type === "pointerup" || e.type === "pointercancel") {
+      suitDrag = null;
+    }
+  }
+  function suitWheel(e) {
+    if (!(e.target instanceof Element) || !e.target.closest(".refit-pad")) return;
+    e.preventDefault();
+    suitCam.zoom = Math.max(0.8, Math.min(2.4, suitCam.zoom * Math.exp(-e.deltaY * 0.0015)));
+    suitCamAsk();
+  }
+
 
   // The Colony Exchange: quotes, the watched item's book and history, the order form, and the
   // pilot's orders. An order at the pilot's own price that waits on the book is the Exchange
@@ -1807,6 +2177,11 @@
     const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter, proving: renderProving, wanted: renderArrival, menu: renderMenu, home: renderHome }[tab];
     body.innerHTML = render ? render() : "";
     body.scrollTop = scroll;
+    // The suit's console stands over the suit in its gantry: the panel's middle is clear glass,
+    // and the game's camera stands off the suit while it's open.
+    const refit = tab === "suit" && !!body.querySelector(".refit");
+    $("terminal").classList.toggle("refitting", refit);
+    suitView(refit);
     if (key) {
       const el = body.querySelector(`[data-key="${CSS.escape(key)}"]`);
       if (el) {
@@ -1929,6 +2304,20 @@
       case "fit":
         ask({ t: "fit", item: d.item });
         return;
+      case "swap":
+        // What's there comes off into the stores, then the other goes on.
+        ask({ t: "strip", slot: d.kind === "part" ? { kind: "part", part: d.part } : { kind: "module", module: Number(d.module) } });
+        ask({ t: "fit", item: d.item });
+        return;
+      case "refit-slot":
+        suitSlot = d.slot;
+        break;
+      case "refit-pick":
+        suitPick[suitSlot === "equipment" ? `equipment.${suitMount}` : suitSlot] = d.key;
+        break;
+      case "refit-mount":
+        suitMount = Number(d.mount);
+        break;
       case "scrap":
         ask({ t: "scrap", item: d.item });
         return;
@@ -2051,7 +2440,12 @@
     if (tab === "exchange" || tab === "fabricator" || tab === "charter") renderTerminal();
   }
 
-  window.bcUi = { init, update, settings: renderSettings, catalogue: catalogueIn, hangar: hangarIn, front };
+  // `suitSlot`: the gallery's, to show the suit's console on a slot.
+  const suitSlotIn = (slot) => {
+    suitSlot = slot || "";
+    suitMount = -1;
+  };
+  window.bcUi = { init, update, settings: renderSettings, catalogue: catalogueIn, hangar: hangarIn, front, suitSlot: suitSlotIn };
 
   // --- What the player does. ---
   document.addEventListener("DOMContentLoaded", () => {
@@ -2082,6 +2476,8 @@
     });
     $("term-body").addEventListener("click", onTerminalClick);
     $("term-body").addEventListener("input", onTerminalInput);
+    for (const t of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) $("term-body").addEventListener(t, suitPointer);
+    $("term-body").addEventListener("wheel", suitWheel, { passive: false });
     for (const b of document.querySelectorAll("[data-tab]")) {
       b.addEventListener("click", () => openTab(b.dataset.tab));
     }
@@ -2174,6 +2570,11 @@
   window.addEventListener(
     "keydown",
     (e) => {
+      if (view.panel === "terminal" && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && suitKey(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (e.key === "F1" || (e.key === "?" && !e.metaKey && !typing(e))) {
         e.preventDefault();
         if (e.key === "?") e.stopPropagation();
