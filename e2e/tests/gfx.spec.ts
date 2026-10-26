@@ -115,11 +115,11 @@ const scenes: Array<[string, number, number, number]> = [
   ["markab", 4, 33.9, 4],
   ["markab", 1, 34.1, 4],
   // The Ring Deck, the bay ring's suit deck in the colony's clean language: down the deck, the
-  // Altair flying the lanes; up at bay 07 from the Argo's feet; at the rim's rail, Earth under the
-  // glass; towards the lifts by a pillar.
+  // Altair flying the lanes; up at bay 07 from the Argo's feet; over the rim's rail, Earth under
+  // the glass; towards the lifts by a pillar.
   ["ring", 1, 6, 12],
   ["ring", 2, 6, 12],
-  ["ring", 3, 6, 12],
+  ["ring", 3, 8, 12],
   ["ring", 4, 6, 12],
 ];
 // What the Markab's driver is doing at each of those moments (`showcase_markab::Act`).

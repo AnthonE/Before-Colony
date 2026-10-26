@@ -370,7 +370,7 @@ lit by the strip's sun through Bevy's lighting, so they sit in the city's light 
 ## The station language: the Ring Deck (a test set)
 
 The clean layer indoors, at a suit's scale, tried out where nothing has to walk or collide yet:
-the Ring Deck (`?showcase=ring`). It is the bay ring's suit deck, a hall 44 × 34 × 180 m running
+the Ring Deck (`?showcase=ring`). It is the bay ring's suit deck, a hall 48 × 34 × 192 m running
 along the ring behind its bays, with a passage at one end to the cap lifts and the airlock.
 
 - **Its layout** is `bc_client_core::ring_deck`. It holds the blocks, the signs, the cast's places

@@ -52,9 +52,9 @@ const KICK: f32 = 1.0;
 const BAND_Y0: f32 = 27.0;
 const BAND_Y1: f32 = 30.0;
 const ARROW_EVERY: f32 = 10.0;
-const LANE_X0: f32 = -4.0;
-const LANE_X1: f32 = 6.0;
-const LANE_HALF: f32 = 4.5;
+const LANE_X0: f32 = -1.5;
+const LANE_X1: f32 = 8.0;
+const LANE_HALF: f32 = 4.0;
 const CHEVRON_EVERY: f32 = 18.0;
 const STRIP_EVERY: f32 = 12.0;
 const HAZARD_PERIOD: f32 = 1.2;
@@ -65,7 +65,7 @@ const COLLAR_Y1: f32 = 7.5;
 const JOINT: f32 = 0.03;
 // The light strips' brightness (straight to the screen: bloom takes it from there).
 const STRIP_GLOW: f32 = 7.0;
-const FRAME_GLOW: f32 = 4.0;
+const FRAME_GLOW: f32 = 1.4;
 
 fn hash2(p: vec2<f32>) -> f32 {
     var q = fract(vec3(p.x, p.y, p.x) * 0.1031);

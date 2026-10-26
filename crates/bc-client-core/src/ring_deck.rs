@@ -25,8 +25,8 @@ pub const HALF_WIDTH: f32 = 24.0;
 pub const HALF_LENGTH: f32 = 96.0;
 pub const HEIGHT: f32 = 34.0;
 /// Where the floor stops at the rim's rail, and how deep the glass under it goes.
-pub const RIM_X: f32 = -12.0;
-pub const TROUGH: f32 = -9.0;
+pub const RIM_X: f32 = -8.0;
+pub const TROUGH: f32 = -6.0;
 /// The bays' doors in the +x wall: their numbers, centres along the deck, half-width and height.
 pub const BAYS: [u8; 3] = [7, 8, 9];
 pub const DOOR_Z: [f32; 3] = [-50.0, 0.0, 50.0];
@@ -65,9 +65,9 @@ pub const ARROW_EVERY: f32 = 10.0;
 /// The suits' two lanes down the deck (their centres across it, and half their width), and the
 /// chevrons painted in them, one every so often, m: the first lane runs towards the lifts (+z),
 /// the second back.
-pub const LANE_X0: f32 = -4.0;
-pub const LANE_X1: f32 = 6.0;
-pub const LANE_HALF: f32 = 4.5;
+pub const LANE_X0: f32 = -1.5;
+pub const LANE_X1: f32 = 8.0;
+pub const LANE_HALF: f32 = 4.0;
 pub const CHEVRON_EVERY: f32 = 18.0;
 /// The ceiling's light strips run along the deck, one every so often across it, m.
 pub const STRIP_EVERY: f32 = 12.0;
@@ -344,9 +344,7 @@ impl Layout {
         }
         let mut z = cz0 + 5.0;
         while z < cz1 {
-            b.push(
-                Block::new([-w, cy - 1.6, z - 0.15], [-w + cw - 0.7, cy - 0.3, z + 0.15], Trim).paint(DARK),
-            );
+            b.push(Block::new([-w, cy - 1.6, z - 0.15], [-w + cw - 0.7, cy - 0.3, z + 0.15], Pillar));
             z += 10.0;
         }
         // The stairs down from its end, open treads; their stringers and rail; the landing at
@@ -509,7 +507,7 @@ const BAY_NAMES: [&str; 3] = ["BAY 07", "BAY 08", "BAY 09"];
 
 /// Where the deck's suits are: one standing before bay 07's door (its torso; it faces the hall,
 /// −x), and one flying the lanes on a loop ([`flyer`]).
-pub const STANDING: Vec3 = Vec3::new(15.0, 9.6, -50.0);
+pub const STANDING: Vec3 = Vec3::new(17.0, 9.6, -50.0);
 /// How long the flying suit's loop takes, s, how high it flies (its torso), and its turns' radius.
 pub const LOOP_SECS: f32 = 40.0;
 const FLY_Y: f32 = 12.0;
@@ -547,8 +545,9 @@ pub const CAMS: [(Vec3, Vec3); 4] = [
     (Vec3::new(4.0, 16.0, -90.0), Vec3::new(4.0, 9.0, 40.0)),
     // Low at the standing suit's feet, up at its bay's door and its number.
     (Vec3::new(6.0, 1.7, -32.0), Vec3::new(24.0, 15.0, -52.0)),
-    // At the rim's rail, a pilot's eye, down through the glass at Earth.
-    (Vec3::new(-10.6, 1.7, 20.0), Vec3::new(-20.0, -9.0, 26.0)),
+    // Over the rim's rail at a suit's eye, down through the glass at Earth (under it a few
+    // seconds in).
+    (Vec3::new(-6.5, 7.0, 10.0), Vec3::new(-13.5, -10.0, 18.0)),
     // By a pillar, towards the opening and the lifts.
     (Vec3::new(15.0, 4.0, 56.0), Vec3::new(6.0, 12.0, 120.0)),
 ];
