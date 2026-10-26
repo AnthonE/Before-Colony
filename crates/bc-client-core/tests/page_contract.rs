@@ -151,6 +151,20 @@ fn the_page_reads_only_what_the_terminals_send() {
     assert_sent("the catalogue", &reads(&js, "catalogue"), &keys(&g["catalogue"]));
     let hangars = g["scenes"].as_array().unwrap().iter().filter_map(|s| s.get("hangar"));
     assert_sent("the hangar", &reads(&js, "hangar"), &keys_of(hangars));
+    // The suit's console, and what its refit says of a slot.
+    let consoles: Vec<&Value> = g["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s.get("hangar")?.get("console").filter(|c| c.is_object()))
+        .collect();
+    let suit = body(&js, "function renderSuit()");
+    let cards = body(&js, "function suitCards(slot, suit, con, line)");
+    let mut read = reads(suit, "con");
+    read.extend(reads(cards, "con"));
+    assert_sent("the suit's console", &read, &keys_of(consoles.iter().copied()));
+    let slots = consoles.iter().flat_map(|c| c["refit"].as_object().into_iter().flat_map(|m| m.values()));
+    assert_sent("a slot of the refit", &reads(cards, "r"), &keys_of(slots));
 }
 
 /// Command names sent by `pattern`'s matches: the word in quotes right after it.

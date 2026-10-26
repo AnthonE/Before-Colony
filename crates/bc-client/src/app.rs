@@ -99,6 +99,7 @@ pub fn run() {
             .init_resource::<UiCmds>()
             .init_resource::<PointerRes>()
             .init_resource::<crate::onfoot::OnFoot>()
+            .init_resource::<crate::onfoot::RefitView>()
             .init_resource::<crate::terminal::TerminalLog>()
             .init_resource::<crate::map::MapOpen>()
             .init_resource::<crate::chat::Spoken>()

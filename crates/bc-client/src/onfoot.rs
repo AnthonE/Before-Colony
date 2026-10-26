@@ -23,7 +23,7 @@
 //! The server knows none of this: only where the pilot is (`core.hangar.place`) and what they ask
 //! for. Space skips a sequence.
 
-use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, Lift, SPAWN, SUIT_AT, Spot};
+use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, Lift, Refit, SPAWN, SUIT_AT, Spot};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
 use bc_client_core::dock;
@@ -1971,15 +1971,34 @@ pub fn drive_onfoot(
     ui.trainer = flying_inside && g.core.hangar.trainer;
 }
 
+/// The suit's console's view of the suit in its gantry (`Refit`), while its tab is open.
+#[derive(Resource, Default)]
+pub struct RefitView(pub Refit);
+
 /// The camera at the pilot's eyes (or where a sequence puts it), after the chase camera has had
-/// its turn.
+/// its turn. In the bay, with the suit's console open on its tab, it stands off the suit instead.
+#[allow(clippy::too_many_arguments)]
 pub fn onfoot_camera(
     me: Res<OnFoot>,
     indoors: Res<Indoors>,
     prefs: Res<ViewPrefs>,
+    ui: Res<Ui>,
+    cmds: Res<UiCmds>,
+    time: Res<Time>,
+    mut refit: ResMut<RefitView>,
     mut origin: ResMut<RenderOrigin>,
     mut cam: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
 ) {
+    for cmd in &cmds.0 {
+        if let UiCmd::SuitView { on, yaw, zoom } = *cmd {
+            refit.0.set(on, yaw, zoom);
+        }
+    }
+    // Only while a terminal of the bay's is open, walking (the page says which tab).
+    if !matches!(ui.panel, Panel::Terminal(_)) || me.city.is_some() || me.seq != Seq::Walking {
+        refit.0.on = false;
+    }
+    refit.0.step(time.delta_secs());
     let Ok((mut tf, mut projection)) = cam.single_mut() else { return };
     // Walls come close on foot (in the city, a little less close: the far wall is 6 km off).
     let near = match (&me.city, indoors.0) {
@@ -1987,12 +2006,14 @@ pub fn onfoot_camera(
         (None, true) => 0.05,
         _ => 0.5,
     };
+    let fov = prefs.fov.clamp(40.0, 120.0);
+    let fov = if me.city.is_none() { refit.0.blended((Vec3::ZERO, Vec3::Z), fov).2 } else { fov };
     if let Projection::Perspective(p) = &mut *projection {
         if p.near != near {
             p.near = near;
         }
         if indoors.0 {
-            p.fov = prefs.fov.clamp(40.0, 120.0).to_radians();
+            p.fov = fov.to_radians();
         }
     }
     if !indoors.0 {
@@ -2015,7 +2036,7 @@ pub fn onfoot_camera(
         *tf = Transform::from_translation(origin.place(eye)).looking_to(look, up);
         return;
     }
-    let (eye, at) = me.view(now);
+    let (eye, at, _) = refit.0.blended(me.view(now), 0.0);
     *tf = Transform::from_translation(BAY_ORIGIN + eye).looking_at(BAY_ORIGIN + at, Vec3::Y);
 }
 
