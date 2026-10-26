@@ -392,20 +392,23 @@ impl Default for Refit {
 
 impl Refit {
     /// Where it starts: a three-quarter view.
-    pub const YAW: f32 = 0.35;
-    /// How far round it swings either way (past the profile the back wall is in the way).
-    pub const YAW_MAX: f32 = 1.2;
+    pub const YAW: f32 = 0.3;
+    /// How far round it swings either way (further, the gantry's pillars stand in the way).
+    pub const YAW_MAX: f32 = 0.75;
     pub const ZOOM: (f32, f32) = (0.8, 2.4);
-    /// The whole suit from this far off, at [`Refit::FOV_DEG`].
-    pub const DISTANCE: f32 = 27.0;
-    /// The view's vertical field, degrees.
-    pub const FOV_DEG: f32 = 55.0;
+    /// The whole suit from this far off, at [`Refit::FOV_DEG`] (the bay doors are 30 m in front
+    /// of it).
+    pub const DISTANCE: f32 = 28.0;
+    /// The view's vertical field, degrees: the suit fits the panel's clear middle, under its top
+    /// and above its keys.
+    pub const FOV_DEG: f32 = 66.0;
     /// Seconds to ease in or out.
     pub const EASE_S: f32 = 0.25;
-    /// What the camera looks at: the middle of a suit standing in the gantry.
-    const AT: Vec3 = Vec3::new(SUIT_AT.x, 9.8, SUIT_AT.z);
+    /// What the camera looks at: above the middle of a suit standing in the gantry, so the suit
+    /// stands a little low in the view, where the panel's middle is clear.
+    const AT: Vec3 = Vec3::new(SUIT_AT.x, 12.0, SUIT_AT.z);
     /// The eye, a little under it (a suit looks its size from below).
-    const EYE_Y: f32 = 7.6;
+    const EYE_Y: f32 = 9.5;
     /// The camera keeps this far inside the walls, the doors and the ceiling.
     const MARGIN: f32 = 1.5;
 
@@ -525,7 +528,7 @@ mod tests {
     fn the_consoles_view_frames_the_suit_from_inside_the_bay() {
         let inside = |p: Vec3| p.x.abs() < HALF_WIDTH && p.z.abs() < HALF_LENGTH && p.y > 0.0 && p.y < HEIGHT;
         let mut r = Refit::default();
-        for yaw in [-3.0, -1.2, -0.6, 0.0, 0.35, 0.9, 1.2, 3.0] {
+        for yaw in [-3.0, -0.75, -0.4, 0.0, 0.3, 0.6, 0.75, 3.0] {
             for zoom in [0.1, 0.8, 1.0, 2.4, 9.0] {
                 r.set(true, yaw, zoom);
                 let (eye, at) = r.view();
@@ -535,14 +538,21 @@ mod tests {
                 assert!((at - eye).length() > 8.0);
             }
         }
-        // Square on and zoomed out, the whole suit (19 m and the gantry's foot) fits the field.
+        // Square on and zoomed out, the whole suit (19 m) fits the panel's clear middle, about
+        // three fifths of the view.
         r.set(true, 0.0, 1.0);
         let (eye, at) = r.view();
         let seen = 2.0 * (at - eye).length() * (Refit::FOV_DEG.to_radians() / 2.0).tan();
-        assert!(seen > 22.0, "{seen}");
+        assert!(seen * 0.6 > 20.0, "{seen}");
+        // Swung round as far as it goes, the gantry's front pillars (x ±7, z 4.2) stay behind the
+        // line to the suit's middle.
+        r.set(true, Refit::YAW_MAX, 1.0);
+        let (eye, at) = r.view();
+        let k = (eye.x - 7.0) / (eye.x - at.x);
+        assert!(eye.z + k * (at.z - eye.z) < 4.2, "{eye}");
         // Nonsense from the page is ignored.
         r.set(true, f32::NAN, f32::INFINITY);
-        assert_eq!((r.yaw, r.zoom), (0.0, 1.0));
+        assert_eq!((r.yaw, r.zoom), (Refit::YAW_MAX, 1.0));
     }
 
     #[test]

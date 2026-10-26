@@ -1323,7 +1323,7 @@
   let suitSlot = "";
   const suitPick = {};
   let suitMount = -1;
-  const suitCam = { yaw: 0.35, zoom: 1 };
+  const suitCam = { yaw: 0.3, zoom: 1 };
   let suitViewOn = false;
   function suitView(on) {
     if (on === suitViewOn) return;
@@ -1758,7 +1758,7 @@
       suitDrag = { x: e.clientX, yaw: suitCam.yaw };
       e.target.closest(".refit-pad").setPointerCapture?.(e.pointerId);
     } else if (e.type === "pointermove" && suitDrag) {
-      suitCam.yaw = Math.max(-1.2, Math.min(1.2, suitDrag.yaw - (e.clientX - suitDrag.x) * 0.006));
+      suitCam.yaw = Math.max(-0.75, Math.min(0.75, suitDrag.yaw - (e.clientX - suitDrag.x) * 0.006));
       suitCamAsk();
     } else if (e.type === "pointerup" || e.type === "pointercancel") {
       suitDrag = null;
