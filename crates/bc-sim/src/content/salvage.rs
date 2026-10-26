@@ -70,9 +70,10 @@ pub const THROW_IMPULSE: f32 = 60_000.0;
 pub const THROW_SPEED_MAX: f32 = 40.0;
 /// Jettisoned (or spilled) cargo drifts off at this speed, m/s.
 pub const JETTISON_SPEED: f32 = 3.0;
-/// The dock: a sphere on the colony's axis, just off the docking hub's mouth (350 m beyond it).
-/// Arriving slower than `DOCK_SPEED` sells the hold and whatever is in hand, and tops up propellant.
-pub const DOCK_CENTER: Vec3 = Vec3::new(-17_250.0, COLONY_CENTER.y, COLONY_CENTER.z);
+/// The dock: a sphere on the colony's axis, 800 m off the docking hub's mouth, which leaves a suit
+/// coming in at speed room to swing round it clear of the drum and the bays' doors. Arriving slower
+/// than `DOCK_SPEED` sells the hold and whatever is in hand, and tops up propellant.
+pub const DOCK_CENTER: Vec3 = Vec3::new(-17_700.0, COLONY_CENTER.y, COLONY_CENTER.z);
 pub const DOCK_RADIUS: f32 = 300.0;
 pub const DOCK_SPEED: f32 = 25.0;
 /// Credits per kg of each material: nickel-iron, titanium, volatiles, exotics.

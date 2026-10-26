@@ -64,7 +64,7 @@ lanes and the field where they are, and every deck coordinate inside the pose co
 | The base deck | Floor at r 400 (0.4 g), x −602 to −350: 252 m wide and 2.5 km round. Bay Row runs behind the bays, the one way out of every pilot's airlock. |
 | Spine and spokes | The spine r 100, from the drum to the ring's far face; six spokes at x 0, r 100 to 700, each with a lift down to the town (later). |
 | Light | Louvres round the spine, between the spokes, opening with `colony::time::day().mirror_beta`: the 48-minute day and its colour script unchanged. |
-| The dock | Unchanged: (−17,250, −4,200, 0), r 300. The client's dock approach shrinks from 600 m to 400 m, so a launch from the face doesn't dock straight back. |
+| The dock | On the axis 800 m off the hub's mouth: (−17,700, −4,200, 0), r 300 (450 m further out than the cylinder's, so a suit coming in at speed swings round it clear of the drum). The client's dock approach is its ring and 100 m, so a launch from the face doesn't dock straight back. |
 
 **Physics.** To the space sector the ring is still a solid: a hollow cylinder, |x| ≤ 300 and 700 ≤ r ≤ 1,000, plus
 the hub and spokes as landmark shapes. Hits come four ways (the outer cylinder, the inner one from the hole, either

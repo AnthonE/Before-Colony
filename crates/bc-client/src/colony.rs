@@ -292,17 +292,9 @@ fn hub_kit() -> Kit {
         24,
         painted(paint::HULL),
     );
-    // A collar round the mouth's middle, and the deck hatch inside it.
-    k.lathe(
-        &[
-            (x0, DECK_HATCH_RADIUS + 18.0),
-            (x0 - 4.0, DECK_HATCH_RADIUS + 14.0),
-            (x0 - 4.0, DECK_HATCH_RADIUS),
-        ],
-        24,
-        painted(paint::HULL_DARK),
-    );
-    k.lathe(&[(x0 - 1.0, DECK_HATCH_RADIUS), (x0 - 1.0, 0.0)], 24, painted(paint::HULL_DARK));
+    // The deck hatch in the mouth's middle, a dark disc flush with its face: suits land on it, so
+    // nothing stands proud of the face the landmark has them stand on.
+    k.lathe(&[(x0 - 0.1, DECK_HATCH_RADIUS + 6.0), (x0 - 0.1, 0.0)], 24, painted(paint::HULL_DARK));
     // Slabs round the drum's rim, as on the ring's.
     for f in 0..24u32 {
         let a = TAU * (f as f32 + 0.5) / 24.0;
@@ -434,7 +426,7 @@ pub fn setup_colony(
                 }
             }
             // The deck hatch, ringed in amber; the mouth's rim and the drum's back in rows.
-            lamps.ring(MOUTH_X - 5.0, DECK_HATCH_RADIUS + 2.0, 24, 2.2, amber);
+            lamps.ring(MOUTH_X - 0.6, DECK_HATCH_RADIUS + 3.0, 24, 2.2, amber);
             lamps.ring(MOUTH_X - 2.0, BAY_RADIUS - 30.0, 120, 2.0, lamp);
             lamps.ring(MOUTH_X - 2.0, BAY_RADIUS - 100.0, 96, 1.8, green);
             lamps.ring(DRUM_X.1 + 2.0, DRUM_RADIUS - 40.0, 160, 2.4, lamp);

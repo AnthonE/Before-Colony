@@ -165,7 +165,7 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await push(page, { cmd: "fly_to", spot: "dock" });
   const atDock = (s: Record<string, any>) => {
     const [x, y, z] = String(s.pos).split(",").map(Number);
-    return Math.hypot(x + 17_250, y + 4_200, z) < 150 && s.speed < 10;
+    return Math.hypot(x + 17_700, y + 4_200, z) < 150 && s.speed < 10;
   };
   await until(page, "at rest in the dock", atDock, 360_000);
   await page.focus("#bc");

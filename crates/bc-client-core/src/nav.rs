@@ -19,6 +19,7 @@ use bc_proto::buttons::FLIGHT_ASSIST;
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{Faction, PilotKind};
 use bc_sim::bodies::Body;
+use bc_sim::colony::hub::MOUTH_X;
 use bc_sim::config::{G0, SECTOR_LIMIT};
 use bc_sim::content::landmarks::LandmarkDef;
 use bc_sim::content::salvage::{DOCK_CENTER, DOCK_RADIUS};
@@ -528,13 +529,14 @@ impl Obstacles {
     }
 
     /// The points a course may turn at: a ring round the colony at three stations along its axis
-    /// (beyond each side and over its middle), and fourteen round each landmark (along its axes and
-    /// its diagonals; the docking hub's among them).
+    /// (beyond the hub's mouth, over the ring's middle and beyond its far side), and fourteen round
+    /// each landmark (along its axes and its diagonals; the docking hub's among them). Past the
+    /// mouth, the dock is between the drum and the ring of points: a suit coming in to it from one
+    /// overshoots away from the drum, not into it.
     fn waypoints(&self) -> Vec<Vec3> {
         let mut out = Vec::new();
         let r = COLONY_RADIUS + COLONY_CLEAR;
-        let ends = COLONY_HALF_WIDTH + COLONY_CLEAR;
-        for x in [-ends, 0.0, ends] {
+        for x in [MOUTH_X - COLONY_CLEAR, 0.0, COLONY_HALF_WIDTH + COLONY_CLEAR] {
             for k in 0..8 {
                 let a = k as f32 * core::f32::consts::TAU / 8.0;
                 out.push(COLONY_CENTER + Vec3::new(x, r * a.cos(), r * a.sin()));
@@ -918,7 +920,7 @@ mod tests {
 
     fn bodies(rocks: u16) -> BodySet {
         let field = bc_sim::field::Field::generate(bc_sim::field::Field::DEFAULT_SEED, rocks);
-        BodySet::new(Arc::new(field), 2)
+        BodySet::new(Arc::new(field), bc_sim::content::landmarks::LANDMARKS.len() as u8)
     }
 
     #[test]
@@ -954,10 +956,13 @@ mod tests {
         let hermit = b.pose_at(Body::Landmark(1), 0.0).unwrap().pos;
         let mo = b.pose_at(Body::Landmark(0), 0.0).unwrap().pos;
         let cases = [
-            // Over the colony to beneath it.
-            (Vec3::new(0.0, 2_000.0, 0.0), Vec3::new(1_000.0, -11_000.0, 500.0)),
-            // End to end along its side.
-            (Vec3::new(-19_000.0, -4_000.0, 4_000.0), Vec3::new(19_000.0, -4_200.0, -4_100.0)),
+            // Over the ring to beneath it, through its rim.
+            (
+                COLONY_CENTER + Vec3::new(100.0, 2_500.0, 0.0),
+                COLONY_CENTER + Vec3::new(-100.0, -2_500.0, 200.0),
+            ),
+            // Along its axis, through the hub in its hole.
+            (COLONY_CENTER + Vec3::new(-3_000.0, 50.0, 0.0), COLONY_CENTER + Vec3::new(3_000.0, 0.0, 40.0)),
             // The field to the dock, round the −X end.
             (Vec3::new(-4_000.0, 800.0, -3_000.0), DOCK_CENTER),
             // Through Hermit, and through Fornax.

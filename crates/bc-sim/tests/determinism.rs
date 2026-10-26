@@ -258,7 +258,7 @@ fn field_and_rocks_golden_wasm() {
 
 /// Hash after a salvage run: pilots gather ore, stow it, tow a hulk, throw, jettison, and sell (and
 /// refuel) at the dock.
-const SALVAGE_GOLDEN: u64 = 0xc054_f0e1_980b_312d;
+const SALVAGE_GOLDEN: u64 = 0x5574_f35b_a9a9_66f2;
 
 fn salvage_hash() -> u64 {
     use bc_proto::buttons::{FLIGHT_ASSIST, GRAB, JETTISON, STOW, THROW};
