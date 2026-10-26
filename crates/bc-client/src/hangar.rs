@@ -54,6 +54,15 @@ pub const INDOOR_AMBIENT: f32 = 45.0;
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Indoors(pub bool);
 
+/// Which set the view is in while [`Indoors`]: the pilot's bay, or the Ring Deck (`station`: only
+/// the showcase goes there, for now). Each has its own light ([`crate::sky`]).
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum IndoorSet {
+    #[default]
+    Bay,
+    Deck,
+}
+
 /// What the bay shows, set by whoever drives it (the game's hangar state, or a showcase).
 #[derive(Resource, Clone, Debug, Default)]
 pub struct BayState {
@@ -109,6 +118,7 @@ pub struct HangarPlugin;
 impl Plugin for HangarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Indoors>()
+            .init_resource::<IndoorSet>()
             .init_resource::<BayState>()
             .add_systems(Update, (show_bay, drive_bay).chain());
     }
@@ -586,16 +596,17 @@ pub fn setup_bay(
     });
 }
 
-/// Shows the bay when the pilot is in it (and puts out the camera's fill light, which is for
-/// space: a metre from a wall it would blind them).
+/// Shows the bay when the pilot is in it (and puts out the camera's fill light indoors, which is
+/// for space: a metre from a wall it would blind them).
 fn show_bay(
     indoors: Res<Indoors>,
+    set: Res<IndoorSet>,
     scene: Option<Res<BayScene>>,
     fill: Query<Entity, With<FillLight>>,
     mut vis: Query<&mut Visibility>,
 ) {
     let Some(scene) = scene else { return };
-    if !indoors.is_changed() {
+    if !indoors.is_changed() && !set.is_changed() {
         return;
     }
     let (inside, outside) = if indoors.0 {
@@ -603,9 +614,10 @@ fn show_bay(
     } else {
         (Visibility::Hidden, Visibility::Inherited)
     };
+    let bay = if *set == IndoorSet::Bay { inside } else { Visibility::Hidden };
     for e in [scene.root, scene.suit] {
         if let Ok(mut v) = vis.get_mut(e) {
-            *v = inside;
+            *v = bay;
         }
     }
     for e in &fill {
@@ -627,6 +639,7 @@ fn drive_bay(
     time: Res<VisTime>,
     state: Res<BayState>,
     indoors: Res<Indoors>,
+    set: Res<IndoorSet>,
     scene: Option<ResMut<BayScene>>,
     mut transforms: Query<&mut Transform>,
     mut points: Query<&mut PointLight>,
@@ -637,7 +650,7 @@ fn drive_bay(
     mut vis: Query<&mut Visibility>,
 ) {
     let Some(mut scene) = scene else { return };
-    if !indoors.0 {
+    if !indoors.0 || *set != IndoorSet::Bay {
         return;
     }
     // The doors slide apart into the walls.

@@ -85,6 +85,12 @@ pub enum Scene {
     /// square 100 m out. Cameras: the chase camera (1), in from the doors (2), under the ceiling
     /// (3), out on the square (4), beside the climb (5).
     Markab,
+    /// The Ring Deck (`bc_client_core::ring_deck`), the bay ring's suit deck in the colony's clean
+    /// language: an Argo standing before bay 07, an Altair flying the lanes on a 40 s loop, and
+    /// Earth wheeling past under the rim's glass once a turn of the ring (113.5 s; under it from
+    /// the start). Cameras: down the deck (1), up at bay 07 from the Argo's feet (2), at the rim's
+    /// rail looking down through the glass (3), towards the lifts by a pillar (4).
+    Ring,
 }
 
 impl Scene {
@@ -104,6 +110,7 @@ impl Scene {
             "surface" | "landmarks" => Some(Self::Surface),
             "city" | "inside" => Some(Self::City),
             "markab" | "stunt" | "rocket" => Some(Self::Markab),
+            "ring" | "station" | "deck" => Some(Self::Ring),
             _ => None,
         }
     }
@@ -124,6 +131,7 @@ impl Scene {
             Self::Surface => "surface",
             Self::City => "city",
             Self::Markab => "markab",
+            Self::Ring => "ring",
         }
     }
 
@@ -132,6 +140,10 @@ impl Scene {
         match self {
             Self::City => city_cams(),
             Self::Markab => markab_cams(),
+            Self::Ring => {
+                use bc_client_core::ring_deck::{CAMS, DECK_ORIGIN};
+                CAMS.iter().map(|&(eye, at)| look(DECK_ORIGIN + eye, at - eye)).collect()
+            }
             Self::Hangar => {
                 use bc_client_core::bay::{HATCH, SPAWN, SUIT_AT, Spot};
                 let o = crate::hangar::BAY_ORIGIN;
@@ -446,6 +458,9 @@ impl Plugin for ShowcasePlugin {
         if self.scene == Scene::Hangar {
             app.add_systems(Update, hangar_script.after(script).in_set(crate::view::Vis::Drive));
         }
+        if self.scene == Scene::Ring {
+            app.add_systems(Update, ring_script.after(script).in_set(crate::view::Vis::Drive));
+        }
         if self.scene == Scene::City {
             app.add_systems(Startup, city_script)
                 .add_systems(Update, city_crowd.after(script).in_set(crate::view::Vis::Drive));
@@ -539,6 +554,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
             vec![(Argo, Faction::Colonies), (Argo, Faction::Colonies), (Argo, Faction::Alliance)]
         }
         Scene::City | Scene::Markab => vec![],
+        Scene::Ring => vec![(Argo, Faction::Colonies), (Altair, Faction::Colonies)],
     }
 }
 
@@ -1834,6 +1850,37 @@ fn script(
         // The bay is driven by `hangar_script`; the city by `city_script`; the Markab by
         // `markab_crowd`.
         Scene::Hangar | Scene::City | Scene::Markab => {}
+        Scene::Ring => {
+            use bc_client_core::ring_deck::{DECK_ORIGIN, STANDING, flyer};
+            // The Argo before bay 07, facing the deck, looking about.
+            set(0, &mut |d| {
+                d.pos = DECK_ORIGIN + STANDING;
+                d.rot = facing(Vec3::new(-1.0, 0.0, 0.3));
+                let a = (t * 0.35) as f32;
+                d.aim = d.rot * Vec3::new(0.35 * a.sin(), 0.08 * (a * 1.3).cos(), 1.0).normalize();
+                d.vel = Vec3::ZERO;
+                d.flags = 0;
+                d.thrust = Vec3::ZERO;
+            });
+            // The Altair down the lanes on its jets, banked into the turns, boosting out of them.
+            let (at, vel) = flyer(t as f32);
+            let (ahead, _) = flyer(t as f32 + 0.5);
+            let bank =
+                vel.with_y(0.0).normalize_or(Vec3::Z).cross((ahead - at).with_y(0.0).normalize_or(Vec3::Z)).y;
+            let turning = bank.abs() > 0.02;
+            set(1, &mut |d| {
+                d.pos = DECK_ORIGIN + at;
+                d.vel = vel;
+                d.rot = facing(vel.with_y(0.0)) * Quat::from_rotation_z(-bank * 1.2);
+                d.aim = d.rot * Vec3::Z;
+                d.flags = if turning { 0 } else { ent_flags::BOOST };
+                d.thrust = if turning {
+                    Vec3::new(-bank.signum() * 0.6, 0.4, 0.2)
+                } else {
+                    Vec3::new(0.0, 0.3, 0.7)
+                };
+            });
+        }
         Scene::Surface => {
             let pose = fornax_at(t);
             let fornax = Body::Landmark(0);
@@ -2059,6 +2106,16 @@ fn script(
                 });
             }
         }
+    }
+}
+
+/// The Ring Deck's scene: the view indoors, on the deck (`station`).
+fn ring_script(mut indoors: ResMut<crate::hangar::Indoors>, mut set: ResMut<crate::hangar::IndoorSet>) {
+    if !indoors.0 {
+        indoors.0 = true;
+    }
+    if *set != crate::hangar::IndoorSet::Deck {
+        *set = crate::hangar::IndoorSet::Deck;
     }
 }
 

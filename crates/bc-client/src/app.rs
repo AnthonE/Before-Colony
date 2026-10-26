@@ -244,6 +244,7 @@ impl Plugin for VisualsPlugin {
                 crate::course::CoursePlugin,
                 crate::board::WallBoardPlugin,
                 crate::signs::SignsPlugin,
+                crate::station::StationPlugin,
             ))
             .configure_sets(
                 Update,

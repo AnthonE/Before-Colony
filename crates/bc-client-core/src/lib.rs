@@ -48,6 +48,7 @@ pub mod palette;
 pub mod plaza;
 pub mod pointer;
 pub mod predict;
+pub mod ring_deck;
 pub mod salvage;
 pub mod session;
 pub mod settings;
@@ -62,6 +63,8 @@ pub mod tram;
 pub mod upright;
 pub mod vehicle;
 pub mod walker;
+#[cfg(test)]
+mod wgsl;
 pub mod world;
 pub mod wreck;
 

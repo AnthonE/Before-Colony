@@ -115,6 +115,8 @@ mod signs;
 #[cfg(target_arch = "wasm32")]
 mod sky;
 #[cfg(target_arch = "wasm32")]
+mod station;
+#[cfg(target_arch = "wasm32")]
 mod suits_vis;
 #[cfg(target_arch = "wasm32")]
 mod terminal;
