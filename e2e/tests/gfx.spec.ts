@@ -119,7 +119,7 @@ const scenes: Array<[string, number, number, number]> = [
   // the glass; towards the lifts by a pillar.
   ["ring", 1, 6, 12],
   ["ring", 2, 6, 12],
-  ["ring", 3, 8, 12],
+  ["ring", 3, 19, 12],
   ["ring", 4, 6, 12],
 ];
 // What the Markab's driver is doing at each of those moments (`showcase_markab::Act`).

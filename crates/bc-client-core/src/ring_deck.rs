@@ -507,7 +507,7 @@ const BAY_NAMES: [&str; 3] = ["BAY 07", "BAY 08", "BAY 09"];
 
 /// Where the deck's suits are: one standing before bay 07's door (its torso; it faces the hall,
 /// −x), and one flying the lanes on a loop ([`flyer`]).
-pub const STANDING: Vec3 = Vec3::new(17.0, 9.6, -50.0);
+pub const STANDING: Vec3 = Vec3::new(17.0, 9.6, -56.0);
 /// How long the flying suit's loop takes, s, how high it flies (its torso), and its turns' radius.
 pub const LOOP_SECS: f32 = 40.0;
 const FLY_Y: f32 = 12.0;
@@ -545,9 +545,9 @@ pub const CAMS: [(Vec3, Vec3); 4] = [
     (Vec3::new(4.0, 16.0, -90.0), Vec3::new(4.0, 9.0, 40.0)),
     // Low at the standing suit's feet, up at its bay's door and its number.
     (Vec3::new(6.0, 1.7, -32.0), Vec3::new(24.0, 15.0, -52.0)),
-    // Over the rim's rail at a suit's eye, down through the glass at Earth (under it a few
-    // seconds in).
-    (Vec3::new(-6.5, 7.0, 10.0), Vec3::new(-13.5, -10.0, 18.0)),
+    // Over the trough past the rim's rail, along the rim: Earth rising through the glass, the
+    // rail and the deck to the right, the catwalk on the wall to the left (Earth there at 19 s).
+    (Vec3::new(-11.0, 4.0, -20.0), Vec3::new(-17.6, -5.4, -3.6)),
     // By a pillar, towards the opening and the lifts.
     (Vec3::new(15.0, 4.0, 56.0), Vec3::new(6.0, 12.0, 120.0)),
 ];

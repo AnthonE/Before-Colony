@@ -88,8 +88,9 @@ pub enum Scene {
     /// The Ring Deck (`bc_client_core::ring_deck`), the bay ring's suit deck in the colony's clean
     /// language: an Argo standing before bay 07, an Altair flying the lanes on a 40 s loop, and
     /// Earth wheeling past under the rim's glass once a turn of the ring (113.5 s; under it from
-    /// the start). Cameras: down the deck (1), up at bay 07 from the Argo's feet (2), at the rim's
-    /// rail looking down through the glass (3), towards the lifts by a pillar (4).
+    /// the start). Cameras: down the deck (1), up at bay 07 from the Argo's feet (2), along the rim
+    /// over its trough, Earth rising through the glass at 19 s (3), towards the lifts by a pillar
+    /// (4).
     Ring,
 }
 
