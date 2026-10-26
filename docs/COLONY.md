@@ -1,5 +1,9 @@
 # The First Colony, inside: the plan for Milestone 5
 
+> **Superseded by `RING.md`** (October 2026): the First Colony is now a 1 km ring, and this cylinder's inside is
+> retired, closed by default (the server's `--colony` opens it until it's cleared). This document stays as the
+> record of what was built and what carries over (`RING.md`, "What carries over, and what goes").
+
 ## Context
 
 Rebuild the L1 colony to look like the owner's reference pictures, and let a pilot walk from the hangar bay into its

@@ -1,5 +1,9 @@
 # The First Colony, polished: the look, and the passes that get it there
 
+> **Superseded by `RING.md`** (October 2026): the owner chose painted anime, like the 1990s OVA, over this plan's
+> "physically lit, no toon shading" (`RING.md`, "The look"). What's below is the record of the cylinder's passes;
+> the sky function, the colour script's shape and the life drawing carry over.
+
 `COLONY.md` built the city: every block, street and room from closed forms, walked, ridden and
 shared. This plan is about how it looks. The owner's brief: a survival game's realism, as in
 Rust, with anime filling in behind it, and the colony city of Phantasy Star Online remembered
