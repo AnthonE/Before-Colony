@@ -12,9 +12,9 @@
 use glam::{Quat, Vec3};
 
 use crate::bodies::{Base, BodyPose, Prim, Shape};
-use crate::colony::frame::SPIN_RATE;
 use crate::content::salvage::DOCK_HUB_LENGTH;
 use crate::math::{look_rotation, quat_axis_angle};
+use crate::world::SPIN_RATE;
 use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH, colony_spin_angle};
 
 /// The spire's tube: the docking hub, from the end cap out to its mouth.

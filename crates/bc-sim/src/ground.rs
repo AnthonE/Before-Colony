@@ -244,7 +244,7 @@ fn is_city(shape: &Shape) -> bool {
 /// On the city: up at `p` (the spin's) and how hard the colony pulls there, m/s².
 fn city_down(p: Vec3) -> (Vec3, f32) {
     let r = sqrt(p.y * p.y + p.z * p.z);
-    (up_at(p), gravity(crate::world::COLONY_RADIUS - r))
+    (up_at(p), gravity(crate::colony::frame::RADIUS - r))
 }
 
 /// Whether ground with normal `n` at `o` can be stood on: anywhere but on the city, where it must

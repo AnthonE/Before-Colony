@@ -74,15 +74,16 @@ struct Args {
     /// Keep pilot records and the exchange in this directory (otherwise they last one run).
     #[arg(long)]
     data_dir: Option<PathBuf>,
-    /// Close the colony: the bays' airlocks no longer lead to the cap lifts, down into its city,
-    /// and no suit flies inside it. (It is open by default under survival rules; arcade rules
-    /// have no colony to open.)
+    /// Open the colony's inside: the bays' airlocks lead to the cap lifts, down into the
+    /// cylinder's city, and suits fly inside it. That inside is retired (`docs/RING.md`): it's
+    /// closed by default and kept behind this flag for the browser suites until it's cleared.
+    /// (Arcade rules have no colony to open.)
     #[arg(long)]
-    no_colony: bool,
-    /// The colony used to be opened by hand; it's open by default now. Kept so old command lines
-    /// still run.
-    #[arg(long, hide = true)]
     colony: bool,
+    /// The colony was open by default once, and this closed it; it's closed by default now. Kept
+    /// so old command lines still run.
+    #[arg(long, hide = true)]
+    no_colony: bool,
     /// Connections taken in all, handshaking or open.
     #[arg(long, default_value_t = bc_server::net::admit::Limits::default().connections)]
     max_connections: u32,
@@ -121,7 +122,7 @@ fn main() -> anyhow::Result<()> {
         flight: args.flight,
         craft_speed: args.craft_speed.max(0.01),
         data_dir: args.data_dir,
-        colony: args.rules == Ruleset::Survival && !args.no_colony,
+        colony: args.rules == Ruleset::Survival && args.colony,
         limits: bc_server::net::admit::Limits {
             connections: args.max_connections.max(1),
             per_address: args.per_address.max(1),
@@ -129,15 +130,17 @@ fn main() -> anyhow::Result<()> {
         },
         ..Config::default()
     };
-    match (args.rules, args.no_colony) {
+    match (args.rules, args.colony) {
+        (Ruleset::Survival, true) => {
+            tracing::info!("the colony's inside is open (--colony): its cap lifts run")
+        }
         (Ruleset::Survival, false) => {
-            tracing::info!("the colony is open: its cap lifts run (--no-colony closes it)")
+            tracing::info!(
+                "the colony's inside is closed while the ring is built (--colony opens the old one)"
+            )
         }
-        (Ruleset::Survival, true) => tracing::info!("the colony is closed (--no-colony)"),
-        (Ruleset::Arcade, _) if args.colony => {
-            tracing::warn!("--colony: arcade rules have no colony to open")
-        }
-        (Ruleset::Arcade, _) => tracing::info!("the colony is closed: arcade rules have no colony"),
+        (Ruleset::Arcade, true) => tracing::warn!("--colony: arcade rules have no colony to open"),
+        (Ruleset::Arcade, false) => tracing::info!("the colony is closed: arcade rules have no colony"),
     }
     // Two workers are plenty: all game work happens on the dedicated sector thread.
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;

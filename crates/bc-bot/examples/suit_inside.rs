@@ -88,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
     bot.wait_until(10.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     anyhow::ensure!(
         bot.core.welcome.as_ref().is_some_and(|w| w.colony),
-        "the colony is closed (--no-colony)"
+        "the colony is closed (the server needs --colony)"
     );
     bot.launch_inside().await?;
     tracing::info!(name = %a.name, over = %a.over, "inside the colony, flying down");

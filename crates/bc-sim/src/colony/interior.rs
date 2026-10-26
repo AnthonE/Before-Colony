@@ -15,10 +15,10 @@ use super::frame::{CityPos, SPIN_RATE, Under, from_colony, s_scale, strip_edge, 
 use bc_proto::InputCmd;
 
 use crate::bodies::{Probe, STANCE};
+use crate::colony::frame::{HALF_LENGTH as COLONY_HALF_LENGTH, RADIUS as COLONY_RADIUS};
 use crate::content::FrameSpec;
 use crate::flight::{FlightMods, FlightOut, FlightState};
 use crate::math::{cos, length, normalize_or, sin, sqrt};
-use crate::world::{COLONY_HALF_LENGTH, COLONY_RADIUS};
 
 /// Which world a sector simulates.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

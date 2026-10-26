@@ -38,13 +38,12 @@ use bc_econ::wire::{HomesView, Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
 use bc_proto::presence::{PersonPose, RIDE_SEATED};
 use bc_sim::colony::city::{
-    AVENUE as AVENUE_WIDTH, CityBox, KERB, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, place_door,
-    seat_near, terminal_rect,
+    AVENUE as AVENUE_WIDTH, CityBox, KERB, LIFT_TOP, Stage, TERMINAL_HEIGHT, arrival_seats, district_at,
+    place_door, seat_near, terminal_rect,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hall;
 use bc_sim::colony::homes::{self, Home, HomeId, Overlay, OverlayHome};
-use bc_sim::colony::hub::BAY_RADIUS;
 use bc_sim::colony::pools::{pool, pool_near};
 use bc_sim::colony::transit::{
     CAR_WIDTH, CARS, DOOR_AT, FLOOR, PLATFORM_HALF, PLATFORM_LENGTH, STATION_GAP, STATIONS, TRAINS,
@@ -53,7 +52,6 @@ use bc_sim::colony::transit::{
 use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, STRIP_NAMES};
 use bc_sim::content::homes::Furniture;
 use bc_sim::content::{Kit, Kits};
-use bc_sim::world::COLONY_RADIUS;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::math::DVec3;
 use bevy::prelude::*;
@@ -954,7 +952,7 @@ impl CityFoot {
 /// colony's frame, and the way it looks (down the colony, tipping up as it nears the floor).
 fn lift_view(strip: u8, t: f32) -> (DVec3, Vec3) {
     let u = smoothstep(0.0, LIFT_SECS, t);
-    let (top, bottom) = (COLONY_RADIUS - BAY_RADIUS, TERMINAL_HEIGHT + 6.0);
+    let (top, bottom) = (LIFT_TOP, TERMINAL_HEIGHT + 6.0);
     let h = top + (bottom - top) * u;
     let x = terminal_rect().x0 + 7.0;
     let s = STRIP_WIDTH * 0.5;
@@ -1779,7 +1777,7 @@ pub fn drive_onfoot(
                     me.start(Seq::LiftDown, now);
                     ask(&net, &g, &Request::EnterCity { strip });
                 }
-                // The colony closed (arcade rules, or `--no-colony`): the airlock only leads out.
+                // The colony closed (arcade rules, or survival without `--colony`): the airlock only leads out.
                 (Spot::Airlock, _) => {
                     me.airlock_until = now + 1.5;
                     ui.toast("THE CAP LIFTS ARE CLOSED: THIS SERVER KEEPS THE COLONY SHUT");

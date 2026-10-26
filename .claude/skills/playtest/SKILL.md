@@ -16,7 +16,7 @@ scripts/pt up                      # the world (builds first if the code is newe
 export PT_SESSION=scout            # your own browser and pilot (default: pt); keep it for the session
 scripts/pt open                    # a guest pilot, straight into their bay on foot (survival rules)
 scripts/pt shot bay                # -> e2e/artifacts/playtest/scout/001-bay.png: Read it
-scripts/pt walk airlock && scripts/pt use      # the cap lift down to the colony
+scripts/pt walk airlock && scripts/pt use      # the cap lift down to the colony (BC_COLONY=1 pt up)
 scripts/pt wait 's.place=="city"' 120 && scripts/pt cmd '{"cmd":"skip"}'
 scripts/pt around                  # four views turning round, on one contact sheet
 scripts/pt note "major/copy: the Hub Gate toast is cut off at 960 px"
@@ -70,7 +70,7 @@ the suite shows the current way.
 | Space, launched | `walk cockpit`, `use` (the launch sequence; `cmd '{"cmd":"skip"}'` skips it) |
 | Home from space | `cmd '{"cmd":"fly_to","spot":"dock"}'`, `wait '!s.flying_to' 400`, `key Enter` |
 | A fight | `open 'autopilot=1&frame=altair'` (the drone brain flies and fights), or flying yourself: `cmd '{"cmd":"aim_hostile","on":true}'` and `mouse right 3000` |
-| The colony's streets | `walk airlock`, `use`, `wait 's.place=="city"'`, `cmd '{"cmd":"skip"}'` (the lift ride) |
+| The colony's streets | the retired cylinder's, while the ring is built (`docs/RING.md`): `BC_COLONY=1 scripts/pt up`, then `walk airlock`, `use`, `wait 's.place=="city"'`, `cmd '{"cmd":"skip"}'` (the lift ride) |
 | A place in the city | `walk proving_ground` (`exchange_floor`, `charter_board`, `bar`, `hub_gate_1`, `tram`, `seat`, `pool`, `gantry`, `sight_0`…`sight_9`: on the strip you're on); `use` at its desk |
 | A suit inside the colony | `walk cockpit`, `key KeyQ` (Q at the cockpit launches inside), then `cmd '{"cmd":"fly_to","spot":"hub_gate_1","up":22,"ahead":60}'`; `key KeyL` lands |
 | The chart | flying: `key KeyM`; `ui` reads it |
@@ -97,7 +97,8 @@ two is a finding.
   hides what it talks about, an objective that doesn't lead anywhere you can find.
 - **Controls**: compare what a key does with `docs/CONTROLS.md` (what players expect, and where
   we break convention on purpose).
-- **The look**: against `docs/COLONY_LOOK.md` (worn and real, a clean colony, an anime sky) and the
+- **The look**: against `docs/RING.md`'s "The look" (painted anime, like the 1990s OVA; the cylinder's
+  city against `docs/COLONY_LOOK.md`) and the
   showcase's review set; z-fighting, flicker, seams, things floating or sunk, pop-in, the scale
   of people against suits and buildings.
 - **The new player's way in**: from the title, could someone who's never read the docs tell what to

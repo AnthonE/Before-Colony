@@ -79,7 +79,7 @@ fn thrust_estimate(
             let pull = match g.body {
                 bc_sim::bodies::Body::City => {
                     let r = Vec2::new(now.pos.y, now.pos.z).length();
-                    bc_sim::colony::frame::gravity(bc_sim::world::COLONY_RADIUS - r)
+                    bc_sim::colony::frame::gravity(bc_sim::colony::frame::RADIUS - r)
                 }
                 _ => GRIP_ACCEL,
             };

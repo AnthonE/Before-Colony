@@ -24,6 +24,9 @@ const HULL_MARGIN: f32 = 12.0;
 /// moves at 177 m/s.
 pub const COLONY_SPIN_PERIOD_TICKS: u32 = 3_405;
 
+/// How fast the colony turns about its axis, rad/s.
+pub const SPIN_RATE: f32 = TAU / (COLONY_SPIN_PERIOD_TICKS as f32 * crate::config::DT);
+
 /// How far the colony has turned about its axis at tick `t` plus `frac` of the next, rad. A whole
 /// number of ticks a turn, taken modulo the tick, so it never drifts.
 pub fn colony_spin_angle(t: u32, frac: f32) -> f32 {

@@ -88,25 +88,28 @@ case "$suite" in
     pids+=($!)
     ;;
   hangar)
-    # Survival rules; the fabricator works fast so a job finishes inside the test.
-    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --craft-speed 60 --drones 0 &
+    # Survival rules; the fabricator works fast so a job finishes inside the test. The retired
+    # cylinder's inside open (`--colony`), as the suite's pointers to its desks expect, till R3.
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --craft-speed 60 --drones 0 --colony &
     pids+=($!)
     ;;
   colony|inside)
-    # Survival rules (the colony open, as by default); no drones. An agent strolls outside Hub Gate.
-    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 &
+    # Survival rules, the retired cylinder's inside open (`--colony`); no drones. An agent strolls
+    # outside Hub Gate.
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --colony &
     pids+=($!)
     sleep 1
     "$bin/examples/flaneur" --server "$BC_URL" --name "Flaneur-01" &
     pids+=($!)
     ;;
   home)
-    # Survival rules (the colony open), no drones; the register of homes seeded with test keys 1 and
-    # 2 asleep in neighbouring flats' beds (`examples/seed_homes`), so their browsers wake there.
+    # Survival rules, the retired cylinder's inside open (`--colony`), no drones; the register of
+    # homes seeded with test keys 1 and 2 asleep in neighbouring flats' beds (`examples/seed_homes`),
+    # so their browsers wake there.
     data="$(mktemp -d)"
     BC_HOME_SEED="$("$bin/examples/seed_homes" "$data")"
     export BC_HOME_SEED
-    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --data-dir "$data" &
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --colony --data-dir "$data" &
     pids+=($!)
     ;;
   *) echo "unknown suite $suite" >&2; exit 1 ;;

@@ -145,7 +145,7 @@ mod tests {
         assert_eq!(constant("HUB_START") as i32, city::HUB_GATE.0);
         assert_eq!(constant("CITY_START") as i32, city::CITY.0);
         assert_eq!(constant("FOOT_START") as i32, city::FAR_FOOT.0);
-        assert_eq!(constant("TERMINAL_FRONT"), -bc_sim::world::COLONY_HALF_LENGTH + city::TERMINAL_DEPTH);
+        assert_eq!(constant("TERMINAL_FRONT"), -bc_sim::colony::frame::HALF_LENGTH + city::TERMINAL_DEPTH);
     }
 
     /// The street's furniture stands where the ground's paint puts its pools and pits, from the
@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(number("F_KERB"), city::KERB);
         assert_eq!(number("F_MAX_HEIGHT"), city::MAX_HEIGHT);
         assert_eq!(number("F_BLOCK"), city::BLOCK);
-        assert_eq!(number("F_RADIUS"), bc_sim::world::COLONY_RADIUS);
+        assert_eq!(number("F_RADIUS"), bc_sim::colony::frame::RADIUS);
         assert_eq!(number("F_FIRST_WINDOW"), bc_sim::colony::frame::FIRST_WINDOW);
     }
 
