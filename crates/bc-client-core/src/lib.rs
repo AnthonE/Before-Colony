@@ -45,6 +45,7 @@ pub mod objectives;
 pub mod own;
 pub mod page;
 pub mod palette;
+pub mod piece_mesh;
 pub mod plaza;
 pub mod pointer;
 pub mod predict;

@@ -265,6 +265,23 @@ impl Solid for CityGround {
     }
 }
 
+/// A deck of the ring (`colony::deck`: the base's or the ring's floor), to walk: `deck::solid` under
+/// the deck's pull, in the walker's frame on it, `(x, h, −s)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeckGround {
+    pub deck: u8,
+}
+
+impl Solid for DeckGround {
+    fn hits(&self, min: Vec3, max: Vec3) -> bool {
+        crate::colony::deck::solid(self.deck, min, max)
+    }
+
+    fn gravity(&self, feet: Vec3) -> f32 {
+        crate::colony::deck::gravity(self.deck, feet.y)
+    }
+}
+
 impl CityGround {
     /// Where `feet` (in the walker's frame) are in city coordinates.
     pub fn place(&self, feet: Vec3) -> CityPos {

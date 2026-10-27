@@ -1591,3 +1591,75 @@ fn hall_golden_native() {
 fn hall_golden_wasm() {
     assert_eq!(hall_hash(), HALL_GOLDEN);
 }
+
+/// Hash of the base's buildings (`bc_sim::pieces`, `content::base`): every solid each one stands as
+/// on its deck, the deck's pull, and a walker going in at the test hall's door, to its counter, up
+/// its stairs and down them again, on the base's deck at 0.4 g.
+const PIECES_GOLDEN: u64 = 0x2a40_463c_edf4_752c;
+
+fn pieces_hash() -> u64 {
+    use bc_sim::colony::deck::{BASE, DeckPos, gravity};
+    use bc_sim::content::base::SITES;
+    use bc_sim::foot::{DeckGround, Stride, Walker};
+    use bc_sim::math::atan2;
+    use glam::Vec3;
+
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for site in &SITES {
+        site.each_solid(&mut |b| {
+            for v in [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z] {
+                fnv(&mut h, v.to_bits());
+            }
+        });
+        let p = DeckPos::from_walker(site.deck, site.to_walker(Vec3::new(1.5, 0.0, 1.5))).to_colony();
+        for v in [p.x, p.y, p.z, gravity(site.deck, 1.0)] {
+            fnv(&mut h, v.to_bits());
+        }
+    }
+    let site = &SITES[0];
+    let ground = DeckGround { deck: BASE };
+    let way = [
+        Vec3::new(4.5, 0.0, 0.0),
+        site.prefab.rooms[0].counter,
+        Vec3::new(10.5, 0.0, 2.6),
+        Vec3::new(10.5, 3.0, 7.5),
+        Vec3::new(2.0, 3.0, 7.5),
+        Vec3::new(10.5, 3.0, 7.5),
+        Vec3::new(10.5, 0.0, 2.6),
+    ];
+    let mut w = Walker::at(site.to_walker(Vec3::new(4.5, 0.0, -6.0)), Vec3::Z);
+    let mut next = 0;
+    for n in 0..1_800u32 {
+        let to = site.to_walker(way[next.min(way.len() - 1)]);
+        let d = Vec3::new(to.x - w.feet.x, 0.0, to.z - w.feet.z);
+        if d.length() < 0.4 {
+            next += 1;
+        }
+        w.yaw = atan2(d.x, d.z);
+        let walking = next < way.len();
+        w.tick(
+            &ground,
+            &Stride { forward: if walking { 1.0 } else { 0.0 }, jump: n % 97 == 50, ..Stride::default() },
+        );
+        for v in [w.feet.x, w.feet.y, w.feet.z, w.vel.x, w.vel.y, w.vel.z] {
+            fnv(&mut h, v.to_bits());
+        }
+        fnv(&mut h, u32::from(w.grounded));
+    }
+    assert!(next >= way.len(), "the walk stopped at its step {next}: {:?}", w.feet);
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn pieces_golden_native() {
+    let h = pieces_hash();
+    assert_eq!(h, pieces_hash(), "must be reproducible within a process");
+    assert_eq!(h, PIECES_GOLDEN, "the pieces' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn pieces_golden_wasm() {
+    assert_eq!(pieces_hash(), PIECES_GOLDEN);
+}
