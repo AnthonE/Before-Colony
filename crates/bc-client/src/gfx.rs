@@ -184,6 +184,9 @@ pub struct Gfx {
     pub tonemapping: Tonemapping,
     /// The game's own look (grade, vignette, lit smoke); `?look=0` turns it off, to compare.
     pub look: bool,
+    /// The painted look on trial (`?look=anime`): the colony, the bays and the stations in painted
+    /// bands (`hull.wgsl`'s `paint_bands`), the suits as they are.
+    pub paint: bool,
     /// The city's traffic and people drawn; `?life=0` hides them, to compare and to measure.
     pub life: bool,
     /// Ambient occlusion where the tier and the GPU have it; `?ssao=0` turns it off, to compare.
@@ -212,6 +215,7 @@ impl Gfx {
             backend,
             tonemapping,
             look: cfg.look,
+            paint: cfg.paint,
             life: cfg.life,
             ssao: cfg.ssao,
             auto,

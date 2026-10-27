@@ -26,7 +26,7 @@ this one wins.
 | R1.0: this plan | written |
 | R1.1: the cylinder's inside closed by default (its code kept behind the server's `--colony` until it's cleared) | done; no rent runs meanwhile (`Homes::hold`) |
 | R1.2, R1.3: the ring in space: its hull, hub, bays, spokes and louvres, in the sector and on every screen | done (protocol 40): `world`'s ring, `colony::hub`'s drum, spine, spokes and bays at 0.4 g, `colony::louvres`, the hub landmark, the field kept, the dock's approach, nav and the salvage routes round it, up as +Y, and a first exterior of slabs and lights (`bc-client`'s `colony.rs`) and the chart's |
-| L1: the look test, painted anime on one camera, signed off by the owner | to do |
+| L1: the look test, painted anime on one camera, signed off by the owner | first pass behind `?look=anime`, waiting on the owner |
 | R1.4: the outside dressed: slab panels, light grids, beacons | to do |
 | R2: Gates' building pieces in `bc_sim::pieces`; the decks; a walkable test building | built: `pieces` (lattice, sock, shape, support, check, parts, prefab), `colony::deck` and `foot::DeckGround`, `content::base`'s test hall walked in at its door and up its stairs (`tests/pieces.rs`, `PIECES_GOLDEN`), drawn by `bc_client_core::piece_mesh` and `bc-client`'s `base.rs` in the drum's inside with its own light (`?showcase=base`); walking it in the game comes with R3 |
 | R1.5, R1.6: the cylinder's inside cleared (homes refunded) | to do |
@@ -98,9 +98,11 @@ The colony and everything in it are drawn like a 1990s anime's painted backgroun
 
 The suits keep their own look (`docs/UI.md`, `bc-model`). Painting them is a separate question for later.
 
-**The look test (L1)** is a shading import, `shaders/paint.wgsl`, behind `?look=anime`, on the bay and the
-showcase's exterior colony camera. Its shots go side by side with the references, and only once the owner has seen
-them does anything else adopt it.
+**The look test (L1)** is behind `?look=anime`: `hull.wgsl`'s `paint_bands` repaints what the hull material lit
+in three bands with soft edges (violet shadow, cool half-light, warm light), a highlight stroke and a cool rim, on
+everything plated with it but the suits (the colony outside, its louvres, the bays, the stations, the base). Its
+shots (`BC_GFX_EXTRA="look=anime" scripts/e2e.sh gfx webgl2`) go side by side with the references and the plain
+look, and only once the owner has seen them does anything adopt it.
 
 ## The base: the Muster
 

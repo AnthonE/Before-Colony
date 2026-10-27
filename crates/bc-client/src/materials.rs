@@ -153,7 +153,8 @@ pub struct HullParams {
     pub panel: Vec4,
     /// x: seconds.
     pub time: Vec4,
-    /// x: patchwork, how much plates differ from their neighbours in tone and sheen (0: alike).
+    /// x: patchwork, how much plates differ from their neighbours in tone and sheen (0: alike); y: 1
+    /// to paint it (`?look=anime`, `hull.wgsl`'s `paint_bands`).
     pub look: Vec4,
 }
 
@@ -225,8 +226,9 @@ fn palette() -> [Vec4; paint::CAPACITY] {
     out
 }
 
-/// A hull material: `panel` as [`HullParams::panel`], `patchwork` as [`HullParams::look`]'s x.
-fn hull(panel: Vec4, patchwork: f32) -> HullMaterial {
+/// A hull material: `panel` as [`HullParams::panel`], `patchwork` as [`HullParams::look`]'s x, and
+/// painted (`?look=anime`) if `painted`.
+fn hull(panel: Vec4, patchwork: f32, painted: bool) -> HullMaterial {
     ExtendedMaterial {
         base: StandardMaterial { perceptual_roughness: 0.4, ..default() },
         extension: HullExt {
@@ -234,7 +236,7 @@ fn hull(panel: Vec4, patchwork: f32) -> HullMaterial {
                 palette: palette(),
                 panel,
                 time: Vec4::ZERO,
-                look: Vec4::new(patchwork, 0.0, 0.0, 0.0),
+                look: Vec4::new(patchwork, if painted { 1.0 } else { 0.0 }, 0.0, 0.0),
             },
         },
     }
@@ -250,13 +252,14 @@ pub fn setup_materials(
 ) {
     let ore = |kind: usize| ore_colour(kind).extend(ORES[kind].1);
     commands.insert_resource(Surfaces {
-        // Suits stay clean, as they're drawn; the big hulls are patchworks of plates.
-        armour: hulls.add(hull(Vec4::new(1.1, 0.035, 0.6, 0.35), 0.0)),
-        colony: hulls.add(hull(Vec4::new(42.0, 0.6, 0.5, 0.35), 0.45)),
-        // The mirror's facets on their frame: seams wide enough to read as its ribs from kilometres.
-        mirror: hulls.add(hull(Vec4::new(220.0, 7.0, 0.3, 0.05), 0.5)),
-        plating: hulls.add(hull(Vec4::new(2.4, 0.03, 0.5, 0.7), 0.3)),
-        station: hulls.add(hull(Vec4::new(6.0, 0.1, 0.5, 0.55), 0.35)),
+        // Suits stay clean, as they're drawn (and keep their look on trial or not); the big hulls are
+        // patchworks of plates.
+        armour: hulls.add(hull(Vec4::new(1.1, 0.035, 0.6, 0.35), 0.0, false)),
+        colony: hulls.add(hull(Vec4::new(42.0, 0.6, 0.5, 0.35), 0.45, gfx.paint)),
+        // The louvres' facets: seams wide enough to read as their ribs from kilometres.
+        mirror: hulls.add(hull(Vec4::new(60.0, 2.0, 0.3, 0.05), 0.5, gfx.paint)),
+        plating: hulls.add(hull(Vec4::new(2.4, 0.03, 0.5, 0.7), 0.3, gfx.paint)),
+        station: hulls.add(hull(Vec4::new(6.0, 0.1, 0.5, 0.55), 0.35, gfx.paint)),
         rock: rocks.add(ExtendedMaterial {
             base: StandardMaterial { perceptual_roughness: 0.9, ..default() },
             extension: RockExt {
