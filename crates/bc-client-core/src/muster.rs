@@ -46,8 +46,8 @@ const HEAD_HALF: f32 = 2.8;
 /// Where the number goes over a door, how tall, and where KEEP CLEAR goes before it.
 const NUMBER_H: f32 = 6.45;
 const NUMBER_SIZE: f32 = 0.75;
-const KEEP_CLEAR_X: f32 = 1.6;
-const KEEP_CLEAR_SIZE: f32 = 0.55;
+const KEEP_CLEAR_X: f32 = 1.85;
+const KEEP_CLEAR_SIZE: f32 = 0.9;
 /// The hazard line along the walkway's edge, m wide.
 const EDGE: f32 = 0.6;
 /// The bays, numbered from 1.
