@@ -87,7 +87,8 @@ pub enum Scene {
     Markab,
     /// The Muster, the base in the hub's drum (`docs/RING.md`), its buildings from their pieces: the
     /// test hall from out on the deck (1), in at its doorway (2), from its gallery (3), the deck
-    /// rising ahead and overhead (4), along Bay Row's airlocks (5), and from high over the deck (6).
+    /// rising ahead and overhead (4), along Bay Row's airlocks (5), from high over the deck (6), and
+    /// bay 01's airlock from the walkway (7).
     Base,
     /// The Ring Deck (`bc_client_core::ring_deck`), a suit-scale test set of the colony's station
     /// language: an Argo standing before bay 07, an Altair flying the lanes on a 40 s loop, and
@@ -1391,6 +1392,7 @@ fn base_cams() -> Vec<Orbit> {
     // The walker frame from the hall's doorway: Bay Row is towards −x, the deck's `s` grows to −z.
     let door = site.to_walker(Vec3::new(4.5, 0.0, 0.0));
     let deck = |d: Vec3| world(door + d);
+    let bay_1 = bc_sim::colony::deck::airlock(1).walker();
     vec![
         // Out on Bay Row before its doorway.
         toward(hall(Vec3::new(4.5, 1.7, -9.0)), hall(Vec3::new(5.0, 2.6, 3.0))),
@@ -1404,6 +1406,8 @@ fn base_cams() -> Vec<Orbit> {
         toward(deck(Vec3::new(-16.0, 1.7, 30.0)), deck(Vec3::new(-10.0, 4.0, -10.0))),
         // From high over the deck, near the spine's casing.
         toward(deck(Vec3::new(40.0, 200.0, 60.0)), deck(Vec3::ZERO)),
+        // Bay 01's airlock from out on the walkway: its number, its lit frame, KEEP CLEAR.
+        toward(world(bay_1 + Vec3::new(9.0, 2.2, 0.0)), world(bay_1 + Vec3::new(0.0, 3.4, 0.0))),
     ]
 }
 

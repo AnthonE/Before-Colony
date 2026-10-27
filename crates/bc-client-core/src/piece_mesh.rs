@@ -15,7 +15,7 @@ use bc_sim::pieces::prefab::Site;
 use bc_sim::pieces::shape::{DOORWAY, LEVEL_H_M, level_y};
 use glam::{Quat, Vec3};
 
-use crate::station::{BAND, CHARTER, DARK, GARDENS, GUNMETAL, HULL, Sign, Surface, WHITE, colour};
+use crate::station::{BAND, CHARTER, GARDENS, GUNMETAL, HULL, Sign, Surface, WHITE, colour};
 
 /// A mesh: positions and normals in its frame, the station shader's vertex colours, and UVs in
 /// metres across each face.
@@ -216,7 +216,8 @@ pub fn site_signs(site: &Site) -> Vec<Sign> {
             normal: turn * n,
             up: turn * Vec3::Y,
             height: 0.45,
-            ink: DARK,
+            // In white, on the upper storey's olive dado.
+            ink: WHITE,
         });
     }
     out
