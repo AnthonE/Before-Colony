@@ -75,7 +75,7 @@ the suite shows the current way.
 | A suit inside the colony | `walk cockpit`, `key KeyQ` (Q at the cockpit launches inside), then `cmd '{"cmd":"fly_to","spot":"hub_gate_1","up":22,"ahead":60}'`; `key KeyL` lands |
 | The chart | flying: `key KeyM`; `ui` reads it |
 | The controls sheet, settings | `key F1`; `key Escape` for the menu, `click '#pause [data-cmd="settings"]'`… (read `ui` for the real selectors) |
-| One scene, exactly | `showcase <scene> <cam> <t> <frames>`: `e2e/tests/gfx.spec.ts` lists the scenes and their moments (`lineup`, `duel`, `colony`, `hangar`, `city`, `surface`, `chase`, `lodestars`, `pair`, `markab`…) |
+| One scene, exactly | `showcase <scene> <cam> <t> <frames>`: `e2e/tests/gfx.spec.ts` lists the scenes and their moments (`lineup`, `duel`, `colony`, `hangar`, `base`, `city`, `surface`, `chase`, `lodestars`, `pair`, `markab`…) |
 
 `status` prints the client's whole `window.__bc`; the fields that say where you are: `place`
 (hangar, city, space), `seq` (walking, launching, lift_down…), `focus` (what's in view to use),

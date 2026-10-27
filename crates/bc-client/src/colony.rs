@@ -111,14 +111,14 @@ fn louvre_transform(k: u32, beta: f32) -> Transform {
 }
 
 /// Point at `angle` round the axis, `r` from it, `x` along it (the colony's frame).
-fn around(angle: f32, r: f32, x: f32) -> Vec3 {
+pub fn around(angle: f32, r: f32, x: f32) -> Vec3 {
     Vec3::new(x, r * angle.cos(), r * angle.sin())
 }
 
 /// Flat-shaded geometry laid out in one mesh: each vertex's colour carries the hull shader's paint
 /// slot (`16 + paint`, or `48 + paint` lit), so one entity draws slabs of several paints.
 #[derive(Default)]
-struct Kit {
+pub struct Kit {
     p: Vec<[f32; 3]>,
     n: Vec<[f32; 3]>,
     c: Vec<[f32; 4]>,
@@ -127,7 +127,7 @@ struct Kit {
 
 impl Kit {
     /// A flat quad `a b c d` (counter-clockwise seen from its front), painted `slot`.
-    fn quad(&mut self, [a, b, c, d]: [Vec3; 4], slot: u8, bevel: f32) {
+    pub fn quad(&mut self, [a, b, c, d]: [Vec3; 4], slot: u8, bevel: f32) {
         let n = (b - a).cross(d - a).normalize_or_zero();
         let base = self.p.len() as u32;
         for v in [a, b, c, d] {
@@ -139,7 +139,7 @@ impl Kit {
     }
 
     /// A box: its middle, its three half-axes (a right-handed set), painted `slot`.
-    fn cuboid(&mut self, c: Vec3, [u, v, w]: [Vec3; 3], slot: u8) {
+    pub fn cuboid(&mut self, c: Vec3, [u, v, w]: [Vec3; 3], slot: u8) {
         for (n, a, b) in [(u, v, w), (-u, w, v), (v, w, u), (-v, u, w), (w, u, v), (-w, v, u)] {
             let o = c + n;
             self.quad([o - a - b, o + a - b, o + a + b, o - a + b], slot, 0.3);
@@ -148,7 +148,7 @@ impl Kit {
 
     /// A box standing on the axis's frame: its middle `r` out at `angle` and `x` along, sized `size`
     /// (x along the axis, y out from it, z round it).
-    fn radial(&mut self, angle: f32, r: f32, x: f32, size: Vec3, slot: u8) {
+    pub fn radial(&mut self, angle: f32, r: f32, x: f32, size: Vec3, slot: u8) {
         let out = around(angle, 1.0, 0.0);
         let round = Vec3::new(0.0, -angle.sin(), angle.cos());
         self.cuboid(
@@ -161,7 +161,7 @@ impl Kit {
     /// A faceted solid of revolution about X: each edge of `profile` (points (x, r), in order, the
     /// solid's outside on their right as x runs to the right and r up) swept round in `segs` flat
     /// facets.
-    fn lathe(&mut self, profile: &[(f32, f32)], segs: u32, slot: u8) {
+    pub fn lathe(&mut self, profile: &[(f32, f32)], segs: u32, slot: u8) {
         for e in profile.windows(2) {
             let ((x0, r0), (x1, r1)) = (e[0], e[1]);
             for k in 0..segs {
@@ -175,7 +175,7 @@ impl Kit {
         }
     }
 
-    fn mesh(self) -> Mesh {
+    pub fn mesh(self) -> Mesh {
         Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
             .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.p)
             .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.n)
@@ -185,7 +185,7 @@ impl Kit {
 }
 
 /// A paint, as a slot in a [`Kit`]'s vertex colour.
-const fn painted(p: u8) -> u8 {
+pub const fn painted(p: u8) -> u8 {
     16 + p
 }
 

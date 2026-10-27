@@ -1,0 +1,266 @@
+//! The Muster, drawn (`docs/RING.md`, "The base"): the base's deck in the hub's drum, and the
+//! buildings standing on it from their pieces (`bc_client_core::piece_mesh`: the same boxes the
+//! walker collides with, dressed). Until the base opens it's seen in the showcase
+//! (`?showcase=base`), drawn far above the sector ([`BASE_ORIGIN`]) as the bay is, the deck's frame
+//! at the first building turned upright there.
+//!
+//! - The drum's inside: the deck's floor round it (r 400), rising ahead and behind until it meets
+//!   itself overhead past the spine's casing (r 120); the drum's two ends; along the back end, Bay
+//!   Row, an airlock door to each bay with its lamp over the lintel.
+//! - Its light ([`BaseView`], its own as the city has its): the Sun turned to shine down from strips
+//!   along the spine's casing (the deck's day, a shaft of it standing in through a building's
+//!   skylight where the tier has shadows), lamps along Bay Row and in the buildings, and a blue haze
+//!   down the drum that the far deck overhead fades into.
+
+use std::f32::consts::TAU;
+
+use bc_client_core::piece_mesh::{PieceMesh, site_frame, site_mesh};
+use bc_sim::colony::deck::{BASE, DECKS, DeckPos};
+use bc_sim::colony::hub::{BAYS, bay_angle};
+use bc_sim::content::base::SITES;
+use bevy::asset::RenderAssetUsages;
+use bevy::camera::Exposure;
+use bevy::light::cluster::ClusterConfig;
+use bevy::light::{CascadeShadowConfigBuilder, EnvironmentMapLight, NotShadowCaster};
+use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::pbr::{DistanceFog, FogFalloff};
+use bevy::prelude::*;
+
+use crate::camera::{FillLight, MainCamera};
+use crate::colony::{Kit, around, painted};
+use crate::gfx::Gfx;
+use crate::materials::{HullTag, Surfaces, paint};
+use crate::sky::Sun;
+
+/// Where the base is drawn: far above anything in the sector, and the bay.
+pub const BASE_ORIGIN: Vec3 = Vec3::new(0.0, 26_000.0, 0.0);
+/// The deck's daylight from the spine's casing, lux, and the way it falls (a little along the axis
+/// and round, so walls catch it and the skylight's shaft leans).
+const DAY: f32 = 6_000.0;
+const DAY_DIR: Vec3 = Vec3::new(0.35, -1.0, 0.2);
+/// The camera's exposure on the deck: an overcast day's, between the bay's lamps and the Sun.
+const BASE_EV100: f32 = 11.0;
+/// The fill from the deck's air and the floor overhead, cd/m².
+const SKY: f32 = 380.0;
+/// A building's lamps, lumens.
+const LAMP: f32 = 5.0e5;
+
+/// Whether the view is on the base's deck: it has its own light (`sky.rs` stands aside, as for the
+/// city).
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BaseView {
+    pub active: bool,
+}
+
+pub struct BasePlugin;
+
+impl Plugin for BasePlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<BaseView>().add_systems(Update, light_base.in_set(crate::view::Vis::Fx));
+    }
+}
+
+/// How a point of the colony's own frame is drawn: the deck's frame at the first building's foot
+/// turned upright at [`BASE_ORIGIN`] (walker +Y up, its +X along the axis).
+fn base_transform() -> Transform {
+    let (foot, turn) = site_frame(&SITES[0]);
+    let back = turn.inverse();
+    Transform::from_translation(BASE_ORIGIN - back * foot).with_rotation(back)
+}
+
+/// The drum's inside round the deck: its floor, its ends, the spine's casing overhead with its
+/// light strips, and Bay Row along the back end.
+fn drum_kit() -> Kit {
+    let mut k = Kit::default();
+    let d = &DECKS[BASE as usize];
+    let (x0, x1, r) = (d.x0, d.x1, d.floor_r);
+    let casing = r - d.roof_h;
+    // The floor, a few centimetres under the deck so its facets never stand through a building's
+    // foundations (which are flush with the deck itself).
+    k.lathe(&[(x0, r + 0.05), (x1, r + 0.05)], 512, painted(paint::HULL_DARK));
+    // The ends, facing in.
+    k.lathe(&[(x0, casing), (x0, r + 0.05)], 256, painted(paint::HULL));
+    k.lathe(&[(x1, r + 0.05), (x1, casing)], 256, painted(paint::HULL));
+    // The spine's casing overhead, its frames round it, and the strips its light comes from.
+    k.lathe(&[(x1, casing), (x0, casing)], 96, painted(paint::HULL));
+    for j in 0..=6 {
+        let x = x0 + (x1 - x0) * j as f32 / 6.0;
+        k.lathe(
+            &[(x + 3.0, casing), (x + 3.0, casing + 4.0), (x - 3.0, casing + 4.0), (x - 3.0, casing)],
+            96,
+            painted(paint::HULL_DARK),
+        );
+    }
+    for s in 0..16 {
+        let a = TAU * (s as f32 + 0.5) / 16.0;
+        k.radial(a, casing + 1.0, (x0 + x1) * 0.5, Vec3::new(x1 - x0 - 24.0, 2.0, 5.0), 48 + paint::WHITE);
+    }
+    // Ribs up the ends to the casing (at the back, from over Bay Row's doors).
+    for f in 0..64 {
+        let a = TAU * f as f32 / 64.0;
+        for (x, foot) in [(x0 + 1.0, 9.0), (x1 - 1.0, 0.0)] {
+            let (lo, hi) = (casing, r - foot);
+            k.radial(a, (lo + hi) * 0.5, x, Vec3::new(2.0, hi - lo, 3.0), painted(paint::HULL_DARK));
+        }
+    }
+    // Bay Row: along the back end, a walkway striped yellow at its edge, and an airlock to every
+    // bay, a dark door between hazard posts, its lamp over the lintel.
+    k.lathe(&[(x0, r - 0.02), (x0 + 12.0, r - 0.02)], 512, painted(paint::GUNMETAL));
+    k.lathe(&[(x0 + 12.0, r - 0.03), (x0 + 12.6, r - 0.03)], 512, painted(paint::YELLOW));
+    let post = 2.6 / r;
+    for n in 1..=BAYS as u8 {
+        let a = bay_angle(n);
+        k.radial(a, r - 2.4, x0 + 0.3, Vec3::new(0.6, 4.8, 4.0), painted(paint::DARK));
+        k.radial(a, r - 5.3, x0 + 0.5, Vec3::new(1.0, 1.0, 5.6), painted(paint::HULL_DARK));
+        k.radial(a, r - 5.0, x0 + 1.05, Vec3::new(0.1, 0.4, 3.0), 48 + paint::YELLOW);
+        for side in [-post, post] {
+            k.radial(a + side, r - 2.5, x0 + 0.45, Vec3::new(0.9, 5.0, 0.6), painted(paint::YELLOW));
+        }
+        // Between the doors, a lamp on the wall lighting the row.
+        k.radial(
+            a + TAU / (2.0 * BAYS as f32),
+            r - 7.0,
+            x0 + 0.4,
+            Vec3::new(0.8, 0.5, 1.6),
+            48 + paint::WHITE,
+        );
+    }
+    k
+}
+
+/// A building's mesh as the client draws it.
+fn to_mesh(m: PieceMesh) -> Mesh {
+    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, m.positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, m.normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, m.colors)
+        .with_inserted_indices(Indices::U32(m.indices))
+}
+
+/// Builds the base: the drum's inside, its buildings and their lamps, and its daylight.
+pub fn setup_base(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, surfaces: Res<Surfaces>) {
+    let frame = base_transform();
+    let root = commands.spawn((Name::new("base"), frame, Visibility::default())).id();
+    commands.spawn((
+        Mesh3d(meshes.add(drum_kit().mesh())),
+        MeshMaterial3d(surfaces.station.clone()),
+        HullTag::paint(paint::HULL, 5).tag(),
+        NotShadowCaster,
+        ChildOf(root),
+    ));
+    for (k, site) in SITES.iter().enumerate() {
+        let (foot, turn) = site_frame(site);
+        commands.spawn((
+            Mesh3d(meshes.add(to_mesh(site_mesh(site)))),
+            MeshMaterial3d(surfaces.plating.clone()),
+            HullTag::paint(paint::WHITE, 11 + k as u8).tag(),
+            Transform::from_translation(foot).with_rotation(turn),
+            ChildOf(root),
+        ));
+        // Its lamps: one in each storey's rooms, and one over its doorways outside.
+        let b = site.bounds();
+        let at = |w: Vec3| DeckPos::from_walker(site.deck, w).to_colony();
+        let mid = (b.min + b.max) * 0.5;
+        for (w, lumens) in [
+            (Vec3::new(mid.x, 2.6, mid.z), LAMP),
+            (Vec3::new(mid.x, 5.6, mid.z + (b.max.z - mid.z) * 0.5), LAMP * 0.7),
+            (Vec3::new(mid.x, 3.4, b.min.z - 2.0), LAMP * 0.6),
+        ] {
+            commands.spawn((
+                PointLight {
+                    intensity: lumens,
+                    range: 24.0,
+                    color: Color::srgb(1.0, 0.93, 0.82),
+                    shadow_maps_enabled: false,
+                    ..default()
+                },
+                Transform::from_translation(at(w)),
+                ChildOf(root),
+            ));
+        }
+    }
+    // Bay Row's lamps, warm and close to the wall: lit for the stretch of it by the buildings (the
+    // rest glow on the wall unlit, for the view up the row).
+    let d = &DECKS[BASE as usize];
+    let here = d.seam + SITES[0].s / d.floor_r;
+    for n in (1..=BAYS as u8).step_by(2) {
+        let a = bay_angle(n) + TAU / (2.0 * BAYS as f32);
+        let off = (a - here + TAU * 1.5).rem_euclid(TAU) - TAU * 0.5;
+        if off.abs() > 0.3 {
+            continue;
+        }
+        commands.spawn((
+            PointLight {
+                intensity: 2.5e5,
+                range: 18.0,
+                color: Color::srgb(1.0, 0.9, 0.75),
+                shadow_maps_enabled: false,
+                ..default()
+            },
+            Transform::from_translation(around(a, d.floor_r - 6.0, d.x0 + 2.0)),
+            ChildOf(root),
+        ));
+    }
+}
+
+/// The base's light while the view is on its deck: the Sun turned to fall from the spine's casing,
+/// its shadows as the tier has them (reaching across the deck's buildings, not kilometres of
+/// space), the exposure for that day, the deck's fill, and the haze down the drum. The camera's
+/// fill light, which is for space, is put out. Whatever space's light set on the way in is set
+/// back the frame after.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+fn light_base(
+    mut commands: Commands,
+    view: Res<BaseView>,
+    gfx: Res<Gfx>,
+    cams: Query<(Entity, Option<&Exposure>), With<MainCamera>>,
+    mut suns: Query<(Entity, &mut DirectionalLight, &mut Transform), (With<Sun>, Without<MainCamera>)>,
+    mut fill: Query<&mut Visibility, With<FillLight>>,
+    mut ambient: ResMut<GlobalAmbientLight>,
+) {
+    if !view.active {
+        return;
+    }
+    let s = gfx.settings;
+    let stale = cams.iter().any(|(_, e)| e.is_none_or(|e| e.ev100 != BASE_EV100));
+    for (sun, mut light, mut tf) in &mut suns {
+        if light.illuminance != DAY || light.shadow_maps_enabled != s.shadows {
+            light.illuminance = DAY;
+            light.color = Color::srgb(0.95, 0.97, 1.0);
+            light.shadow_maps_enabled = s.shadows;
+        }
+        if stale || gfx.is_changed() {
+            *tf = Transform::default().looking_to(DAY_DIR, Vec3::X);
+            commands.entity(sun).insert(
+                CascadeShadowConfigBuilder {
+                    num_cascades: s.cascades,
+                    minimum_distance: 0.5,
+                    first_cascade_far_bound: 20.0,
+                    maximum_distance: 150.0,
+                    ..default()
+                }
+                .build(),
+            );
+        }
+    }
+    if !stale && !gfx.is_changed() {
+        return;
+    }
+    for (cam, _) in &cams {
+        commands.entity(cam).insert((
+            Exposure { ev100: BASE_EV100 },
+            ClusterConfig::Single,
+            DistanceFog {
+                color: Color::srgb(0.34, 0.44, 0.58),
+                falloff: FogFalloff::Exponential { density: 0.0018 },
+                ..default()
+            },
+        ));
+        commands.entity(cam).remove::<EnvironmentMapLight>();
+    }
+    ambient.color = Color::srgb(0.75, 0.84, 1.0);
+    ambient.brightness = SKY;
+    for mut v in &mut fill {
+        *v = Visibility::Hidden;
+    }
+}

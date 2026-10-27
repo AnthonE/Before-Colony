@@ -28,7 +28,7 @@ this one wins.
 | R1.2, R1.3: the ring in space: its hull, hub, bays, spokes and louvres, in the sector and on every screen | done (protocol 40): `world`'s ring, `colony::hub`'s drum, spine, spokes and bays at 0.4 g, `colony::louvres`, the hub landmark, the field kept, the dock's approach, nav and the salvage routes round it, up as +Y, and a first exterior of slabs and lights (`bc-client`'s `colony.rs`) and the chart's |
 | L1: the look test, painted anime on one camera, signed off by the owner | to do |
 | R1.4: the outside dressed: slab panels, light grids, beacons | to do |
-| R2: Gates' building pieces in `bc_sim::pieces`; the decks; a walkable test building | to do |
+| R2: Gates' building pieces in `bc_sim::pieces`; the decks; a walkable test building | built: `pieces` (lattice, sock, shape, support, check, parts, prefab), `colony::deck` and `foot::DeckGround`, `content::base`'s test hall walked in at its door and up its stairs (`tests/pieces.rs`, `PIECES_GOLDEN`), drawn by `bc_client_core::piece_mesh` and `bc-client`'s `base.rs` in the drum's inside with its own light (`?showcase=base`); walking it in the game comes with R3 |
 | R1.5, R1.6: the cylinder's inside cleared (homes refunded) | to do |
 | R3: the base opens: the bay's airlock onto Bay Row, the desks in its rooms | to do |
 | R4 on: the base's buildings, one at a time; then the ring's town | to do |

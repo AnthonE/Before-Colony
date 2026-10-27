@@ -190,12 +190,14 @@ fn apply_light_tier(
     mut sky_materials: ResMut<Assets<SkyMaterial>>,
     mut floods: Query<(&mut SpotLight, &crate::hangar::Flood)>,
     city: Res<crate::city::CityView>,
+    base: Res<crate::base::BaseView>,
 ) {
     if !gfx.is_changed() && added.is_empty() && !indoors.is_changed() && !city.is_changed() {
         return;
     }
-    // Inside the colony, its own light (`city::light_city`).
-    if city.active {
+    // Inside the colony, its own light (`city::light_city`); on the base's deck, the base's
+    // (`base::light_base`).
+    if city.active || base.active {
         return;
     }
     let s = gfx.settings;
@@ -280,12 +282,12 @@ fn sun_visibility(p: Vec3) -> f32 {
 fn eclipse(
     time: Res<VisTime>,
     indoors: Res<crate::hangar::Indoors>,
-    city: Res<crate::city::CityView>,
+    (city, base): (Res<crate::city::CityView>, Res<crate::base::BaseView>),
     cams: Query<&Transform, With<MainCamera>>,
     mut suns: Query<&mut DirectionalLight, With<Sun>>,
     mut vis: Local<Option<f32>>,
 ) {
-    if city.active {
+    if city.active || base.active {
         *vis = None;
         return;
     }

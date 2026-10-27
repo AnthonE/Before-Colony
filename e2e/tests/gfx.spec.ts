@@ -82,6 +82,13 @@ const scenes: Array<[string, number, number, number]> = [
   ["hangar", 1, 2, 12],
   ["hangar", 4, 6, 12],
   ["hangar", 5, 8.5, 12],
+  // The Muster, the base in the hub's drum: the test hall from out on the deck, in at its doorway,
+  // from its gallery; the deck rising past it till it's overhead; along Bay Row's airlocks.
+  ["base", 1, 2, 8],
+  ["base", 2, 2, 8],
+  ["base", 3, 2, 8],
+  ["base", 4, 2, 8],
+  ["base", 5, 2, 8],
   // Suits on the landmarks: an Argo walking Fornax's core as the station rolls, rolling onto its toes
   // as each foot pushes off; one kneeling asleep in the Aft Well, its rim lights round it, the back
   // foot's toes tucked under; one lifting off Hermit on the verniers in its soles; one landing on
