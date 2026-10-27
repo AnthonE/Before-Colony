@@ -1,13 +1,15 @@
 //! The Muster, drawn (`docs/RING.md`, "The base"): the base's deck in the hub's drum, and the
 //! buildings standing on it from their pieces (`bc_client_core::piece_mesh`: the same boxes the
-//! walker collides with, dressed). It's drawn far above the sector ([`BASE_ORIGIN`]) as the bay is,
+//! walker collides with, dressed in the colony's station language, `station`). It's drawn far above the sector ([`BASE_ORIGIN`]) as the bay is,
 //! and only while the view is on the deck ([`BaseView`]: a pilot out of their airlock on Bay Row, or
 //! `?showcase=base`), turned so the deck is upright where the view is ([`frame`]): the deck's walker
 //! frame there at the origin, whoever's walking it and however far round.
 //!
 //! - The drum's inside: the deck's floor round it (r 400), rising ahead and behind until it meets
 //!   itself overhead past the spine's casing (r 120); the drum's two ends; along the back end, Bay
-//!   Row, an airlock door to each bay with its lamp over the lintel.
+//!   Row in the station language (`bc_client_core::muster`): its wall with the band and arrows to
+//!   the buildings, its walkway's lanes, an airlock door to each bay in a lit frame between hazard
+//!   posts, its lamp over the lintel, its number over it and KEEP CLEAR before it.
 //! - Its light ([`BaseView`], its own as the city has its): the Sun turned to shine down from strips
 //!   along the spine's casing (the deck's day, a shaft of it standing in through a building's
 //!   skylight where the tier has shadows), lamps along Bay Row and in the buildings, and a blue haze
@@ -15,7 +17,8 @@
 
 use std::f32::consts::TAU;
 
-use bc_client_core::piece_mesh::{PieceMesh, site_frame, site_mesh};
+use bc_client_core::muster;
+use bc_client_core::piece_mesh::{PieceMesh, site_frame, site_mesh, site_signs};
 use bc_proto::presence::PersonPose;
 use bc_sim::colony::deck::{BASE, DECKS, DeckPos, local_frame};
 use bc_sim::colony::hub::{BAYS, bay_angle};
@@ -33,6 +36,7 @@ use crate::colony::{Kit, around, painted};
 use crate::gfx::Gfx;
 use crate::materials::{HullTag, Surfaces, paint};
 use crate::sky::Sun;
+use crate::station::{SignAtlas, Stations};
 
 /// Where the base is drawn: far above anything in the sector, and the bay.
 pub const BASE_ORIGIN: Vec3 = Vec3::new(0.0, 26_000.0, 0.0);
@@ -73,7 +77,8 @@ pub struct BasePlugin;
 impl Plugin for BasePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BaseView>()
-            .add_systems(Update, (follow, light_base).chain().in_set(crate::view::Vis::Fx));
+            .add_systems(Update, (follow, light_base).chain().in_set(crate::view::Vis::Fx))
+            .add_systems(Update, hang_signs);
     }
 }
 
@@ -113,8 +118,8 @@ fn follow(view: Res<BaseView>, mut roots: Query<(&mut Transform, &mut Visibility
     }
 }
 
-/// The drum's inside round the deck: its floor, its ends, the spine's casing overhead with its
-/// light strips, and Bay Row along the back end.
+/// The drum's inside round the deck: its floor, its ends (the back end over Bay Row's wall, which
+/// `muster` draws), the spine's casing overhead with its light strips.
 fn drum_kit() -> Kit {
     let mut k = Kit::default();
     let d = &DECKS[BASE as usize];
@@ -124,7 +129,7 @@ fn drum_kit() -> Kit {
     // foundations (which are flush with the deck itself).
     k.lathe(&[(x0, r + 0.05), (x1, r + 0.05)], 512, painted(paint::HULL_DARK));
     // The ends, facing in.
-    k.lathe(&[(x0, casing), (x0, r + 0.05)], 256, painted(paint::HULL));
+    k.lathe(&[(x0, casing), (x0, r - muster::WALL_H)], 256, painted(paint::HULL));
     k.lathe(&[(x1, r + 0.05), (x1, casing)], 256, painted(paint::HULL));
     // The spine's casing overhead, its frames round it, and the strips its light comes from.
     k.lathe(&[(x1, casing), (x0, casing)], 96, painted(paint::HULL));
@@ -148,43 +153,27 @@ fn drum_kit() -> Kit {
             k.radial(a, (lo + hi) * 0.5, x, Vec3::new(2.0, hi - lo, 3.0), painted(paint::HULL_DARK));
         }
     }
-    // Bay Row: along the back end, a walkway striped yellow at its edge, and an airlock to every
-    // bay, a dark door between hazard posts, its lamp over the lintel.
-    k.lathe(&[(x0, r - 0.02), (x0 + 12.0, r - 0.02)], 512, painted(paint::GUNMETAL));
-    k.lathe(&[(x0 + 12.0, r - 0.03), (x0 + 12.6, r - 0.03)], 512, painted(paint::YELLOW));
-    let post = 2.6 / r;
-    for n in 1..=BAYS as u8 {
-        let a = bay_angle(n);
-        k.radial(a, r - 2.4, x0 + 0.3, Vec3::new(0.6, 4.8, 4.0), painted(paint::DARK));
-        k.radial(a, r - 5.3, x0 + 0.5, Vec3::new(1.0, 1.0, 5.6), painted(paint::HULL_DARK));
-        k.radial(a, r - 5.0, x0 + 1.05, Vec3::new(0.1, 0.4, 3.0), 48 + paint::YELLOW);
-        for side in [-post, post] {
-            k.radial(a + side, r - 2.5, x0 + 0.45, Vec3::new(0.9, 5.0, 0.6), painted(paint::YELLOW));
-        }
-        // Between the doors, a lamp on the wall lighting the row.
-        k.radial(
-            a + TAU / (2.0 * BAYS as f32),
-            r - 7.0,
-            x0 + 0.4,
-            Vec3::new(0.8, 0.5, 1.6),
-            48 + paint::WHITE,
-        );
-    }
     k
 }
 
-/// A building's mesh as the client draws it.
+/// A building's mesh, or Bay Row's, as the client draws it.
 fn to_mesh(m: PieceMesh) -> Mesh {
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, m.positions)
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, m.normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, m.uvs)
         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, m.colors)
         .with_inserted_indices(Indices::U32(m.indices))
 }
 
-/// Builds the base (hidden till the view is on its deck): the drum's inside, its buildings and
-/// their lamps.
-pub fn setup_base(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, surfaces: Res<Surfaces>) {
+/// Builds the base (hidden till the view is on its deck): the drum's inside, Bay Row, its buildings
+/// and their lamps. (Their signs go up once the letters are measured: [`hang_signs`].)
+pub fn setup_base(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    surfaces: Res<Surfaces>,
+    stations: Res<Stations>,
+) {
     let root = commands.spawn((Name::new("base"), BaseRoot, frame(SITES[0].s), Visibility::Hidden)).id();
     commands.spawn((
         Mesh3d(meshes.add(drum_kit().mesh())),
@@ -193,12 +182,17 @@ pub fn setup_base(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, surf
         NotShadowCaster,
         ChildOf(root),
     ));
-    for (k, site) in SITES.iter().enumerate() {
+    commands.spawn((
+        Mesh3d(meshes.add(to_mesh(muster::bay_row()))),
+        MeshMaterial3d(stations.muster.clone()),
+        NotShadowCaster,
+        ChildOf(root),
+    ));
+    for site in &SITES {
         let (foot, turn) = site_frame(site);
         commands.spawn((
             Mesh3d(meshes.add(to_mesh(site_mesh(site)))),
-            MeshMaterial3d(surfaces.plating.clone()),
-            HullTag::paint(paint::WHITE, 11 + k as u8).tag(),
+            MeshMaterial3d(stations.muster.clone()),
             Transform::from_translation(foot).with_rotation(turn),
             ChildOf(root),
         ));
@@ -246,6 +240,27 @@ pub fn setup_base(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, surf
             ChildOf(root),
         ));
     }
+}
+
+/// Hangs Bay Row's signs and the buildings' names, once the letters are measured.
+fn hang_signs(
+    mut commands: Commands,
+    mut atlas: ResMut<SignAtlas>,
+    roots: Query<Entity, With<BaseRoot>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut standard: ResMut<Assets<StandardMaterial>>,
+    mut hung: Local<bool>,
+) {
+    if *hung || !atlas.ready() {
+        return;
+    }
+    let Ok(root) = roots.single() else { return };
+    let mut signs = muster::signs();
+    for site in &SITES {
+        signs.extend(site_signs(site));
+    }
+    atlas.hang(&signs, root, &mut commands, &mut meshes, &mut standard);
+    *hung = true;
 }
 
 /// The base's light while the view is on its deck: the Sun turned to fall from the spine's casing,

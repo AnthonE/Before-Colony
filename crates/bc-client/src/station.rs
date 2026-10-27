@@ -1,20 +1,23 @@
-//! The Ring Deck, drawn (`bc_client_core::ring_deck`): a suit deck in the hub's drum in the colony's
-//! clean language, a showcase set for now (`?showcase=ring`).
+//! The colony's station language, drawn (`bc_client_core::station`, `docs/RING.md`), and the Ring
+//! Deck in it (`bc_client_core::ring_deck`), a suit-scale test set (`?showcase=ring`).
 //!
-//! - Its solids are one mesh, painted by `shaders/station.wgsl` from what each face carries (white
-//!   panels, the band in the lines' colours and its arrows, the suits' lanes, hazard stripes, light
-//!   strips, the bays' lit frames).
-//! - Its signs are stencilled from one texture: a camera of its own lays every sign's words out
-//!   in it once with the UI (the page's Chakra Petch), as the Proving Ground's board is drawn, and
-//!   each sign is a quad on its wall that shows its row.
-//! - The rim's glass looks out and down, onto the sky itself (the deck is on the world's layer,
-//!   far from anything in it), turning as the ring turns and dimmed to the deck's exposure
+//! - **The materials** ([`Stations`]): `shaders/station.wgsl` paints a face from what it carries
+//!   (white panels, the band in the lines' colours and its arrows, lanes, hazard stripes, light
+//!   strips, lit frames), at a suit's scale for the deck and a person's for the Muster (`base`), each
+//!   material made once at start-up and never changed. Under `?look=anime` they're painted as the
+//!   hull's are (`bc::anime`).
+//! - **The signs** ([`SignAtlas`]): a camera of its own lays every letter out once in a texture with
+//!   the UI (the page's Chakra Petch), as the Proving Ground's board is drawn, and measures each; a
+//!   sign is its letters' quads on its face (`station::lay_out`), every sign of an ink one mesh.
+//! - **The deck's glass** looks out and down, onto the sky itself (the deck is on the world's layer,
+//!   far from anything in it), turning as the colony turns and dimmed to the deck's exposure
 //!   ([`SkyTurn`]), so Earth wheels past under the rail.
 //!
-//! It's built the first time it's shown ([`Indoors`] on the [`IndoorSet::Deck`]); the game never
-//! shows it.
+//! The deck is built the first time it's shown ([`Indoors`] on the [`IndoorSet::Deck`]); the game
+//! never shows it.
 
-use bc_client_core::ring_deck::{self, DECK_ORIGIN, Layout, PAINT, Sign};
+use bc_client_core::ring_deck::{self, DECK_ORIGIN, Layout};
+use bc_client_core::station::{GLYPHS, PAINT, PAINTS, Scale, Sign, lay_out};
 use bc_sim::TICK_HZ;
 use bc_sim::world::colony_spin_angle;
 use bevy::asset::{RenderAssetUsages, embedded_asset};
@@ -28,6 +31,7 @@ use bevy::render::render_resource::{AsBindGroup, ShaderType, TextureFormat};
 use bevy::shader::ShaderRef;
 
 use crate::city::to_mesh;
+use crate::gfx::Gfx;
 use crate::hangar::{Flood, IndoorSet, Indoors};
 use crate::hud::UiFont;
 use crate::sky::{EARTH_DIR, SkyTurn};
@@ -49,14 +53,15 @@ const LAMP: f32 = 6.0e6;
 const PASSAGE_LAMP: f32 = 2.5e6;
 const FLOOD: f32 = 5.0e6;
 
-/// The signs' texture, px: a row each, the words at the row's left.
-const ATLAS: [u32; 2] = [2048, 2048];
-const ROW: f32 = 136.0;
-const PAD: f32 = 16.0;
-const FONT: f32 = 104.0;
-/// The layer the signs' camera draws (nothing in the world is on it: only the UI).
+/// The letters' texture: a cell each, `COLUMNS` across, each letter at its cell's top left, px.
+const CELL: [f32; 2] = [160.0, 200.0];
+const COLUMNS: usize = 12;
+const ATLAS: [u32; 2] =
+    [CELL[0] as u32 * COLUMNS as u32, CELL[1] as u32 * GLYPHS.len().div_ceil(COLUMNS) as u32];
+const FONT: f32 = 150.0;
+/// The layer the letters' camera draws (nothing in the world is on it: only the UI).
 const LAYER: usize = 7;
-/// How many frames the signs' camera draws once their words are laid out.
+/// How many frames the letters' camera draws once they're laid out.
 const DRAW_FRAMES: u32 = 4;
 /// How far a sign stands off its face, m.
 const OFF: f32 = 0.03;
@@ -71,10 +76,39 @@ pub struct StationExt {
 
 #[derive(ShaderType, Clone, Copy, Debug)]
 pub struct StationParams {
-    /// rgb: the palette, linear (`ring_deck::PAINT`).
-    pub paint: [Vec4; 8],
+    /// rgb: the palette, linear (`station::PAINT`).
+    pub paint: [Vec4; PAINTS],
     /// x: seconds.
     pub time: Vec4,
+    /// The sizes it paints at (`station::Scale::uniform`).
+    pub size: Vec4,
+    pub band: Vec4,
+    pub lanes: Vec4,
+    pub marks: Vec4,
+    /// x: 1 to paint it (`?look=anime`); y: the kick plate's paint.
+    pub look: Vec4,
+}
+
+impl StationParams {
+    fn new(scale: &Scale, painted: bool) -> Self {
+        let ([size, band, lanes, marks], kick) = scale.uniform();
+        Self {
+            paint: PAINT.map(|[r, g, b]| Vec4::new(r, g, b, 1.0)),
+            time: Vec4::ZERO,
+            size: Vec4::from_array(size),
+            band: Vec4::from_array(band),
+            lanes: Vec4::from_array(lanes),
+            marks: Vec4::from_array(marks),
+            look: Vec4::new(if painted { 1.0 } else { 0.0 }, f32::from(kick), 0.0, 0.0),
+        }
+    }
+}
+
+/// The station materials: a suit's deck's, and a person's halls' (the Muster's).
+#[derive(Resource)]
+pub struct Stations {
+    pub deck: Handle<StationMaterial>,
+    pub muster: Handle<StationMaterial>,
 }
 
 impl MaterialExtension for StationExt {
@@ -89,29 +123,196 @@ impl Plugin for StationPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/station.wgsl");
         app.add_plugins(MaterialPlugin::<StationMaterial>::default())
-            .add_systems(Update, (show_deck, hang_signs, turn_sky).chain());
+            .add_systems(Update, (measure_glyphs, show_deck, hang_deck_signs, turn_sky).chain());
     }
 }
 
-/// The deck, once built.
+/// The deck, once built, and whether its signs are up.
 #[derive(Resource)]
 struct Deck {
     root: Entity,
-    camera: Entity,
-    /// The signs' words, a row each (a sign's row is its words'), and whether they're up yet.
-    rows: Vec<&'static str>,
     hung: bool,
-    frames: u32,
-    atlas: Handle<Image>,
 }
 
-/// A row of the signs' texture: the words laid out there.
-#[derive(Component)]
-struct SignRow(usize);
+/// The letters' texture, and what each letter measured once the UI laid it out.
+#[derive(Resource)]
+pub struct SignAtlas {
+    camera: Entity,
+    image: Handle<Image>,
+    /// Each letter's size in the texture, px (its advance and a line's height), once laid out.
+    sizes: Option<Vec<Vec2>>,
+    frames: u32,
+    /// The material for each ink drawn so far.
+    inks: Vec<(u8, Handle<StandardMaterial>)>,
+}
 
-fn ink(i: u8) -> Color {
-    let [r, g, b] = PAINT[usize::from(i)];
-    Color::linear_rgb(r, g, b)
+/// A letter's cell in the texture.
+#[derive(Component)]
+struct GlyphCell(usize);
+
+impl SignAtlas {
+    /// Whether its letters are laid out and measured, so signs can go up.
+    pub fn ready(&self) -> bool {
+        self.sizes.is_some()
+    }
+
+    /// Hangs `signs` under `parent` (in its frame): every sign of an ink one mesh, its letters'
+    /// quads in a row on its face. Nothing if the letters aren't measured yet.
+    pub fn hang(
+        &mut self,
+        signs: &[Sign],
+        parent: Entity,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        standard: &mut Assets<StandardMaterial>,
+    ) {
+        let Some(sizes) = &self.sizes else { return };
+        let aspect: Vec<f32> = sizes.iter().map(|s| s.x / s.y).collect();
+        let [aw, ah] = ATLAS.map(|v| v as f32);
+        let mut inks: Vec<u8> = signs.iter().map(|s| s.ink).collect();
+        inks.sort_unstable();
+        inks.dedup();
+        for ink in inks {
+            let (mut p, mut n, mut uv, mut idx) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            for s in signs.iter().filter(|s| s.ink == ink) {
+                for q in lay_out(s, &aspect, OFF) {
+                    let (col, row) = (q.glyph % COLUMNS, q.glyph / COLUMNS);
+                    let o = Vec2::new(col as f32 * CELL[0], row as f32 * CELL[1]);
+                    let (u0, v0) = (o.x / aw, o.y / ah);
+                    let (u1, v1) = ((o.x + sizes[q.glyph].x) / aw, (o.y + sizes[q.glyph].y) / ah);
+                    let base = p.len() as u32;
+                    p.extend(q.corners.map(|c| c.to_array()));
+                    n.extend([s.normal.to_array(); 4]);
+                    uv.extend([[u0, v0], [u0, v1], [u1, v1], [u1, v0]]);
+                    idx.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+                }
+            }
+            let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, p)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, n)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uv)
+                .with_inserted_indices(Indices::U32(idx));
+            let material = match self.inks.iter().find(|(i, _)| *i == ink) {
+                Some((_, m)) => m.clone(),
+                None => {
+                    let [r, g, b] = PAINT[usize::from(ink) % PAINTS];
+                    let m = standard.add(StandardMaterial {
+                        base_color: Color::linear_rgb(r, g, b),
+                        base_color_texture: Some(self.image.clone()),
+                        alpha_mode: AlphaMode::Mask(0.5),
+                        perceptual_roughness: 0.45,
+                        ..default()
+                    });
+                    self.inks.push((ink, m.clone()));
+                    m
+                }
+            };
+            commands.spawn((
+                Mesh3d(meshes.add(mesh)),
+                MeshMaterial3d(material),
+                Transform::default(),
+                NotShadowCaster,
+                ChildOf(parent),
+            ));
+        }
+    }
+}
+
+/// Makes the station materials and lays the letters out (a start-up system, before anything is
+/// built with them).
+pub fn setup_stations(
+    mut commands: Commands,
+    gfx: Res<Gfx>,
+    font: Res<UiFont>,
+    mut stations: ResMut<Assets<StationMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let material = |scale: &Scale| ExtendedMaterial {
+        base: StandardMaterial { perceptual_roughness: 0.45, ..default() },
+        extension: StationExt { station: StationParams::new(scale, gfx.paint) },
+    };
+    commands.insert_resource(Stations {
+        deck: stations.add(material(&Scale::DECK)),
+        muster: stations.add(material(&Scale::MUSTER)),
+    });
+    let [w, h] = ATLAS;
+    let image = images.add(Image::new_target_texture(w, h, TextureFormat::Rgba8UnormSrgb, None));
+    let camera = commands
+        .spawn((
+            Camera2d,
+            Camera { order: -3, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: ScalingMode::Fixed { width: w as f32, height: h as f32 },
+                ..OrthographicProjection::default_2d()
+            }),
+            RenderTarget::Image(image.clone().into()),
+            RenderLayers::layer(LAYER),
+        ))
+        .id();
+    commands
+        .spawn((
+            UiTargetCamera(camera),
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Px(w as f32),
+                height: Val::Px(h as f32),
+                ..default()
+            },
+        ))
+        .with_children(|root| {
+            for (k, c) in GLYPHS.chars().enumerate() {
+                root.spawn(Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px((k % COLUMNS) as f32 * CELL[0]),
+                    top: Val::Px((k / COLUMNS) as f32 * CELL[1]),
+                    width: Val::Px(CELL[0]),
+                    height: Val::Px(CELL[1]),
+                    align_items: AlignItems::Start,
+                    justify_content: JustifyContent::Start,
+                    ..default()
+                })
+                .with_children(|cell| {
+                    cell.spawn((
+                        GlyphCell(k),
+                        Text::new(c.to_string()),
+                        font.heading(FONT),
+                        TextColor(Color::WHITE),
+                        TextLayout::default().with_no_wrap(),
+                    ));
+                });
+            }
+        });
+    commands.insert_resource(SignAtlas { camera, image, sizes: None, frames: DRAW_FRAMES, inks: Vec::new() });
+}
+
+/// Measures the letters once the UI has laid them out, and lets their camera rest a few frames on.
+fn measure_glyphs(
+    atlas: Option<ResMut<SignAtlas>>,
+    cells: Query<(&GlyphCell, &ComputedNode)>,
+    mut cameras: Query<&mut Camera>,
+) {
+    let Some(mut atlas) = atlas else { return };
+    if atlas.sizes.is_none() {
+        let mut sizes = vec![Vec2::ZERO; GLYPHS.len()];
+        for (cell, node) in &cells {
+            if let Some(s) = sizes.get_mut(cell.0) {
+                *s = node.size().min(Vec2::from(CELL));
+            }
+        }
+        if sizes.iter().any(|s| s.x < 1.0 || s.y < 1.0) {
+            return;
+        }
+        atlas.sizes = Some(sizes);
+    }
+    let draw = atlas.frames > 0;
+    if draw {
+        atlas.frames -= 1;
+    }
+    if let Ok(mut cam) = cameras.get_mut(atlas.camera)
+        && cam.is_active != draw
+    {
+        cam.is_active = draw;
+    }
 }
 
 /// Builds the deck the first time it's wanted, and shows it while it is.
@@ -121,11 +322,9 @@ fn show_deck(
     indoors: Res<Indoors>,
     set: Res<IndoorSet>,
     deck: Option<Res<Deck>>,
-    font: Res<UiFont>,
+    stations: Res<Stations>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut stations: ResMut<Assets<StationMaterial>>,
     mut standard: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
     mut vis: Query<&mut Visibility>,
 ) {
     let want = indoors.0 && *set == IndoorSet::Deck;
@@ -139,15 +338,7 @@ fn show_deck(
         return;
     }
     let layout = Layout::new();
-    let material = stations.add(ExtendedMaterial {
-        base: StandardMaterial { perceptual_roughness: 0.45, ..default() },
-        extension: StationExt {
-            station: StationParams {
-                paint: PAINT.map(|[r, g, b]| Vec4::new(r, g, b, 1.0)),
-                time: Vec4::ZERO,
-            },
-        },
-    });
+    let material = stations.deck.clone();
     let glass = standard.add(StandardMaterial {
         base_color: Color::srgba(0.5, 0.6, 0.68, 0.1),
         alpha_mode: AlphaMode::Blend,
@@ -207,59 +398,7 @@ fn show_deck(
         })
         .id();
 
-    // The signs' words, a row each in a texture of their own.
-    let mut rows: Vec<&'static str> = Vec::new();
-    for s in &layout.signs {
-        if !rows.contains(&s.text) {
-            rows.push(s.text);
-        }
-    }
-    let [w, h] = ATLAS;
-    let atlas = images.add(Image::new_target_texture(w, h, TextureFormat::Rgba8UnormSrgb, None));
-    let camera = commands
-        .spawn((
-            Camera2d,
-            Camera { order: -3, clear_color: ClearColorConfig::Custom(Color::NONE), ..default() },
-            Projection::Orthographic(OrthographicProjection {
-                scaling_mode: ScalingMode::Fixed { width: w as f32, height: h as f32 },
-                ..OrthographicProjection::default_2d()
-            }),
-            RenderTarget::Image(atlas.clone().into()),
-            RenderLayers::layer(LAYER),
-        ))
-        .id();
-    commands
-        .spawn((
-            UiTargetCamera(camera),
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Px(w as f32),
-                height: Val::Px(h as f32),
-                flex_direction: FlexDirection::Column,
-                ..default()
-            },
-        ))
-        .with_children(|col| {
-            for (k, text) in rows.iter().enumerate() {
-                col.spawn(Node {
-                    height: Val::Px(ROW),
-                    padding: UiRect::left(Val::Px(PAD)),
-                    align_items: AlignItems::Center,
-                    flex_shrink: 0.0,
-                    ..default()
-                })
-                .with_children(|row| {
-                    row.spawn((
-                        SignRow(k),
-                        Text::new(*text),
-                        font.heading(FONT),
-                        TextColor(Color::WHITE),
-                        TextLayout::default().with_no_wrap(),
-                    ));
-                });
-            }
-        });
-    commands.insert_resource(Deck { root, camera, rows, hung: false, frames: DRAW_FRAMES, atlas });
+    commands.insert_resource(Deck { root, hung: false });
 }
 
 fn lamp(at: Vec3, intensity: f32, range: f32) -> impl Bundle {
@@ -276,91 +415,23 @@ fn lamp(at: Vec3, intensity: f32, range: f32) -> impl Bundle {
     )
 }
 
-/// Once the signs' words are laid out, hangs each sign on its face (a quad showing its row of the
-/// texture, as tall as its sign says and as wide as its words come out), and lets the camera that
-/// drew them rest a few frames on.
-fn hang_signs(
+/// Hangs the deck's signs once it's built and the letters are measured.
+fn hang_deck_signs(
     mut commands: Commands,
     deck: Option<ResMut<Deck>>,
-    rows: Query<(&SignRow, &ComputedNode)>,
+    mut atlas: ResMut<SignAtlas>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut standard: ResMut<Assets<StandardMaterial>>,
-    mut cameras: Query<&mut Camera>,
 ) {
     let Some(mut deck) = deck else { return };
-    if !deck.hung {
-        let mut size = vec![Vec2::ZERO; deck.rows.len()];
-        for (row, node) in &rows {
-            if let Some(s) = size.get_mut(row.0) {
-                *s = node.size();
-            }
-        }
-        if size.iter().any(|s| s.x < 1.0 || s.y < 1.0) {
-            return;
-        }
-        let mut inks: Vec<(u8, Handle<StandardMaterial>)> = Vec::new();
-        let [aw, ah] = ATLAS.map(|v| v as f32);
-        let layout = Layout::new();
-        let signs: Vec<Entity> = layout
-            .signs
-            .iter()
-            .map(|s| {
-                let k = deck.rows.iter().position(|t| *t == s.text).unwrap_or(0);
-                let px = size[k];
-                let top = k as f32 * ROW + (ROW - px.y) * 0.5;
-                let uv0 = Vec2::new(PAD / aw, top / ah);
-                let uv1 = Vec2::new((PAD + px.x) / aw, (top + px.y) / ah);
-                let material = match inks.iter().find(|(i, _)| *i == s.ink) {
-                    Some((_, m)) => m.clone(),
-                    None => {
-                        let m = standard.add(StandardMaterial {
-                            base_color: ink(s.ink),
-                            base_color_texture: Some(deck.atlas.clone()),
-                            alpha_mode: AlphaMode::Mask(0.5),
-                            perceptual_roughness: 0.45,
-                            ..default()
-                        });
-                        inks.push((s.ink, m.clone()));
-                        m
-                    }
-                };
-                let mesh = meshes.add(sign_quad(s, s.height * px.x / px.y, uv0, uv1));
-                commands
-                    .spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::default(), NotShadowCaster))
-                    .id()
-            })
-            .collect();
-        commands.entity(deck.root).add_children(&signs);
-        deck.hung = true;
+    if deck.hung || !atlas.ready() {
+        return;
     }
-    // Drawn for a few frames once they're up, and then not again.
-    let draw = deck.frames > 0;
-    if draw {
-        deck.frames -= 1;
-    }
-    if let Ok(mut cam) = cameras.get_mut(deck.camera)
-        && cam.is_active != draw
-    {
-        cam.is_active = draw;
-    }
+    atlas.hang(&Layout::new().signs, deck.root, &mut commands, &mut meshes, &mut standard);
+    deck.hung = true;
 }
 
-/// A sign's quad, `width` across: on its face (a hair off it), its words reading the sign's way.
-fn sign_quad(s: &Sign, width: f32, uv0: Vec2, uv1: Vec2) -> Mesh {
-    let (right, up) = (s.right() * width * 0.5, s.up * s.height * 0.5);
-    let c = s.at + s.normal * OFF;
-    let corners = [c - right + up, c - right - up, c + right - up, c + right + up];
-    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, corners.map(|p| p.to_array()).to_vec())
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![s.normal.to_array(); 4])
-        .with_inserted_attribute(
-            Mesh::ATTRIBUTE_UV_0,
-            vec![[uv0.x, uv0.y], [uv0.x, uv1.y], [uv1.x, uv1.y], [uv1.x, uv0.y]],
-        )
-        .with_inserted_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]))
-}
-
-/// While the deck's shown, the sky turns as the ring does (about the colony's axis, x), Earth
+/// While the deck's shown, the sky turns as the colony does (about its axis, x), Earth
 /// passing under the rail once a turn, and is dimmed to the deck's exposure; elsewhere it's as it
 /// was.
 fn turn_sky(time: Res<VisTime>, indoors: Res<Indoors>, set: Res<IndoorSet>, mut sky: ResMut<SkyTurn>) {

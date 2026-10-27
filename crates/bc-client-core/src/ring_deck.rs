@@ -15,6 +15,10 @@
 use glam::Vec3;
 
 use crate::city_mesh::CityMesh;
+use crate::station::{
+    ARROWS, BACK, BAND, CANAL, CHARTER, CHEVRONS, DARK, GARDENS, LANES, ORANGE, Scale, Sign, Surface, WHITE,
+    YELLOW, colour,
+};
 
 /// Where the deck is in the world: far below the sector, so that nothing in it (the colony, the
 /// field, the landmarks) is in view through the rim's glass, which looks out and down.
@@ -49,92 +53,6 @@ const PASSAGE_HEIGHT: f32 = 32.0;
 /// The pillars by the bays' wall, between and beyond the doors (and the beams over them).
 pub const PILLAR_Z: [f32; 4] = [-75.0, -25.0, 25.0, 75.0];
 const PILLAR_X: [f32; 2] = [19.0, 21.4];
-
-// What the shader paints (`station.wgsl` keeps the same numbers).
-/// Wall panels, m.
-pub const PANEL_W: f32 = 3.0;
-pub const PANEL_H: f32 = 2.0;
-/// Deck and ceiling plates, m.
-pub const PLATE: f32 = 4.0;
-/// The dark kick plate at a wall's foot, m.
-pub const KICK: f32 = 1.0;
-/// The wayfinding band round the walls, and the arrows in it, one pair every so often, m.
-pub const BAND_Y0: f32 = 27.0;
-pub const BAND_Y1: f32 = 30.0;
-pub const ARROW_EVERY: f32 = 10.0;
-/// The suits' two lanes down the deck (their centres across it, and half their width), and the
-/// chevrons painted in them, one every so often, m: the first lane runs towards the lifts (+z),
-/// the second back.
-pub const LANE_X0: f32 = -1.5;
-pub const LANE_X1: f32 = 8.0;
-pub const LANE_HALF: f32 = 4.0;
-pub const CHEVRON_EVERY: f32 = 18.0;
-/// The ceiling's light strips run along the deck, one every so often across it, m.
-pub const STRIP_EVERY: f32 = 12.0;
-/// Hazard stripes' period, m.
-pub const HAZARD_PERIOD: f32 = 1.2;
-/// A pillar's collar in its paint, m up.
-pub const COLLAR_Y0: f32 = 6.0;
-pub const COLLAR_Y1: f32 = 7.5;
-
-/// What a face is, for the station shader (`r` of its vertices' colour, in 255ths).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum Surface {
-    /// White panels (vents, access hatches), a dark kick plate; the band and its arrows, and
-    /// chevrons at its foot, as its flags say.
-    Wall = 1,
-    /// Deck plates; the suits' lanes and their chevrons, as its flags say.
-    Floor = 2,
-    /// Panels and light strips.
-    Ceiling = 3,
-    /// Grey, its collar in its paint; chevrons at its foot, as its flags say.
-    Pillar = 4,
-    /// Flat paint: rails, ribs, stringers.
-    Trim = 5,
-    /// Light in its paint: a bay door's frame.
-    Glow = 6,
-    /// A door's leaves, meeting at its middle (`u` 0); chevrons along the meeting, as its flags say.
-    Door = 7,
-    /// The control room's window: dark glass, screens lit behind it.
-    Window = 8,
-    /// Yellow and black stripes.
-    Hazard = 9,
-}
-
-/// Paints, the deck palette's entries (`g` of a vertex's colour, in 255ths).
-pub const WHITE: u8 = 0;
-pub const CHARTER: u8 = 1;
-pub const CANAL: u8 = 2;
-pub const GARDENS: u8 = 3;
-pub const YELLOW: u8 = 4;
-pub const DARK: u8 = 5;
-pub const ORANGE: u8 = 6;
-pub const RED: u8 = 7;
-
-/// The palette, linear: white panels; the lines' own colours (as the city paints them,
-/// `city_facade.wgsl`'s `f_line`: Charter blue, Canal teal, Gardens green); safety yellow, black,
-/// safety orange, alarm red.
-pub const PAINT: [[f32; 3]; 8] = [
-    [0.8, 0.81, 0.82],
-    [0.12, 0.32, 0.72],
-    [0.05, 0.5, 0.52],
-    [0.2, 0.55, 0.22],
-    [0.85, 0.55, 0.02],
-    [0.025, 0.026, 0.03],
-    [0.85, 0.22, 0.03],
-    [0.6, 0.04, 0.03],
-];
-
-/// What a face carries painted on it (`b` of a vertex's colour, in 255ths).
-pub const BAND: u8 = 1;
-/// Arrows in the band, pointing along `u` (or back along it, with [`BACK`]).
-pub const ARROWS: u8 = 2;
-pub const BACK: u8 = 4;
-/// Chevrons at a wall's or a pillar's foot, or along a door's meeting.
-pub const CHEVRONS: u8 = 8;
-/// The suits' lanes in a floor.
-pub const LANES: u8 = 16;
 
 /// A solid: a box with edges `a`, `b`, `c` from its corner `o` (a parallelepiped: most are
 /// axis-aligned, the rim's ribs and the stairs' stringers aren't).
@@ -205,25 +123,6 @@ impl Block {
             let out = (p + (e1 + e2) * 0.5) - mid;
             if e1.cross(e2).dot(out) >= 0.0 { (p, e1, e2) } else { (p, e2, e1) }
         })
-    }
-}
-
-/// A sign stencilled on a face: its words, where its middle is (on the face), the way the face
-/// looks and the way up the words read, how tall a line of them is (m), and its ink.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Sign {
-    pub text: &'static str,
-    pub at: Vec3,
-    pub normal: Vec3,
-    pub up: Vec3,
-    pub height: f32,
-    pub ink: u8,
-}
-
-impl Sign {
-    /// The way along the words read, looking at them.
-    pub fn right(&self) -> Vec3 {
-        self.up.cross(self.normal)
     }
 }
 
@@ -403,13 +302,7 @@ impl Layout {
     pub fn mesh(&self) -> CityMesh {
         let mut m = CityMesh::default();
         for (i, block) in self.blocks.iter().enumerate() {
-            let seed = ((i * 97 + 13) % 251) as f32 / 255.0;
-            let colour = [
-                f32::from(block.surface as u8) / 255.0,
-                f32::from(block.paint) / 255.0,
-                f32::from(block.flags) / 255.0,
-                seed,
-            ];
+            let colour = colour(block.surface, block.paint, block.flags, ((i * 97 + 13) % 251) as u8);
             let mid = block.centre();
             for (p, e1, e2) in block.faces() {
                 let n = e1.cross(e2).normalize();
@@ -474,9 +367,9 @@ fn face_uv(q: Vec3, n: Vec3, p: Vec3, e1: Vec3, e2: Vec3, centre: Option<Vec3>) 
 /// its colour), the floor's KEEP CLEAR before each bay, the control room's.
 fn signs() -> Vec<Sign> {
     let (w, l) = (HALF_WIDTH, HALF_LENGTH);
-    let band = (BAND_Y0 + BAND_Y1) * 0.5;
-    let sign = |text, at: [f32; 3], normal: Vec3, up: Vec3, height, ink| Sign {
-        text,
+    let band = (Scale::DECK.band[0] + Scale::DECK.band[1]) * 0.5;
+    let sign = |text: &'static str, at: [f32; 3], normal: Vec3, up: Vec3, height, ink| Sign {
+        text: text.into(),
         at: Vec3::from(at),
         normal,
         up,
@@ -516,20 +409,21 @@ const FLY_ENDS: f32 = 70.0;
 /// The flying suit at `t` s: where (its torso, in the deck) and how fast. Down the first lane
 /// towards the lifts, round, and back up the second, rising and falling a little as it goes.
 pub fn flyer(t: f32) -> (Vec3, Vec3) {
-    let r = (LANE_X1 - LANE_X0) * 0.5;
-    let cx = (LANE_X0 + LANE_X1) * 0.5;
+    let [lane0, lane1] = Scale::DECK.lanes;
+    let r = (lane1 - lane0) * 0.5;
+    let cx = (lane0 + lane1) * 0.5;
     let straight = 2.0 * FLY_ENDS;
     let turn = std::f32::consts::PI * r;
     let lap = 2.0 * (straight + turn);
     let speed = lap / LOOP_SECS;
     let s = (t * speed).rem_euclid(lap);
     let (x, z, dir) = if s < straight {
-        (LANE_X0, -FLY_ENDS + s, Vec3::Z)
+        (lane0, -FLY_ENDS + s, Vec3::Z)
     } else if s < straight + turn {
         let a = (s - straight) / r;
         (cx - r * a.cos(), FLY_ENDS + r * a.sin(), Vec3::new(a.sin(), 0.0, a.cos()))
     } else if s < 2.0 * straight + turn {
-        (LANE_X1, FLY_ENDS - (s - straight - turn), Vec3::NEG_Z)
+        (lane1, FLY_ENDS - (s - straight - turn), Vec3::NEG_Z)
     } else {
         let a = (s - 2.0 * straight - turn) / r;
         (cx + r * a.cos(), -FLY_ENDS - r * a.sin(), Vec3::new(-a.sin(), 0.0, -a.cos()))
@@ -555,10 +449,7 @@ pub const CAMS: [(Vec3, Vec3); 4] = [
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wgsl;
-
-    const SHADER: &str = include_str!("../../bc-client/src/shaders/station.wgsl");
-    const FACADE: &str = include_str!("../../bc-client/src/shaders/city_facade.wgsl");
+    use crate::station::stencils;
 
     fn triangles(m: &CityMesh) -> impl Iterator<Item = [usize; 3]> + '_ {
         m.indices.chunks(3).map(|t| [t[0] as usize, t[1] as usize, t[2] as usize])
@@ -644,7 +535,7 @@ mod tests {
         let layout = Layout::new();
         for s in &layout.signs {
             assert!(s.normal.dot(s.up).abs() < 1e-6 && (s.normal.length() - 1.0).abs() < 1e-6);
-            assert!(s.text.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || " ·".contains(c)));
+            assert!(stencils(&s.text), "{}: a letter the atlas lacks", s.text);
             assert!(!s.text.is_empty() && s.text.chars().count() <= 16, "{}", s.text);
             let on = layout.blocks.iter().any(|b| {
                 b.faces().iter().any(|&(p, e1, e2)| {
@@ -700,92 +591,6 @@ mod tests {
             for b in &layout.blocks {
                 assert!(!overlaps(eye - Vec3::splat(0.6), eye + Vec3::splat(0.6), b), "{eye} is in {b:?}");
             }
-        }
-    }
-
-    #[test]
-    fn the_shaders_numbers_are_the_decks() {
-        let c = |name| wgsl::constant(SHADER, name);
-        for (name, v) in [
-            ("PANEL_W", PANEL_W),
-            ("PANEL_H", PANEL_H),
-            ("PLATE", PLATE),
-            ("KICK", KICK),
-            ("BAND_Y0", BAND_Y0),
-            ("BAND_Y1", BAND_Y1),
-            ("ARROW_EVERY", ARROW_EVERY),
-            ("LANE_X0", LANE_X0),
-            ("LANE_X1", LANE_X1),
-            ("LANE_HALF", LANE_HALF),
-            ("CHEVRON_EVERY", CHEVRON_EVERY),
-            ("STRIP_EVERY", STRIP_EVERY),
-            ("HAZARD_PERIOD", HAZARD_PERIOD),
-            ("COLLAR_Y0", COLLAR_Y0),
-            ("COLLAR_Y1", COLLAR_Y1),
-        ] {
-            assert_eq!(c(name), v, "{name}");
-        }
-        for (name, s) in [
-            ("WALL", Surface::Wall),
-            ("FLOOR", Surface::Floor),
-            ("CEILING", Surface::Ceiling),
-            ("PILLAR", Surface::Pillar),
-            ("TRIM", Surface::Trim),
-            ("GLOW", Surface::Glow),
-            ("DOOR", Surface::Door),
-            ("WINDOW", Surface::Window),
-            ("HAZARD", Surface::Hazard),
-        ] {
-            assert_eq!(c(name), f32::from(s as u8), "{name}");
-        }
-        for (name, f) in [
-            ("F_BAND", BAND),
-            ("F_ARROWS", ARROWS),
-            ("F_BACK", BACK),
-            ("F_CHEVRONS", CHEVRONS),
-            ("F_LANES", LANES),
-        ] {
-            assert_eq!(c(name), f32::from(f), "{name}");
-        }
-        assert_eq!(c("YELLOW"), f32::from(YELLOW));
-        assert_eq!(c("DARK"), f32::from(DARK));
-    }
-
-    /// The lines' colours are the city's: Charter blue, Canal teal, Gardens green.
-    #[test]
-    fn the_lines_colours_are_the_citys() {
-        let body: String = FACADE
-            .split("fn f_line(")
-            .nth(1)
-            .and_then(|s| s.split("\n}").next())
-            .expect("f_line in city_facade.wgsl")
-            .to_string();
-        let colours: Vec<[f32; 3]> = body
-            .lines()
-            .filter_map(|l| l.split("vec3(").nth(1))
-            .map(|v| {
-                let v: Vec<f32> = v
-                    .trim_end_matches(';')
-                    .trim_end_matches(')')
-                    .split(',')
-                    .map(|x| x.trim().parse().unwrap())
-                    .collect();
-                [v[0], v[1], v[2]]
-            })
-            .collect();
-        assert_eq!(colours, vec![PAINT[CHARTER as usize], PAINT[CANAL as usize], PAINT[GARDENS as usize]]);
-    }
-
-    /// As in `city.wgsl` (`CLAUDE.md`): every derivative at the top of `fragment()`, before the
-    /// surface branch.
-    #[test]
-    fn the_station_shader_takes_its_derivatives_at_the_top() {
-        let lines: Vec<&str> = SHADER.lines().map(|l| l.split("//").next().unwrap_or("")).collect();
-        let derivative = |l: &str| ["dpdx", "dpdy", "fwidth"].iter().any(|d| l.contains(d));
-        let first_branch = lines.iter().position(|l| l.trim_start().starts_with("if (surface")).unwrap();
-        let start = lines.iter().position(|l| l.contains("fn fragment(")).unwrap();
-        for (k, l) in lines.iter().enumerate() {
-            assert!(!derivative(l) || (start..first_branch).contains(&k), "station.wgsl line {}: {l}", k + 1);
         }
     }
 }

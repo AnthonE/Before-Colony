@@ -31,7 +31,7 @@ this one wins.
 | R2: Gates' building pieces in `bc_sim::pieces`; the decks; a walkable test building | built: `pieces` (lattice, sock, shape, support, check, parts, prefab), `colony::deck` and `foot::DeckGround`, `content::base`'s test hall walked in at its door and up its stairs (`tests/pieces.rs`, `PIECES_GOLDEN`), drawn by `bc_client_core::piece_mesh` and `bc-client`'s `base.rs` in the drum's inside with its own light (`?showcase=base`); walking it in the game comes with R3 |
 | R1.5, R1.6: the cylinder's inside cleared (homes refunded) | to do |
 | R3: the base opens: the bay's airlock onto Bay Row, the desks in its rooms | Bay Row open (protocol 41): E at the bay's airlock steps out onto the base's deck, walked on `foot::DeckGround`, seen by the others out there (the plaza's floor 3), the test hall across the row by bay 1's airlock, and back in by your own door (`tests/base.rs`, `scripts/e2e.sh base`); with `--colony` the airlock still rides the cap lift. The desks in the base's rooms, and the objectives, come with its buildings (R4) |
-| R4 on: the base's buildings, one at a time; then the ring's town | to do |
+| R4 on: the base's buildings, one at a time; then the ring's town | to do; Bay Row and the test hall are dressed in the station language (`muster`, `piece_mesh`), which each building takes up as it's built |
 
 ## The owner's decisions
 
@@ -145,8 +145,10 @@ Gates' runtime store, claim, upkeep and decay are not taken until players build.
   cells, its counter), baked to solids at compile time, so nothing allocates. A test places each piece in order
   through `check`, holds it supported, and walks a walker to every counter and up and down every flight.
 - **Drawn as itself.** `bc-client-core`'s `piece_mesh` builds each piece from the same parts table the solids come
-  from, then dresses it inside its own volume, as Gates' `piece_dress` does. The dress is white and grey colony
-  panels, military olive and hazard trim, grating, ribs and lit strips. Props (consoles, lockers, racks, bunks,
+  from, then dresses it inside its own volume, as Gates' `piece_dress` does. The dress is the station language
+  (below) at a person's scale: white panels over the base's military olive dado with the band in Charter blue,
+  deck plates underfoot, light strips overhead, hazard stripes up a doorway's posts and its head lit green, gunmetal
+  treads, and the building's name stencilled over its doorway outside. Props (consoles, lockers, racks, bunks,
   gantries) come from a kit in `bc-model`.
 
 ## The station language
@@ -160,7 +162,11 @@ suit deck 48 × 34 × 192 m in the hub's drum, between its bays, the launch tunn
   and the cameras, and its tests hold the hall closed, the signs on their walls, and the shader's
   numbers equal to its own.
 - **Its drawing** is `bc-client`'s `station`. The paint is `shaders/station.wgsl`, procedural like
-  the city's, with every derivative taken before its surface branch.
+  the city's, with every derivative taken before its surface branch. What a face carries, the palette
+  and the sizes it's painted at are `bc_client_core::station`: `Scale::DECK` for a suit's deck,
+  `Scale::MUSTER` for a person's halls, a material each, made once and never changed. Under
+  `?look=anime` it's painted in bands as the hull is (`shaders/anime.wgsl`, `bc::anime`, the one
+  copy both shaders import).
 
 What it keeps to:
 
@@ -173,8 +179,9 @@ What it keeps to:
   - A door you can go through has a frame lit in the line's colour.
 - **Safety yellow and black only at a hazard:** a door's meeting edge, the rim's edge, the floor
   before a bay door, a pillar's foot. Rails are safety orange.
-- **Stencilled signs in plain English,** in the page's Chakra Petch, laid out once into a texture by
-  the UI (as the Proving Ground's board is). Names are the colony's own: `BAY 07`, `RING DECK 2`,
+- **Stencilled signs in plain English,** in the page's Chakra Petch: every letter laid out once
+  into a texture by the UI (as the Proving Ground's board is) and measured, a sign its letters' quads
+  on its face (`station::lay_out`), all of one ink a single mesh. Names are the colony's own: `BAY 07`, `RING DECK 2`,
   `SPOKE LIFTS`, the town's quarters.
 - **Light in strips** along the ceiling, blooming, and the exposure high-key (EV 9.5, against the
   bay's 8).
@@ -186,8 +193,19 @@ What it keeps to:
   - It is drawn at the deck's exposure, not the Sun's.
   - The deck stands far from anything in the world, so the glass shows only the sky.
 
-The Muster is where it goes next: Bay Row and the base's buildings dressed in it, at a person's
-scale.
+**In the Muster** it's at a person's scale (`Scale::MUSTER`: 1.5 × 1 m panels, the band at 2.35 to
+2.65 m, over a doorway's head and under a storey's ceiling, the kick plate the base's olive dado):
+
+- **Bay Row** (`bc_client_core::muster`): the back end's wall to where the drum's ribs stand on it,
+  9 m up, with the band round it and its arrows pointing the short way round to the Muster's
+  buildings; the walkway's deck plates with a lane each way and a hazard line along its edge; each
+  bay's airlock door with chevrons at its leaves' meeting, in a frame lit Gardens green between
+  hazard posts, the lamp's head over it with the airlock's amber light, `BAY 01` to `BAY 99` over the
+  doors, KEEP CLEAR before them.
+- **Its buildings**, from their pieces (`piece_mesh`, above), the test hall first.
+
+Its tests hold Bay Row's door at every airlock, its UVs in metres as it bends round the deck, every
+sign on a face, and the arrows' way round.
 
 ## What carries over, and what goes
 

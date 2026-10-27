@@ -258,6 +258,7 @@ impl Plugin for VisualsPlugin {
                     (
                         setup_assets,
                         crate::materials::setup_materials,
+                        crate::station::setup_stations,
                         crate::beams::setup_ribbons,
                         crate::model::build_suit_meshes,
                     ),
