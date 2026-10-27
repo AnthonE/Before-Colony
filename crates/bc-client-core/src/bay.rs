@@ -194,8 +194,8 @@ pub const GANTRY_TOP: f32 = 24.0;
 pub const SUIT_AT: Vec3 = Vec3::new(0.0, 9.6, 6.0);
 /// The cockpit hatch, in the front of the suit's chest.
 pub const HATCH: Vec3 = Vec3::new(0.0, 12.6, 3.7);
-/// Gravity in the hub's spin ring, m/s² (0.7 g).
-pub const GRAVITY: f32 = 6.9;
+/// Gravity on the hub's drum, where the bays are, m/s² (0.4 g).
+pub const GRAVITY: f32 = 3.92;
 /// Where a pilot comes in: just inside the airlock, facing the suit.
 pub const SPAWN: Vec3 = Vec3::new(-15.4, 0.0, -20.0);
 

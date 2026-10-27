@@ -85,6 +85,10 @@ pub enum Scene {
     /// square 100 m out. Cameras: the chase camera (1), in from the doors (2), under the ceiling
     /// (3), out on the square (4), beside the climb (5).
     Markab,
+    /// The Muster, the base in the hub's drum (`docs/RING.md`), its buildings from their pieces: the
+    /// test hall from out on the deck (1), in at its doorway (2), from its gallery (3), the deck
+    /// rising ahead and overhead (4), along Bay Row's airlocks (5), and from high over the deck (6).
+    Base,
 }
 
 impl Scene {
@@ -104,6 +108,7 @@ impl Scene {
             "surface" | "landmarks" => Some(Self::Surface),
             "city" | "inside" => Some(Self::City),
             "markab" | "stunt" | "rocket" => Some(Self::Markab),
+            "base" | "muster" => Some(Self::Base),
             _ => None,
         }
     }
@@ -124,6 +129,7 @@ impl Scene {
             Self::Surface => "surface",
             Self::City => "city",
             Self::Markab => "markab",
+            Self::Base => "base",
         }
     }
 
@@ -132,6 +138,7 @@ impl Scene {
         match self {
             Self::City => city_cams(),
             Self::Markab => markab_cams(),
+            Self::Base => base_cams(),
             Self::Hangar => {
                 use bc_client_core::bay::{HATCH, SPAWN, SUIT_AT, Spot};
                 let o = crate::hangar::BAY_ORIGIN;
@@ -317,19 +324,31 @@ const LINEUP_CAMS: [Orbit; 5] = [
 const DUEL_CAMS: [Orbit; 3] =
     [orbit(DUEL, 0.8, 0.3, 380.0), orbit(DUEL, -1.2, 0.1, 260.0), orbit(DUEL, 2.4, -0.25, 320.0)];
 const COLONY_CAMS: [Orbit; 8] = [
-    orbit(COLONY_CENTER, 0.9, 0.35, 42_000.0),
+    // The whole ring, three-quarters on.
+    orbit(COLONY_CENTER, 0.9, 0.35, 3_600.0),
     orbit(SQUAD_START, 2.2, 0.35, 190.0),
-    orbit(Vec3::new(16_000.0, -4_200.0, 0.0), -1.8, 0.3, 14_000.0),
-    orbit(Vec3::new(0.0, -700.0, 0.0), -0.4, -0.05, 6_000.0),
+    // From the sun's side (+X), into the hole: the ceiling's lattice lit, the louvres, the spokes.
+    orbit(COLONY_CENTER, 1.4, 0.15, 3_200.0),
+    // Along the rim from over it: the slabs and their rows of lights curving away.
+    orbit(Vec3::new(COLONY_CENTER.x, COLONY_CENTER.y + COLONY_RADIUS + 60.0, 0.0), -0.2, 0.12, 900.0),
     // The dock, off the docking hub's mouth at the −X end.
     orbit(Vec3::new(DOCK_CENTER.x + 300.0, DOCK_CENTER.y, DOCK_CENTER.z), -0.6, 0.12, 1_100.0),
-    // The docking hub's end from out past the dock and below: the bay ring, the spire, the mirrors
-    // opening beyond, outlined in lamps (`?t=1900`: at night).
-    orbit(Vec3::new(-16_250.0, -4_200.0, 0.0), -1.15, -0.18, 6_500.0),
-    // The bay ring's face close to: the bays' doors and their lamps.
-    orbit(Vec3::new(-16_450.0, -4_200.0 + 2_252.0, 0.0), -1.4, 0.12, 1_600.0),
-    // The mirrors from the side, the whole colony beyond (`?t=2620`: opening in the early morning).
-    orbit(Vec3::new(-11_000.0, -4_200.0, 0.0), 0.25, 0.32, 24_000.0),
+    // The hub's end from out past the dock and below: the drum's face and its bays, the spine, the
+    // ring beyond, outlined in lamps (`?t=1900`: at night).
+    orbit(COLONY_CENTER, -1.15, -0.18, 4_000.0),
+    // The drum's face close to: the bays' doors and their lamps.
+    orbit(
+        Vec3::new(
+            COLONY_CENTER.x + bc_sim::colony::hub::MOUTH_X,
+            COLONY_CENTER.y + bc_sim::colony::hub::BAY_RADIUS,
+            0.0,
+        ),
+        -1.4,
+        0.12,
+        700.0,
+    ),
+    // The louvres from over the sun's side, the ring beyond (`?t=2620`: opening in the early morning).
+    orbit(Vec3::new(COLONY_CENTER.x + 200.0, COLONY_CENTER.y, 0.0), 1.2, 0.5, 2_200.0),
 ];
 const FIELD_CAMS: [Orbit; 3] = [
     orbit(FIELD, 0.3, 0.1, 400.0),
@@ -345,7 +364,7 @@ const PAIR_CYCLE: f64 = 6.0;
 /// The lodestars scene's loop (s).
 const LODESTARS_CYCLE: f64 = 6.0;
 const DUEL: Vec3 = Vec3::new(0.0, 1_500.0, 0.0);
-const SQUAD_START: Vec3 = Vec3::new(-3_000.0, COLONY_CENTER.y + COLONY_RADIUS + 45.0, 0.0);
+const SQUAD_START: Vec3 = Vec3::new(COLONY_CENTER.x, COLONY_CENTER.y + COLONY_RADIUS + 45.0, 0.0);
 const FIELD: Vec3 = Vec3::new(2_600.0, 900.0, 1_400.0);
 /// The chase scene's circle through the field, and its cycle (s).
 const CHASE: Vec3 = Vec3::new(2_600.0, 1_050.0, 1_400.0);
@@ -446,6 +465,9 @@ impl Plugin for ShowcasePlugin {
         if self.scene == Scene::Hangar {
             app.add_systems(Update, hangar_script.after(script).in_set(crate::view::Vis::Drive));
         }
+        if self.scene == Scene::Base {
+            app.add_systems(Update, base_script.after(script).in_set(crate::view::Vis::Drive));
+        }
         if self.scene == Scene::City {
             app.add_systems(Startup, city_script)
                 .add_systems(Update, city_crowd.after(script).in_set(crate::view::Vis::Drive));
@@ -538,7 +560,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Surface => {
             vec![(Argo, Faction::Colonies), (Argo, Faction::Colonies), (Argo, Faction::Alliance)]
         }
-        Scene::City | Scene::Markab => vec![],
+        Scene::City | Scene::Markab | Scene::Base => vec![],
     }
 }
 
@@ -1340,6 +1362,34 @@ fn walker_at(w: Vec3) -> Vec3 {
     (crate::city::colony_point(CityPos::from_walker(strip, w)) - city_origin()).as_vec3()
 }
 
+/// The base's cameras: round the test hall in its own frame (`content::base::TEST_HALL`: x along its
+/// front, z in from it, y up; its doorway in the front's second cell, facing Bay Row, a flight up its
+/// back right corner to the gallery over its back row), and out on the deck in its walker frame.
+fn base_cams() -> Vec<Orbit> {
+    use bc_sim::content::base::SITES;
+    let site = &SITES[0];
+    let world = |w: Vec3| crate::base::world(w, site.s);
+    let hall = |p: Vec3| world(site.to_walker(p));
+    let toward = |from: Vec3, to: Vec3| look(from, to - from);
+    // The walker frame from the hall's doorway: Bay Row is towards −x, the deck's `s` grows to −z.
+    let door = site.to_walker(Vec3::new(4.5, 0.0, 0.0));
+    let deck = |d: Vec3| world(door + d);
+    vec![
+        // Out on Bay Row before its doorway.
+        toward(hall(Vec3::new(4.5, 1.7, -9.0)), hall(Vec3::new(5.0, 2.6, 3.0))),
+        // In at the doorway: the flight up to the gallery, the skylight's shaft.
+        toward(hall(Vec3::new(4.5, 1.65, 0.6)), hall(Vec3::new(9.5, 3.0, 7.5))),
+        // From the gallery, down into the hall.
+        toward(hall(Vec3::new(2.0, 4.65, 7.6)), hall(Vec3::new(6.0, 0.8, 1.5))),
+        // On Bay Row short of the hall: the deck rising past it round the drum till it's overhead.
+        toward(deck(Vec3::new(-12.0, 3.0, 40.0)), deck(Vec3::new(-4.0, 45.0, -60.0))),
+        // Along Bay Row, its airlocks on the left, curving up ahead.
+        toward(deck(Vec3::new(-16.0, 1.7, 30.0)), deck(Vec3::new(-10.0, 4.0, -10.0))),
+        // From high over the deck, near the spine's casing.
+        toward(deck(Vec3::new(40.0, 200.0, 60.0)), deck(Vec3::ZERO)),
+    ]
+}
+
 fn markab_cams() -> Vec<Orbit> {
     use bc_client_core::showcase_markab::Stunt;
     let toward = |from: Vec3, to: Vec3| look(from, (to - from).normalize());
@@ -1675,7 +1725,7 @@ fn script(
             }
         }
         Scene::Colony => {
-            // A squad circling above the hull, in echelon.
+            // A squad circling above the rim, in echelon.
             let a = 0.35 * t as f32;
             let heading = Vec3::new(-a.sin(), 0.0, a.cos());
             for i in 0..3 {
@@ -1832,8 +1882,8 @@ fn script(
             }
         }
         // The bay is driven by `hangar_script`; the city by `city_script`; the Markab by
-        // `markab_crowd`.
-        Scene::Hangar | Scene::City | Scene::Markab => {}
+        // `markab_crowd`; the base stands still.
+        Scene::Hangar | Scene::City | Scene::Markab | Scene::Base => {}
         Scene::Surface => {
             let pose = fornax_at(t);
             let fornax = Body::Landmark(0);
@@ -2063,6 +2113,13 @@ fn script(
 }
 
 /// The hangar scene: the pilot's view indoors, the suit in its gantry, and the bay cycling.
+/// The view is on the base's deck, by the test hall, in its light.
+fn base_script(mut view: ResMut<crate::base::BaseView>) {
+    if !view.active {
+        view.active = true;
+    }
+}
+
 fn hangar_script(
     show: Res<Show>,
     vis: Res<VisTime>,

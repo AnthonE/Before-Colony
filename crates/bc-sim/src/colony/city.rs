@@ -15,11 +15,11 @@
 
 use glam::Vec3;
 
+use crate::colony::frame::HALF_LENGTH as COLONY_HALF_LENGTH;
 use crate::colony::frame::STRIP_WIDTH;
 use crate::colony::furniture::{PARK_LAMP, PARK_LOOP};
 use crate::content::city::{DISTRICTS, DistrictKind, PLACES, PlaceDef, PlaceKind, SPECIAL, Special};
 use crate::math::{atan2, floor};
-use crate::world::COLONY_HALF_LENGTH;
 
 /// A block's cell, m square.
 pub const BLOCK: f32 = 128.0;
@@ -61,6 +61,8 @@ pub const GROUND_FLOOR: f32 = 5.0;
 pub const TERMINAL_HALF: f32 = 30.0;
 pub const TERMINAL_DEPTH: f32 = 60.0;
 pub const TERMINAL_HEIGHT: f32 = 30.0;
+/// The cap lift's top, m up from the floor: the cylinder's bay ring, at r 2,252 m.
+pub const LIFT_TOP: f32 = 948.0;
 
 /// A rectangle on a strip: `s` across and `x` along, m.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

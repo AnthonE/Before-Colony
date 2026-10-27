@@ -1,8 +1,20 @@
-# Before Colony wire protocol (v39)
+# Before Colony wire protocol (v41)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v41 (from v40): the base's deck in the hub (`docs/RING.md`, "The base"). A pose's 2-bit strip code
+takes 3 for the base's deck (`presence::BASE_DECK`), its `x` along the axis, `s` round the deck and
+`h` up (`bc_sim::colony::deck::DeckPos`) in the same fields; a plaza datagram's header takes it too.
+The hangar's JSON gains `enter_base` and `leave_base` and the place `base` (below). The test hall
+stands by bay 1's airlock now, turned to face Bay Row (`content::base`, `BASE_VERSION` 2).
+
+v40 (from v39): the First Colony is a ring (`docs/RING.md`). Nothing on the wire changes shape, but
+what both ends simulate does, so they must agree: the colony is a ring 1 km in radius and 600 m wide,
+centred at (−16,250, −4,200, 0) and turning once every 1,903 ticks; the docking hub landmark is its
+drum, spine and spokes on the same centre; the pilots' bays are on the drum's forward face, 400 m
+from the axis (0.4 g); and a lock-on's up is the sector's +Y (`bc_sim::world::up_at`).
 
 v39 (from v38): the walkers' codecs, for the street in the tick (`docs/OPEN_CITY.md`). No server
 walks anyone in the tick yet (that comes behind a later `--street`), so nothing below is sent by
@@ -491,7 +503,7 @@ their own screen has it (`transit::train` is a closed form of the tick).
 
 | Datagram | Content | Size |
 |---|---|---|
-| kind 3, Pose (client → server, 15 Hz in the city) | kind (4), seq (u16), strip (2), the pose (97) | 15 B |
+| kind 3, Pose (client → server, 15 Hz in the city or on the base's deck) | kind (4), seq (u16), strip (2: a strip, or 3 the base's deck), the pose (97) | 15 B |
 | kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (97) | 5 B + 14.125 B a person, at most 48 (683 B) |
 
 A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
@@ -641,6 +653,8 @@ Client → server (`Request`):
 | `trainer` | `build`: `{"kind": "board"}`, `{"kind": "bay"}` or `{"kind": "line", "line": …}` (a frame's slug) | the test range: what the gantry readies for `board_trainer` (the Board's Argo; the bay's build, new and full; a new suit of a line the colony builds). The `proving` board says which (`trainer`) (desk: the Proving Ground, the Blast Hall's room) |
 | `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
 | `leave_city` | | ride the lift back up from Hub Gate to the bay |
+| `enter_base` | | out through the bay's airlock onto Bay Row, the base's deck (survival, the pilot in their bay) |
+| `leave_base` | | back in through the bay's airlock (from its doorstep: the plaza's last pose within 6 m of it) |
 | `watch_board` | `on` | send the Charter Board (`charter`) as it changes, or stop |
 | `post` | `item`, `qty`, `reward`, `hours` (1–72) | post a supply contract; the reward goes into escrow (desk: the Charter Board's) |
 | `withdraw` | `id` | take one's own contract down (what it hasn't paid comes back) |
@@ -680,7 +694,7 @@ purer grades `mat.propellant_refined`, `mat.propellant_ultra`), `part.argo.torso
 `head`, `torso`, `arm_l`, `arm_r`, `legs`, `backpack`. Prices are credits a tonne for ores and
 materials (quantities in kg), credits a piece for everything else.
 
-Server → client (`Update`): `place` {`place`: `hangar`, `space` or `city`, `bay`, in the city
+Server → client (`Update`): `place` {`place`: `hangar`, `space`, `city` or `base`, `bay`, in the city
 its `strip`, and `trainer: true` flying one of the Board's trainers (absent otherwise)}; `hangar` (credits,
 stock, parts with their condition, the bay: `empty`, `docked` or `out` with the suit, the job
 queues with their time left); `market` (every item's bid, ask, last and volume, the pilot's
@@ -777,7 +791,10 @@ them (v19: the suits standing on it ride it).
 The colony (the Welcome sets COLONY: a survival server, unless it runs with `--no-colony`): from the bay,
 `enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and
 the market keep coming (the Exchange floor's terminal is the bay's), and `launch` is refused.
-`leave_city` answers `place: hangar`. The city itself is compiled content (`bc_sim::colony::city`,
+`leave_city` answers `place: hangar`. `enter_base` answers `place: base` (out on Bay Row: poses on
+the base's deck go to the server as in the city, its people seen only by each other, and `launch` is
+refused); `leave_base`, `place: hangar`, or a refusing `note` away from the pilot's own airlock. The
+city itself is compiled content (`bc_sim::colony::city`,
 `content::city::CITY_VERSION`), the same on every client and the server, so any change to it bumps
 the protocol version (v18: the rooms behind the key places' doors, walked into and checked as any
 of the city's walls). Walking the city is the client's own, as in the bay; where the pilot stands goes

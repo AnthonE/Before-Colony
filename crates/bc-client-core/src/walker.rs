@@ -140,7 +140,8 @@ mod tests {
             w.step(&bay, &Stride::default(), DT);
             top = top.max(w.feet.y);
         }
-        assert!(top > 0.8 && top < 1.2 && w.grounded && w.feet.y.abs() < 1e-3, "{top}");
+        // As high as a jump at 0.9 g, though the bay's pull is 0.4 g (`bc_sim::foot::JUMP`).
+        assert!(top > 0.65 && top < 0.8 && w.grounded && w.feet.y.abs() < 1e-3, "{top}");
     }
 
     #[test]

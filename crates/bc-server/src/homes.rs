@@ -78,6 +78,14 @@ impl HomeRegister {
         }
     }
 
+    /// The clock at `now` with the colony's inside closed: rent held, nothing lapses
+    /// (`Homes::hold`).
+    pub fn hold(&self, now: u64) {
+        if self.with(|h| h.hold(now)) {
+            self.changed();
+        }
+    }
+
     /// Writes the register to its file, if it has one (one write at a time).
     pub async fn save(&self) {
         let Some(path) = self.path.clone() else { return };

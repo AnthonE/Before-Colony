@@ -237,7 +237,7 @@ pub fn locked_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCm
     let close = ((range - 20.0) / 200.0).clamp(-0.5, 1.0);
     let circle = if (tick / 90 + id.idx() as u32).is_multiple_of(2) { 0.6 } else { -0.6 };
     let q = |v: f32| (v.clamp(-1.0, 1.0) * 127.0) as i8;
-    let lockon = bc_proto::LockOn { ref_vel: it.vel, up: bc_sim::world::colony_up(me.pos) };
+    let lockon = bc_proto::LockOn { ref_vel: it.vel, up: bc_sim::world::up_at(me.pos) };
     // Now and then a burst step, the way it circles.
     if (tick + 13 * id.idx() as u32).is_multiple_of(70) {
         let buttons = cmd.buttons | bc_proto::buttons::BURST;

@@ -1,5 +1,8 @@
 # The open city: homes, the street, heat and the Watch
 
+> **On hold for the ring** (October 2026, `RING.md`): the cylinder's homes are refunded in full when its inside is
+> cleared, and no rent runs till then. The lock, the crew and the tenure carry over to the ring's town.
+
 > A multiplayer GTA inside one O'Neill cylinder, on Rust's rules: your flat is a real door in a real
 > building that everyone walks past, and what's behind it is yours for as long as you can keep it.
 

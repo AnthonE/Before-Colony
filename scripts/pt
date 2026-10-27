@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Play the game from a shell: for agents (and people) playtesting it, looking for what needs polish.
-#   scripts/pt up                  # a world: a survival server (the colony open), drones, an agent, a
-#                                  # miner, and strollers in the city; built first if need be
+#   scripts/pt up                  # a world: a survival server, drones, an agent and a miner (with
+#                                  # BC_COLONY=1, the retired cylinder's inside open and strollers in
+#                                  # its city); built first if need be
 #   scripts/pt open                # a browser on it, a pilot in their bay; then shot, walk, key, turn…
 #   scripts/pt help                # every command
 #   scripts/pt down                # the world and every browser on it gone
 # The browser side is e2e/playtest/pt.mjs; how to playtest with it is .claude/skills/playtest/SKILL.md.
 # Env (the world): BC_RULES (survival|arcade; survival), BC_FLIGHT (anime|real), BC_DRONES (12),
 #   BC_HTTP_PORT (8080), BC_WT_PORT (UDP, 4433), PT_BUILD=0 (never build: run what's there),
+#   BC_COLONY=1 (open the retired cylinder's inside, closed while the ring is built: docs/RING.md),
 #   PT_SERVER_ARGS (more of the server's flags, e.g. "--craft-speed 60").
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -49,6 +51,8 @@ world_up() {
   fi
   build
   local rules="${BC_RULES:-survival}"
+  local colony=""
+  [ "$rules" = "survival" ] && [ "${BC_COLONY:-0}" = "1" ] && colony="--colony"
   local log="$out/world-${port}.log"
   : >"$pids"
   # Detached (setsid), so the world outlives the shell that started it.
@@ -58,12 +62,12 @@ world_up() {
   }
   # shellcheck disable=SC2086
   start "$bin/bc-server" --http "127.0.0.1:${port}" --wt-port "${BC_WT_PORT:-4433}" --web-dir web/dist \
-    --mode game --rules "$rules" --flight "${BC_FLIGHT:-anime}" --drones "${BC_DRONES:-12}" ${PT_SERVER_ARGS:-}
+    --mode game --rules "$rules" --flight "${BC_FLIGHT:-anime}" --drones "${BC_DRONES:-12}" ${colony} ${PT_SERVER_ARGS:-}
   for _ in $(seq 1 100); do up && break; sleep 0.2; done
   up || { echo "the server didn't come up: see $log" >&2; tail -20 "$log" >&2; exit 1; }
   start "$bin/examples/drone" --server "$url" --name Agent-01
   start "$bin/examples/miner" --server "$url" --name Miner-01
-  if [ "$rules" = "survival" ]; then
+  if [ -n "$colony" ]; then
     # Someone strolling outside each strip's Hub Gate, and two sitting outside The Arrival.
     for strip in 0 1 2; do
       start "$bin/examples/flaneur" --server "$url" --name "Flaneur-0$((strip + 1))" --strip "$strip"

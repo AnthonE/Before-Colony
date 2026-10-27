@@ -92,7 +92,7 @@ pub struct HangarEntry {
     pub stores_pieces: u64,
 }
 
-/// The colony's inside (survival, unless `--no-colony`): a second sector, `sector-1`, in the colony's own
+/// The colony's inside (survival with `--colony`): a second sector, `sector-1`, in the colony's own
 /// frame (`bc_sim::colony::interior`), with its own slots, rings and egress. Pilots launch into it
 /// from their bays through the inner gate, and dock back out of it.
 #[derive(Clone)]
@@ -449,6 +449,7 @@ impl GameRuntime {
             let proving = game.proving.clone();
             let homes = game.homes.clone();
             let sector = game.sector.clone();
+            let open = game.colony;
             tokio::spawn(async move {
                 let mut every = tokio::time::interval(Duration::from_secs(1));
                 let mut n = 0u64;
@@ -457,7 +458,12 @@ impl GameRuntime {
                     market.tick(1.0);
                     charter.tick(crate::pilots::unix_now(), &market);
                     proving.tick(crate::pilots::unix_now());
-                    homes.tick(crate::pilots::unix_now());
+                    // Nobody reaches a home while the inside is closed: its rent is held.
+                    if open {
+                        homes.tick(crate::pilots::unix_now());
+                    } else {
+                        homes.hold(crate::pilots::unix_now());
+                    }
                     n += 1;
                     if n.is_multiple_of(60) {
                         market.save().await;
@@ -721,8 +727,10 @@ impl StatusView {
             "oracle": self.oracle,
             "rules": if self.survival { "survival" } else { "arcade" },
             // Pilots may go down into the colony's city from their bays; how many are down there
-            // (never where), and how many of their poses weren't passed on.
+            // (never where), and how many of their poses weren't passed on. And how many are out on
+            // the base's deck.
             "colony": self.colony,
+            "base": { "people": city.3 },
             "city": {
                 "people": city.0,
                 "by_strip": city.1,
@@ -750,7 +758,7 @@ impl StatusView {
                 "sold_for": h.sold_for,
                 "paid_back": h.paid_back,
             })),
-            // The colony's inside (unless `--no-colony`): its sector's suits, and its tick.
+            // The colony's inside (with `--colony`): its sector's suits, and its tick.
             "inside": self.inside.as_ref().map(|i| serde_json::json!({
                 "suits": l(&i.metrics.suits_alive),
                 // Pilots on foot in the city watching its suits.

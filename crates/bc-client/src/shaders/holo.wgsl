@@ -3,9 +3,7 @@
 // whatever is behind (no depth written, so the chart's lines show through).
 //
 // Kinds (params.x):
-//   0  plain: a landmark, the docking hub.
-//   1  the colony: its three windows bright along their length, its land strips ruled across,
-//      turning with the colony (uv.x runs round it, uv.y along it).
+//   0  plain: a landmark, the docking hub, the colony's ring.
 //   2  Earth: continents from the sky's own noise (`sky.wgsl`), ruled in contour lines, the day
 //      side lit by the Sun and the night side pricked with cities, an atmosphere at the limb.
 //   3  the Moon: its maria, the night side dark.
@@ -84,20 +82,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
         col += holo.rim.rgb * bands * 0.35;
         // The lit side a touch brighter.
         col *= 0.75 + 0.35 * max(dot(n, sun), 0.0);
-    } else if (kind == 1) {
-        let around = in.uv.x * TAU;
-        let along = in.uv.y;
-        // Windows: a third of the way round each, centred on its angle.
-        let k = (around - holo.sun.w) / (TAU / 3.0);
-        let off = abs(fract(k + 0.5) - 0.5);
-        let window = 1.0 - smoothstep(0.155, 0.17, off);
-        // Ribs round the hull every kilometre, and the strips ruled along their length.
-        let ribs = rule(along * 32.0, 0.06);
-        let ruled = rule(k * 6.0, 0.05) * (1.0 - window);
-        col += holo.rim.rgb * (ribs * 0.5 + ruled * 0.3);
-        // The windows glow with the city behind them.
-        let city = 0.5 + 0.5 * noise3(vec3(along * 400.0, k * 30.0, 0.0));
-        col += vec3(0.9, 0.85, 0.55) * window * (0.25 + 0.35 * city) * holo.color.a;
     } else if (kind == 2) {
         let ndl = dot(n, sun);
         let day = smoothstep(-0.12, 0.18, ndl);

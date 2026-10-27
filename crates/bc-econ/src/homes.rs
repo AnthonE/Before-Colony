@@ -549,6 +549,23 @@ impl Homes {
         }
     }
 
+    /// The register `now` with the colony's inside closed (`docs/RING.md`): nobody can reach their
+    /// home, so the clock stands still for it. Each lease is charged to `now` without paying, and
+    /// each bought home counts as seen, so nothing is spent or lapses or is sold back meanwhile, and
+    /// a [`tick`](Self::tick) after the inside opens again owes nothing for the time it was shut.
+    /// Whether anything changed.
+    pub fn hold(&mut self, now: u64) -> bool {
+        let mut changed = false;
+        for h in self.held.values_mut() {
+            let (Tenure::Lease { charged_to: at, .. } | Tenure::Deed { seen: at, .. }) = &mut h.tenure;
+            if *at < now {
+                *at = now;
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// The register `now`: each lease charged its rent by the hour from its panel (lapsing a day
     /// after it can't be paid), each bought home left a month sold back. Whether anything changed.
     pub fn tick(&mut self, now: u64) -> bool {
@@ -912,6 +929,27 @@ mod tests {
         assert!(notes.iter().any(|n| n.contains("LAPSED")), "{notes:?}");
         // Every credit accounted for.
         assert_eq!(h.credits + reg.rent_taken + reg.holding(), start);
+    }
+
+    #[test]
+    fn a_home_held_while_the_inside_is_closed_costs_nothing_and_never_lapses() {
+        let (flat, house) = homes();
+        let mut reg = Homes::new();
+        let mut h = rich();
+        reg.rent(&flat, "0xa", "ADA", 1, &mut h, 1_000).unwrap();
+        reg.buy(&house, "0xa", "ADA", &mut h, 1_000).unwrap();
+        // Closed for two months, by the hour: no rent taken, nothing lapsed or sold back.
+        let mut now = 1_000;
+        while now < 1_000 + 9 * WEEK_S {
+            now += HOUR_S;
+            reg.hold(now);
+        }
+        assert_eq!(reg.rent_taken, 0);
+        assert!(reg.get(flat.id).is_some() && reg.get(house.id).is_some());
+        // Opened again, nothing is owed for the time it was shut: an hour on, an hour's rent.
+        reg.tick(now + HOUR_S);
+        assert!(reg.rent_taken > 0 && reg.rent_taken < rent(&flat) / 24, "{}", reg.rent_taken);
+        assert!(reg.get(house.id).is_some(), "not sold back");
     }
 
     #[test]

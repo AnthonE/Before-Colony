@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0xc0b8_924e_5dfa_1705;
+const GOLDEN: u64 = 0x2c22_37ed_2539_f900;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Lodestars duelling in pairs among drones: every blade, the
 /// Pincer Strike, the Talon, the flamethrower, the Eclipse, guided missiles, Full Salvo,
 /// Aquila and the Lodestars' guns (changes deliberately as their mechanics arrive).
-const LODESTARS_GOLDEN: u64 = 0xdabf_caea_d2b7_5323;
+const LODESTARS_GOLDEN: u64 = 0xf546_c352_c62e_b633;
 
 fn lodestars_hash() -> u64 {
     use bc_proto::events::Event;
@@ -109,7 +109,7 @@ fn lodestars_golden_wasm() {
 /// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
 /// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
 /// circling, burst-stepping now and then, among drones.
-const LOCKON_GOLDEN: u64 = 0x43b0_44d0_8ba4_760a;
+const LOCKON_GOLDEN: u64 = 0xae9d_80e2_bccb_f121;
 
 fn lockon_hash() -> u64 {
     let (mut sim, duels) = common::lodestar_crowd(8, 12, 21);
@@ -258,7 +258,7 @@ fn field_and_rocks_golden_wasm() {
 
 /// Hash after a salvage run: pilots gather ore, stow it, tow a hulk, throw, jettison, and sell (and
 /// refuel) at the dock.
-const SALVAGE_GOLDEN: u64 = 0xc054_f0e1_980b_312d;
+const SALVAGE_GOLDEN: u64 = 0x5574_f35b_a9a9_66f2;
 
 fn salvage_hash() -> u64 {
     use bc_proto::buttons::{FLIGHT_ASSIST, GRAB, JETTISON, STOW, THROW};
@@ -469,9 +469,9 @@ fn sleepers_golden_wasm() {
 }
 
 /// Hash after launches from the bays (survival): eight suits ride their bays' cradles round the
-/// ring, a few firing (which the bays' law clears), let go a few ticks apart and are thrown out of
+/// hub's mouth, a few firing (which the bays' law clears), let go a few ticks apart and are thrown out of
 /// their doors, and fly on under flight assist, some under the stick.
-const BAYS_GOLDEN: u64 = 0x6475_b9ab_de9f_3a06;
+const BAYS_GOLDEN: u64 = 0x4f81_f781_1177_19fb;
 
 fn bays_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
@@ -1590,4 +1590,76 @@ fn hall_golden_native() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 fn hall_golden_wasm() {
     assert_eq!(hall_hash(), HALL_GOLDEN);
+}
+
+/// Hash of the base's buildings (`bc_sim::pieces`, `content::base`): every solid each one stands as
+/// on its deck, the deck's pull, and a walker going in at the test hall's door, to its counter, up
+/// its stairs and down them again, on the base's deck at 0.4 g.
+const PIECES_GOLDEN: u64 = 0x2f3d_9b7a_6297_381f;
+
+fn pieces_hash() -> u64 {
+    use bc_sim::colony::deck::{BASE, DeckPos, gravity};
+    use bc_sim::content::base::SITES;
+    use bc_sim::foot::{DeckGround, Stride, Walker};
+    use bc_sim::math::atan2;
+    use glam::Vec3;
+
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for site in &SITES {
+        site.each_solid(&mut |b| {
+            for v in [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z] {
+                fnv(&mut h, v.to_bits());
+            }
+        });
+        let p = DeckPos::from_walker(site.deck, site.to_walker(Vec3::new(1.5, 0.0, 1.5))).to_colony();
+        for v in [p.x, p.y, p.z, gravity(site.deck, 1.0)] {
+            fnv(&mut h, v.to_bits());
+        }
+    }
+    let site = &SITES[0];
+    let ground = DeckGround { deck: BASE };
+    let way = [
+        Vec3::new(4.5, 0.0, 0.0),
+        site.prefab.rooms[0].counter,
+        Vec3::new(10.5, 0.0, 2.6),
+        Vec3::new(10.5, 3.0, 7.5),
+        Vec3::new(2.0, 3.0, 7.5),
+        Vec3::new(10.5, 3.0, 7.5),
+        Vec3::new(10.5, 0.0, 2.6),
+    ];
+    let mut w = Walker::at(site.to_walker(Vec3::new(4.5, 0.0, -6.0)), Vec3::Z);
+    let mut next = 0;
+    for n in 0..1_800u32 {
+        let to = site.to_walker(way[next.min(way.len() - 1)]);
+        let d = Vec3::new(to.x - w.feet.x, 0.0, to.z - w.feet.z);
+        if d.length() < 0.4 {
+            next += 1;
+        }
+        w.yaw = atan2(d.x, d.z);
+        let walking = next < way.len();
+        w.tick(
+            &ground,
+            &Stride { forward: if walking { 1.0 } else { 0.0 }, jump: n % 97 == 50, ..Stride::default() },
+        );
+        for v in [w.feet.x, w.feet.y, w.feet.z, w.vel.x, w.vel.y, w.vel.z] {
+            fnv(&mut h, v.to_bits());
+        }
+        fnv(&mut h, u32::from(w.grounded));
+    }
+    assert!(next >= way.len(), "the walk stopped at its step {next}: {:?}", w.feet);
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn pieces_golden_native() {
+    let h = pieces_hash();
+    assert_eq!(h, pieces_hash(), "must be reproducible within a process");
+    assert_eq!(h, PIECES_GOLDEN, "the pieces' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn pieces_golden_wasm() {
+    assert_eq!(pieces_hash(), PIECES_GOLDEN);
 }

@@ -751,7 +751,7 @@ mod tests {
     use crate::config::{DT, SECTOR_LIMIT};
     use crate::content::frame;
     use crate::math::{Rng, cos, quat_normalize, sin};
-    use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
+    use crate::world::{COLONY_CENTER, COLONY_HALF_WIDTH, COLONY_RADIUS};
     use bc_proto::FrameId;
 
     fn state() -> FlightState {
@@ -1192,7 +1192,7 @@ mod tests {
             1 => {
                 let a = rng.signed() * core::f32::consts::PI;
                 let r = COLONY_RADIUS + rng.signed() * 20.0;
-                let x = rng.signed() * (COLONY_HALF_LENGTH + 20.0);
+                let x = rng.signed() * (COLONY_HALF_WIDTH + 20.0);
                 COLONY_CENTER + Vec3::new(x, r * cos(a), r * sin(a))
             }
             _ => {

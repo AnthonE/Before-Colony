@@ -196,8 +196,7 @@ pub fn update_hints(
             g.core.welcome.is_some_and(|w| w.interior),
             // Within a couple of kilometres of the docking hub's mouth (on the colony's axis).
             {
-                let c = bc_sim::world::COLONY_CENTER;
-                let mouth = Vec3::new(bc_sim::colony::hub::SPIRE_MOUTH_X, c.y, c.z);
+                let mouth = bc_sim::world::COLONY_CENTER + Vec3::X * bc_sim::colony::hub::MOUTH_X;
                 !g.core.inside() && from.distance(mouth) < 2_000.0
             },
             g.core.hangar.trainer,

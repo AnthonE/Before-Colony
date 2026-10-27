@@ -6,7 +6,7 @@ use glam::Vec3;
 use crate::config::secs;
 use crate::content::{WeaponClass, frame, weapon};
 use crate::math::floor;
-use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH};
+use crate::world::COLONY_CENTER;
 
 /// Share of a frame's dry mass in each part (the torso holds the rest).
 const PART_SHARE: [f32; Part::COUNT] = [0.04, 0.52, 0.08, 0.08, 0.18, 0.10];
@@ -70,16 +70,10 @@ pub const THROW_IMPULSE: f32 = 60_000.0;
 pub const THROW_SPEED_MAX: f32 = 40.0;
 /// Jettisoned (or spilled) cargo drifts off at this speed, m/s.
 pub const JETTISON_SPEED: f32 = 3.0;
-/// How far the docking hub stands out from the colony's −X end cap, m (drawn by the client; nothing
-/// collides with it).
-pub const DOCK_HUB_LENGTH: f32 = 900.0;
-/// The dock: a sphere just off the docking hub's mouth. Arriving slower than `DOCK_SPEED` sells the
-/// hold and whatever is in hand, and tops up propellant.
-pub const DOCK_CENTER: Vec3 = Vec3::new(
-    COLONY_CENTER.x - COLONY_HALF_LENGTH - DOCK_HUB_LENGTH - 350.0,
-    COLONY_CENTER.y,
-    COLONY_CENTER.z,
-);
+/// The dock: a sphere on the colony's axis, 800 m off the docking hub's mouth, which leaves a suit
+/// coming in at speed room to swing round it clear of the drum and the bays' doors. Arriving slower
+/// than `DOCK_SPEED` sells the hold and whatever is in hand, and tops up propellant.
+pub const DOCK_CENTER: Vec3 = Vec3::new(-17_700.0, COLONY_CENTER.y, COLONY_CENTER.z);
 pub const DOCK_RADIUS: f32 = 300.0;
 pub const DOCK_SPEED: f32 = 25.0;
 /// Credits per kg of each material: nickel-iron, titanium, volatiles, exotics.

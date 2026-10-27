@@ -1,75 +1,46 @@
-//! The First Colony: an Island-3 cylinder 6.4 km across and 32 km long, turning once every 113 s for
-//! 1 g at the rim. Three land strips alternate with three windows that look into the colony
-//! (`shaders/colony_window.wgsl`), structural rings band the hull, the end caps carry the docking
-//! hub and the axis port, and three mirrors hinged at the docking hub's end open towards the sun
-//! with the colony's day (`bc_sim::colony::time`) to throw its light in.
+//! The First Colony from outside: a ring 2 km across and 600 m wide (`docs/RING.md`), turning once a
+//! minute for 1 g at its floor, drawn after the angular colonies of the 1990s anime its owner chose
+//! for it. Its hull is flat slabs round the rim with dark seams between them, ruled with rows of small
+//! lights; its ceiling, facing the hole, is the window lattice, glowing with the town's day. In the
+//! hole the docking hub's drum stands forward of the ring (−X), the pilots' bays round its face; the
+//! spine runs back through the hole, six spokes reach out to the ceiling, and the louvres round the
+//! spine open with the colony's day (`bc_sim::colony::time`) to throw the sun in.
 //!
 //! It turns on the simulation's clock (`bc_sim::world::colony_spin_angle`) at the view clock's
 //! time, and its day runs on the same clock, so every client draws it at the same angle and hour.
-//! Collision stays the simulation's static cylinder (`bc_sim::world`), which doesn't care that the
-//! visual one spins.
+//! Collision stays the simulation's still ring and hub (`bc_sim::world`, the hub landmark), which
+//! don't care that the visual one spins.
 
-use std::f32::consts::{FRAC_PI_3, FRAC_PI_6, TAU};
+use std::f32::consts::TAU;
 
-use bc_sim::colony::frame::{FIRST_WINDOW, STRIPS, window_centre};
 use bc_sim::colony::hub::{
-    BAY_DOOR_X, BAY_RADIUS, BAY_RING_INNER, BAY_RING_OUTER, BAY_RING_X, BAYS, DECK_HATCH_RADIUS,
-    SPIRE_RADIUS, SPIRE_TIERS, SPOKES,
+    BAY_DOOR_X, BAY_RADIUS, BAYS, DECK_HATCH_RADIUS, DRUM_RADIUS, DRUM_X, MOUTH_X, SPINE_RADIUS, SPINE_X,
+    SPOKE_RADIUS, SPOKES, spoke_angle,
 };
-use bc_sim::colony::mirrors::{MIRROR_LENGTH, MIRROR_THICKNESS, MIRROR_WIDTH, Mirror};
+use bc_sim::colony::louvres::{LOUVRE_LENGTH, LOUVRE_THICKNESS, LOUVRE_WIDTH, LOUVRES, Louvre};
 use bc_sim::colony::time::{Day, day};
-use bc_sim::content::salvage::{DOCK_CENTER, DOCK_HUB_LENGTH, DOCK_RADIUS};
-use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS, colony_spin_angle};
+use bc_sim::content::salvage::{DOCK_CENTER, DOCK_RADIUS};
+use bc_sim::world::{
+    COLONY_CENTER, COLONY_HALF_WIDTH, COLONY_INNER_RADIUS, COLONY_RADIUS, colony_spin_angle,
+};
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::light::NotShadowCaster;
 use bevy::mesh::{Indices, PrimitiveTopology};
-use bevy::pbr::{Material, MaterialPlugin};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderType};
-use bevy::shader::ShaderRef;
 
 use crate::dots::{Blink, DotLook, DotMaterial, Dots};
 use crate::materials::{HullTag, Surfaces, paint};
-use crate::sky::{SUN_DIR, SUN_LUX, Sun};
 use crate::view::{DrawnBodies, Vis, VisTime};
 
 pub struct ColonyPlugin;
 
 impl Plugin for ColonyPlugin {
     fn build(&self, app: &mut App) {
-        embedded_asset!(app, "shaders/colony_window.wgsl");
+        // The retired cylinder's city (`city.rs`, behind the server's `--colony`) imports it.
         embedded_asset!(app, "shaders/city_lib.wgsl");
-        app.add_plugins(MaterialPlugin::<WindowMaterial>::default())
-            .init_resource::<ColonyDay>()
-            .add_systems(Update, ((spin, open_mirrors).chain().in_set(Vis::Suits), blink_beacons));
-    }
-}
-
-#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
-pub struct WindowMaterial {
-    #[uniform(0)]
-    colony: ColonyUniform,
-    /// The city's block atlas (`bc_client_core::city_atlas`): what the windows show of it.
-    #[texture(1)]
-    atlas: Handle<Image>,
-}
-
-#[derive(ShaderType, Clone, Copy, Debug)]
-struct ColonyUniform {
-    /// xyz: centre; w: spin angle.
-    centre: Vec4,
-    /// x: radius; y: half-length; z: first window's angle; w: daylight.
-    shape: Vec4,
-    /// xyz: direction to the Sun; w: sunlight scale.
-    sun: Vec4,
-    /// x: how many of the city's lamps are lit; yzw: unused.
-    extra: Vec4,
-}
-
-impl Material for WindowMaterial {
-    fn fragment_shader() -> ShaderRef {
-        "embedded://bc_client/shaders/colony_window.wgsl".into()
+        app.init_resource::<ColonyDay>()
+            .add_systems(Update, ((spin, open_louvres).chain().in_set(Vis::Suits), blink_beacons));
     }
 }
 
@@ -77,8 +48,8 @@ impl Material for WindowMaterial {
 #[derive(Resource)]
 pub struct CityLib(#[allow(dead_code)] Handle<Shader>);
 
-/// The city's atlas as an image: one RGBA8 texel a block, and under them the roofs' height map
-/// (`bc_client_core::city_atlas::atlas`), worked out once for the city and the windows both.
+/// The retired cylinder's city atlas as an image: one RGBA8 texel a block, and under them the
+/// roofs' height map (`bc_client_core::city_atlas::atlas`), for its city (`city.rs`).
 pub fn atlas_image() -> Image {
     use bc_client_core::city_atlas::{IMAGE_H, IMAGE_W, atlas};
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -92,15 +63,16 @@ pub fn atlas_image() -> Image {
     )
 }
 
-/// A pilot's bay door on the bay ring, by its bay's number: open (not drawn) while a suit is
+/// A pilot's bay door on the drum's face, by its bay's number: open (not drawn) while a suit is
 /// launching out of it.
 #[derive(Component)]
 pub struct BayDoor(pub u8);
 
-/// The spinning part of the colony (everything visual).
+/// The spinning part of the colony (everything visual), and the ceiling's glass, which glows with
+/// the town's day.
 #[derive(Component)]
 struct ColonyRoot {
-    windows: Handle<WindowMaterial>,
+    glass: Handle<StandardMaterial>,
 }
 
 /// A blinking navigation light.
@@ -109,21 +81,9 @@ struct Beacon {
     phase: f32,
 }
 
-/// Mirror `k`'s plate, opened with the day.
+/// Louvre `k`'s plate, opened with the day.
 #[derive(Component)]
-struct MirrorPlate(usize);
-
-/// The lamps along mirror `k`'s edges, in its own frame (hinge at the origin, +X along it, +Z
-/// across).
-#[derive(Component)]
-struct MirrorFrame(usize);
-
-/// A light on a corner of mirror `k`'s far edge (`side` 0 or 1).
-#[derive(Component)]
-struct MirrorTip {
-    k: usize,
-    side: usize,
-}
+struct LouvrePlate(u32);
 
 /// The colony's hour as drawn this frame (its day runs on the view clock).
 #[derive(Resource, Clone, Copy, Debug)]
@@ -135,242 +95,263 @@ impl Default for ColonyDay {
     }
 }
 
-/// Mirror `k`'s own frame opened `beta`: the hinge's middle, +X along it, +Y out of its back, +Z
-/// across.
-fn mirror_frame(k: usize, beta: f32) -> Transform {
-    let m = Mirror::new(k, beta);
-    Transform::from_translation(m.hinge)
-        .with_rotation(Quat::from_mat3(&Mat3::from_cols(m.along, m.back, m.across)))
+/// Facets round the rim: the hull's slabs, flat, with seams where they meet.
+const FACETS: u32 = 48;
+/// The ceiling's frames: across the ring every this many metres of x.
+const CEILING_BAY: f32 = 100.0;
+/// How far a chamfer cuts the hull's corners, m.
+const CHAMFER: f32 = 24.0;
+
+/// Where louvre `k` is and how it's turned, opened `beta`: a unit cube stretched to the plate.
+fn louvre_transform(k: u32, beta: f32) -> Transform {
+    let l = Louvre::new(k, beta);
+    Transform::from_translation(l.centre)
+        .with_rotation(Quat::from_mat3(&Mat3::from_cols(l.along, l.face, l.across)))
+        .with_scale(Vec3::new(LOUVRE_LENGTH, LOUVRE_THICKNESS, LOUVRE_WIDTH))
 }
 
-/// Where mirror `k` is and how it's turned, opened `beta`: a unit cube stretched to the plate.
-fn mirror_transform(k: usize, beta: f32) -> Transform {
-    let m = Mirror::new(k, beta);
-    Transform::from_translation(m.centre())
-        .with_rotation(Quat::from_mat3(&Mat3::from_cols(m.along, m.back, m.across)))
-        .with_scale(Vec3::new(MIRROR_LENGTH, MIRROR_THICKNESS, MIRROR_WIDTH))
-}
-
-/// How far along a ray (unit `dir`) it meets the colony's hull or an end cap, if it does. The
-/// solid is the simulation's static cylinder.
-pub fn ray_hit(origin: Vec3, dir: Vec3) -> Option<f32> {
-    let rel = origin - COLONY_CENTER;
-    let mut best: Option<f32> = None;
-    let mut consider = |t: f32| {
-        if t > 0.0 && best.is_none_or(|b| t < b) {
-            best = Some(t);
-        }
-    };
-    // The hull: |rel.yz + t dir.yz| = R, within the length.
-    let a = dir.y * dir.y + dir.z * dir.z;
-    let b = 2.0 * (rel.y * dir.y + rel.z * dir.z);
-    let c = rel.y * rel.y + rel.z * rel.z - COLONY_RADIUS * COLONY_RADIUS;
-    if a > 1e-9 {
-        let disc = b * b - 4.0 * a * c;
-        if disc >= 0.0 {
-            let t = (-b - disc.sqrt()) / (2.0 * a);
-            if (rel.x + t * dir.x).abs() <= COLONY_HALF_LENGTH {
-                consider(t);
-            }
-        }
-    }
-    // The end caps.
-    if dir.x.abs() > 1e-6 {
-        for cap in [-COLONY_HALF_LENGTH, COLONY_HALF_LENGTH] {
-            let t = (cap - rel.x) / dir.x;
-            let (y, z) = (rel.y + t * dir.y, rel.z + t * dir.z);
-            if y * y + z * z <= COLONY_RADIUS * COLONY_RADIUS {
-                consider(t);
-            }
-        }
-    }
-    best
-}
-
-/// Point on the hull at `angle` around the axis (colony space: x along the axis).
-fn around(angle: f32, r: f32, x: f32) -> Vec3 {
+/// Point at `angle` round the axis, `r` from it, `x` along it (the colony's frame).
+pub fn around(angle: f32, r: f32, x: f32) -> Vec3 {
     Vec3::new(x, r * angle.cos(), r * angle.sin())
 }
 
-fn mesh(positions: Vec<Vec3>, normals: Vec<Vec3>, indices: Vec<u32>) -> Mesh {
-    let uvs: Vec<[f32; 2]> = positions.iter().map(|p| [p.x, p.y]).collect();
-    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-        .with_inserted_attribute(
-            Mesh::ATTRIBUTE_POSITION,
-            positions.iter().map(|p| p.to_array()).collect::<Vec<_>>(),
-        )
-        .with_inserted_attribute(
-            Mesh::ATTRIBUTE_NORMAL,
-            normals.iter().map(|n| n.to_array()).collect::<Vec<_>>(),
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-        .with_inserted_indices(Indices::U32(indices))
+/// Flat-shaded geometry laid out in one mesh: each vertex's colour carries the hull shader's paint
+/// slot (`16 + paint`, or `48 + paint` lit), so one entity draws slabs of several paints.
+#[derive(Default)]
+pub struct Kit {
+    p: Vec<[f32; 3]>,
+    n: Vec<[f32; 3]>,
+    c: Vec<[f32; 4]>,
+    i: Vec<u32>,
 }
 
-/// Quads over a (`cols` + 1) × (`rows` + 1) grid of vertices, facing along `positions × normals`
-/// counter-clockwise.
-fn grid_indices(cols: u32, rows: u32) -> Vec<u32> {
-    let mut idx = Vec::with_capacity((cols * rows * 6) as usize);
-    for j in 0..rows {
-        for i in 0..cols {
-            let a = j * (cols + 1) + i;
-            let b = a + 1;
-            let c = a + cols + 1;
-            let d = c + 1;
-            idx.extend_from_slice(&[a, b, c, b, d, c]);
+impl Kit {
+    /// A flat quad `a b c d` (counter-clockwise seen from its front), painted `slot`.
+    pub fn quad(&mut self, [a, b, c, d]: [Vec3; 4], slot: u8, bevel: f32) {
+        let n = (b - a).cross(d - a).normalize_or_zero();
+        let base = self.p.len() as u32;
+        for v in [a, b, c, d] {
+            self.p.push(v.to_array());
+            self.n.push(n.to_array());
+            self.c.push([f32::from(slot) / 255.0, bevel, (base % 89) as f32 / 97.0, 1.0]);
+        }
+        self.i.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+
+    /// A box: its middle, its three half-axes (a right-handed set), painted `slot`.
+    pub fn cuboid(&mut self, c: Vec3, [u, v, w]: [Vec3; 3], slot: u8) {
+        for (n, a, b) in [(u, v, w), (-u, w, v), (v, w, u), (-v, u, w), (w, u, v), (-w, v, u)] {
+            let o = c + n;
+            self.quad([o - a - b, o + a - b, o + a + b, o - a + b], slot, 0.3);
         }
     }
-    idx
-}
 
-/// The outer wall of the cylinder between two angles, full length.
-fn wall(a0: f32, a1: f32) -> Mesh {
-    let (cols, rows) = (24u32, 16u32);
-    let mut p = Vec::new();
-    let mut n = Vec::new();
-    for j in 0..=rows {
-        let x = -COLONY_HALF_LENGTH + 2.0 * COLONY_HALF_LENGTH * j as f32 / rows as f32;
-        for i in 0..=cols {
-            let a = a0 + (a1 - a0) * i as f32 / cols as f32;
-            p.push(around(a, COLONY_RADIUS, x));
-            n.push(around(a, 1.0, 0.0));
-        }
+    /// A box standing on the axis's frame: its middle `r` out at `angle` and `x` along, sized `size`
+    /// (x along the axis, y out from it, z round it).
+    pub fn radial(&mut self, angle: f32, r: f32, x: f32, size: Vec3, slot: u8) {
+        let out = around(angle, 1.0, 0.0);
+        let round = Vec3::new(0.0, -angle.sin(), angle.cos());
+        self.cuboid(
+            around(angle, r, x),
+            [Vec3::X * size.x * 0.5, out * size.y * 0.5, round * size.z * 0.5],
+            slot,
+        );
     }
-    mesh(p, n, grid_indices(cols, rows))
-}
 
-/// A mirror's plate, a unit cube (stretched by [`mirror_transform`]): its front (−Y) bare metal,
-/// the mirror; its back and edges the painted frame it hangs on, which takes what light reaches
-/// it (as bare metal, the back mirrored black sky).
-fn mirror_mesh() -> Mesh {
-    let mut mesh = Cuboid::new(1.0, 1.0, 1.0).mesh().build();
-    let Some(normals) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL).and_then(|n| n.as_float3()) else {
-        return mesh;
-    };
-    // `hull.wgsl`'s slots: 32 + a paint is that paint as bare metal, 16 + a paint that paint.
-    let face = f32::from(32 + paint::MIRROR) / 255.0;
-    let frame = f32::from(16 + paint::HULL) / 255.0;
-    let colours: Vec<[f32; 4]> =
-        normals.iter().map(|n| [if n[1] < -0.5 { face } else { frame }, 0.0, 0.0, 1.0]).collect();
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
-    mesh
-}
-
-/// A structural ring: a band standing `height` off the hull, `width` wide, all the way round.
-fn ring(height: f32, width: f32) -> Mesh {
-    let segs = 144u32;
-    let mut p = Vec::new();
-    let mut n = Vec::new();
-    // Outer face, then the two side faces.
-    for (r0, r1, x0, x1, side) in [
-        (COLONY_RADIUS + height, COLONY_RADIUS + height, -width / 2.0, width / 2.0, 0.0),
-        (COLONY_RADIUS, COLONY_RADIUS + height, width / 2.0, width / 2.0, 1.0),
-        (COLONY_RADIUS + height, COLONY_RADIUS, -width / 2.0, -width / 2.0, -1.0),
-    ] {
-        for (r, x) in [(r0, x0), (r1, x1)] {
-            for i in 0..=segs {
-                let a = TAU * i as f32 / segs as f32;
-                p.push(around(a, r, x));
-                n.push(if side == 0.0 { around(a, 1.0, 0.0) } else { Vec3::X * side });
+    /// A faceted solid of revolution about X: each edge of `profile` (points (x, r), in order, the
+    /// solid's outside on their right as x runs to the right and r up) swept round in `segs` flat
+    /// facets.
+    pub fn lathe(&mut self, profile: &[(f32, f32)], segs: u32, slot: u8) {
+        for e in profile.windows(2) {
+            let ((x0, r0), (x1, r1)) = (e[0], e[1]);
+            for k in 0..segs {
+                let (a0, a1) = (TAU * k as f32 / segs as f32, TAU * (k + 1) as f32 / segs as f32);
+                self.quad(
+                    [around(a0, r0, x0), around(a0, r1, x1), around(a1, r1, x1), around(a1, r0, x0)],
+                    slot,
+                    0.0,
+                );
             }
         }
     }
-    let mut idx = Vec::new();
-    for face in 0..3u32 {
-        let base = face * 2 * (segs + 1);
-        for i in 0..segs {
-            let (a, b) = (base + i, base + i + 1);
-            let (c, d) = (a + segs + 1, b + segs + 1);
-            // Counter-clockwise seen from outside: the outer face runs round then along; the side
-            // faces run outward then round.
-            if face == 0 {
-                idx.extend_from_slice(&[a, b, c, b, d, c]);
+
+    pub fn mesh(self) -> Mesh {
+        Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.p)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.n)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.c)
+            .with_inserted_indices(Indices::U32(self.i))
+    }
+}
+
+/// A paint, as a slot in a [`Kit`]'s vertex colour.
+pub const fn painted(p: u8) -> u8 {
+    16 + p
+}
+
+/// The ring's hull: the rim's slabs (each facet a flat slab standing a little proud of its
+/// neighbours' seams), the chamfers and the sides, flat-shaded.
+fn hull_kit() -> Kit {
+    let mut k = Kit::default();
+    let (h, out, inn) = (COLONY_HALF_WIDTH, COLONY_RADIUS, COLONY_INNER_RADIUS);
+    // The rim: the floor's underside, chamfered into the sides.
+    k.lathe(
+        &[
+            (h, inn),
+            (h, out - CHAMFER),
+            (h - CHAMFER, out),
+            (-h + CHAMFER, out),
+            (-h, out - CHAMFER),
+            (-h, inn),
+        ],
+        FACETS,
+        painted(paint::HULL),
+    );
+    // Slabs on the rim: two to a facet across the ring, a dark seam between each and the next.
+    let facet = TAU / FACETS as f32;
+    for f in 0..FACETS {
+        let a = facet * (f as f32 + 0.5);
+        for (x, w) in
+            [(-h * 0.5 + CHAMFER * 0.25, h - CHAMFER * 1.5), (h * 0.5 - CHAMFER * 0.25, h - CHAMFER * 1.5)]
+        {
+            let slot = if (f + (x > 0.0) as u32).is_multiple_of(5) {
+                painted(paint::HULL_DARK)
             } else {
-                idx.extend_from_slice(&[a, c, b, b, c, d]);
-            }
+                painted(paint::HULL)
+            };
+            k.radial(a, out * (facet * 0.5).cos() + 2.0, x, Vec3::new(w, 4.0, out * facet - 10.0), slot);
+        }
+        // A rib along every other seam, standing proud.
+        if f % 2 == 0 {
+            k.radial(
+                facet * f as f32,
+                out + 4.0,
+                0.0,
+                Vec3::new(2.0 * h - 2.0 * CHAMFER, 8.0, 6.0),
+                painted(paint::HULL_DARK),
+            );
         }
     }
-    mesh(p, n, idx)
-}
-
-/// An end cap: a disc of rings, facing along `side` (±X).
-fn cap(side: f32) -> Mesh {
-    let (rings, segs) = (6u32, 96u32);
-    let mut p = Vec::new();
-    let mut n = Vec::new();
-    for j in 0..=rings {
-        let r = COLONY_RADIUS * j as f32 / rings as f32;
-        for i in 0..=segs {
-            let a = TAU * i as f32 / segs as f32;
-            p.push(around(a, r, side * COLONY_HALF_LENGTH));
-            n.push(Vec3::X * side);
+    // Ribs round the sides: from the ceiling out to the chamfer, at every facet's edge.
+    for f in 0..FACETS {
+        let a = facet * f as f32;
+        for side in [-1.0f32, 1.0] {
+            k.radial(
+                a,
+                (inn + out - CHAMFER) * 0.5,
+                side * (h + 3.0),
+                Vec3::new(6.0, out - CHAMFER - inn, 8.0),
+                painted(paint::HULL_DARK),
+            );
         }
     }
-    // Round then outward faces −X; flip for the +X cap.
-    let mut idx = grid_indices(segs, rings);
-    if side > 0.0 {
-        for t in idx.chunks_mut(3) {
-            t.swap(1, 2);
-        }
+    k
+}
+
+/// The ceiling's frames, seen through the hole: a lattice of girders round and across the ring,
+/// standing in from the glass (the glass itself is drawn apart, lit).
+fn lattice_kit() -> Kit {
+    let mut k = Kit::default();
+    let (h, inn) = (COLONY_HALF_WIDTH, COLONY_INNER_RADIUS);
+    let facet = TAU / FACETS as f32;
+    // Along the ring's width, at every facet's edge.
+    for f in 0..FACETS {
+        k.radial(facet * f as f32, inn - 4.0, 0.0, Vec3::new(2.0 * h, 8.0, 10.0), painted(paint::HULL_DARK));
     }
-    mesh(p, n, idx)
-}
-
-/// A solid of revolution about X from a closed profile of (x, r) points, counter-clockwise with x
-/// to the right and r up (so its faces face out), each edge a flat band with its own normals.
-fn lathe(profile: &[(f32, f32)], segs: u32) -> Mesh {
-    let mut p = Vec::new();
-    let mut n = Vec::new();
-    let mut idx = Vec::new();
-    for (e, &(x0, r0)) in profile.iter().enumerate() {
-        let (x1, r1) = profile[(e + 1) % profile.len()];
-        // Outward in the (x, r) half-plane: (dr, −dx), turned round with each angle.
-        let (nx, nr) = (r1 - r0, -(x1 - x0));
-        let len = (nx * nx + nr * nr).sqrt().max(1e-6);
-        let base = p.len() as u32;
-        for (x, r) in [(x0, r0), (x1, r1)] {
-            for i in 0..=segs {
-                let a = TAU * i as f32 / segs as f32;
-                p.push(around(a, r, x));
-                n.push(Vec3::new(nx / len, nr / len * a.cos(), nr / len * a.sin()));
-            }
-        }
-        for i in 0..segs {
-            let (a, b) = (base + i, base + segs + 1 + i);
-            idx.extend_from_slice(&[a, b, a + 1, a + 1, b, b + 1]);
-        }
+    // Round the ring every [`CEILING_BAY`] across it, the sides' rims among them.
+    let n = (2.0 * h / CEILING_BAY).round() as i32;
+    for j in 0..=n {
+        let x = -h + 2.0 * h * j as f32 / n as f32;
+        let w = if j == 0 || j == n { 16.0 } else { 8.0 };
+        k.lathe(&[(x - w * 0.5, inn - 8.0), (x + w * 0.5, inn - 8.0)], FACETS, painted(paint::HULL_DARK));
+        k.lathe(&[(x + w * 0.5, inn - 8.0), (x + w * 0.5, inn)], FACETS, painted(paint::HULL_DARK));
+        k.lathe(&[(x - w * 0.5, inn), (x - w * 0.5, inn - 8.0)], FACETS, painted(paint::HULL_DARK));
     }
-    mesh(p, n, idx)
+    k
 }
 
-/// A box on the hull or a hub, stretched to `size` (x along the axis, y out from it, z round it),
-/// with its middle `r` out at angle `a` and `x` along.
-fn radial_box(a: f32, r: f32, x: f32, size: Vec3) -> Transform {
-    Transform::from_translation(around(a, r, x)).with_rotation(Quat::from_rotation_x(a)).with_scale(size)
+/// The ceiling's glass, facing the hole: a faceted band at the ceiling.
+fn glass_mesh() -> Mesh {
+    let mut k = Kit::default();
+    let h = COLONY_HALF_WIDTH;
+    k.lathe(&[(-h, COLONY_INNER_RADIUS), (h, COLONY_INNER_RADIUS)], FACETS, 0);
+    let mut m = k.mesh();
+    m.remove_attribute(Mesh::ATTRIBUTE_COLOR);
+    m
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The docking hub: the drum (a thick, chamfered disc, faceted), the spine, the spokes as slabs out
+/// to the ceiling, and the deck hatch in the middle of the mouth.
+fn hub_kit() -> Kit {
+    let mut k = Kit::default();
+    let (x0, x1) = DRUM_X;
+    let (r, c) = (DRUM_RADIUS, 30.0);
+    // The drum: its mouth (the face the bays open on), its rim, its back.
+    k.lathe(
+        &[(x1, SPINE_RADIUS), (x1, r - c), (x1 - c, r), (x0 + c, r), (x0, r - c), (x0, SPINE_RADIUS)],
+        24,
+        painted(paint::HULL),
+    );
+    // The deck hatch in the mouth's middle, a dark disc flush with its face: suits land on it, so
+    // nothing stands proud of the face the landmark has them stand on.
+    k.lathe(&[(x0 - 0.1, DECK_HATCH_RADIUS + 6.0), (x0 - 0.1, 0.0)], 24, painted(paint::HULL_DARK));
+    // Slabs round the drum's rim, as on the ring's.
+    for f in 0..24u32 {
+        let a = TAU * (f as f32 + 0.5) / 24.0;
+        k.radial(
+            a,
+            r + 2.0,
+            (x0 + x1) * 0.5,
+            Vec3::new(x1 - x0 - 2.0 * c - 12.0, 4.0, TAU * r / 24.0 - 14.0),
+            painted(if f % 3 == 0 { paint::HULL_DARK } else { paint::HULL }),
+        );
+    }
+    // The spine, through the hole to the ring's far side.
+    k.lathe(
+        &[
+            (SPINE_X.1, 0.0),
+            (SPINE_X.1, SPINE_RADIUS - 10.0),
+            (SPINE_X.1 - 10.0, SPINE_RADIUS),
+            (SPINE_X.0, SPINE_RADIUS),
+        ],
+        16,
+        painted(paint::HULL_DARK),
+    );
+    // The spokes: flat slabs, broad along the axis, out to the ceiling, with a lift shaft's housing
+    // where each meets it.
+    for s in 0..SPOKES {
+        let a = spoke_angle(s);
+        let (r0, r1) = (SPINE_RADIUS, COLONY_INNER_RADIUS);
+        k.radial(a, (r0 + r1) * 0.5, 0.0, Vec3::new(70.0, r1 - r0, SPOKE_RADIUS * 1.4), painted(paint::HULL));
+        k.radial(
+            a,
+            (r0 + r1) * 0.5,
+            0.0,
+            Vec3::new(12.0, r1 - r0 - 20.0, SPOKE_RADIUS * 1.8),
+            painted(paint::HULL_DARK),
+        );
+        k.radial(a, r1 - 30.0, 0.0, Vec3::new(90.0, 40.0, 50.0), painted(paint::HULL_DARK));
+    }
+    k
+}
+
 pub fn setup_colony(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut standard: ResMut<Assets<StandardMaterial>>,
-    mut windows: ResMut<Assets<WindowMaterial>>,
     mut dot_materials: ResMut<Assets<DotMaterial>>,
     mut dot_look: ResMut<DotLook>,
-    mut images: ResMut<Assets<Image>>,
     assets: Res<AssetServer>,
     surfaces: Res<Surfaces>,
 ) {
     commands.insert_resource(CityLib(assets.load("embedded://bc_client/shaders/city_lib.wgsl")));
     let dot_material = dot_look.get(&mut dot_materials);
-    let window_material = windows.add(WindowMaterial {
-        colony: ColonyUniform {
-            centre: COLONY_CENTER.extend(0.0),
-            shape: Vec4::new(COLONY_RADIUS, COLONY_HALF_LENGTH, FIRST_WINDOW, 1.0),
-            sun: SUN_DIR.extend(1.0),
-            extra: Vec4::ZERO,
-        },
-        atlas: images.add(atlas_image()),
+    // The ceiling's glass: the town's daylight coming up through it (set each frame by the hour).
+    let glass = standard.add(StandardMaterial {
+        base_color: Color::srgb(0.05, 0.07, 0.1),
+        emissive: LinearRgba::rgb(0.32, 0.5, 0.82),
+        perceptual_roughness: 0.15,
+        ..default()
     });
     let beacon_red = standard.add(StandardMaterial {
         base_color: Color::BLACK,
@@ -382,7 +363,6 @@ pub fn setup_colony(
         emissive: LinearRgba::rgb(30.0, 30.0, 34.0),
         ..default()
     });
-    let hull = |paint: u8, seed: u8| HullTag::paint(paint, seed).tag();
     let beacon_amber = standard.add(StandardMaterial {
         base_color: Color::BLACK,
         emissive: LinearRgba::rgb(40.0, 16.0, 2.0),
@@ -393,148 +373,130 @@ pub fn setup_colony(
         emissive: LinearRgba::rgb(6.0, 2.4, 0.3),
         ..default()
     });
-    let beacon_mesh = meshes.add(Sphere::new(6.0).mesh().ico(1).expect("icosphere"));
+    let hull = |paint: u8, seed: u8| HullTag::paint(paint, seed).tag();
+    let beacon_mesh = meshes.add(Sphere::new(5.0).mesh().ico(1).expect("icosphere"));
+    let cube = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
 
     let root = commands
         .spawn((Transform::from_translation(COLONY_CENTER), Visibility::default()))
         .with_children(|c| {
-            let noon = day(0, 0.0).mirror_beta;
-            for k in 0..STRIPS {
-                let w = window_centre(k);
-                // A window, then the land strip after it.
+            for (kit, seed) in [(hull_kit(), 1u8), (lattice_kit(), 2), (hub_kit(), 3)] {
                 c.spawn((
-                    Mesh3d(meshes.add(wall(w - FRAC_PI_6, w + FRAC_PI_6))),
-                    MeshMaterial3d(window_material.clone()),
-                    NotShadowCaster,
-                ));
-                c.spawn((
-                    Mesh3d(meshes.add(wall(w + FRAC_PI_6, w + FRAC_PI_6 + FRAC_PI_3))),
+                    Mesh3d(meshes.add(kit.mesh())),
                     MeshMaterial3d(surfaces.colony.clone()),
-                    hull(paint::HULL, k as u8),
+                    hull(paint::HULL, seed),
                     NotShadowCaster,
                 ));
-                // The window's mirror, hinged at the docking hub's end, opening with the day.
-                c.spawn((
-                    Mesh3d(meshes.add(mirror_mesh())),
-                    MeshMaterial3d(surfaces.mirror.clone()),
-                    HullTag::paint(paint::MIRROR, 60 + k as u8).tag(),
-                    mirror_transform(k, noon),
-                    MirrorPlate(k),
-                    NotShadowCaster,
-                ));
-                // Lamps along its edges, standing a little off them.
-                let mut lamps = Dots::default();
-                let (l, h) = (MIRROR_LENGTH, MIRROR_WIDTH * 0.5);
-                let frame_lamp = Vec3::new(0.75, 1.0, 0.82) * 2.4;
-                lamps.line(Vec3::new(-4.0, 0.0, -h), Vec3::new(-4.0, 0.0, h), 100.0, 3.0, frame_lamp);
-                lamps.line(Vec3::new(l + 4.0, 0.0, -h), Vec3::new(l + 4.0, 0.0, h), 100.0, 3.0, frame_lamp);
-                for z in [-h - 4.0, h + 4.0] {
-                    lamps.line(Vec3::new(0.0, 0.0, z), Vec3::new(l, 0.0, z), 100.0, 3.0, frame_lamp);
-                }
-                c.spawn((
-                    Mesh3d(meshes.add(lamps.mesh())),
-                    MeshMaterial3d(dot_material.clone()),
-                    mirror_frame(k, noon),
-                    MirrorFrame(k),
-                    NoFrustumCulling,
-                ));
-                // Lights at its far corners.
-                for (side, at) in Mirror::new(k, noon).tips().into_iter().enumerate() {
-                    c.spawn((
-                        Mesh3d(beacon_mesh.clone()),
-                        MeshMaterial3d(beacon_red.clone()),
-                        Transform::from_translation(at),
-                        Beacon { phase: k as f32 * 0.37 + side as f32 * 0.5 },
-                        MirrorTip { k, side },
-                    ));
-                }
             }
-            // Greebles on the land strips: equipment housings, radiators and long conduits
-            // running along the axis. One mesh, so they batch into a single draw.
-            let cube = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
-            let mut rng = bc_sim::math::Rng::new(0x0C01_04E5);
-            for i in 0..420u32 {
-                let strip = (i % 3) as f32;
-                let a =
-                    FIRST_WINDOW + strip * TAU / 3.0 + FRAC_PI_6 + FRAC_PI_3 * (0.08 + 0.84 * rng.next_f32());
-                let x = (rng.signed() * 0.97) * COLONY_HALF_LENGTH;
-                let conduit = i % 7 == 0;
-                let size = if conduit {
-                    Vec3::new(
-                        400.0 + rng.next_f32() * 1_400.0,
-                        4.0 + rng.next_f32() * 4.0,
-                        6.0 + rng.next_f32() * 6.0,
-                    )
-                } else {
-                    Vec3::new(
-                        10.0 + rng.next_f32() * 70.0,
-                        3.0 + rng.next_f32() * 14.0,
-                        8.0 + rng.next_f32() * 36.0,
-                    )
-                };
-                let up = around(a, 1.0, 0.0);
+            c.spawn((Mesh3d(meshes.add(glass_mesh())), MeshMaterial3d(glass.clone()), NotShadowCaster));
+            // The louvres, opening with the day.
+            let noon = day(0, 0.0).mirror_beta;
+            for k in 0..LOUVRES {
+                c.spawn((
+                    Mesh3d(cube.clone()),
+                    MeshMaterial3d(surfaces.mirror.clone()),
+                    HullTag::paint(paint::MIRROR, 60 + (k % 64) as u8).tag(),
+                    louvre_transform(k, noon),
+                    LouvrePlate(k),
+                    NotShadowCaster,
+                ));
+            }
+            // The bays' doors round the mouth, each a dark slab with lamps at its corners.
+            let amber = Vec3::new(1.0, 0.55, 0.12) * 3.4;
+            let lamp = Vec3::new(0.75, 1.0, 0.82) * 2.4;
+            let green = Vec3::new(0.35, 1.0, 0.45) * 2.6;
+            let warm = Vec3::new(1.0, 0.82, 0.55) * 2.6;
+            let red = Vec3::new(1.0, 0.12, 0.06) * 5.0;
+            let mut lamps = Dots::default();
+            for b in 0..BAYS {
+                let a = TAU * b as f32 / BAYS as f32;
                 c.spawn((
                     Mesh3d(cube.clone()),
                     MeshMaterial3d(surfaces.colony.clone()),
-                    hull(if i % 3 == 0 { paint::HULL } else { paint::HULL_DARK }, (i % 251) as u8),
-                    Transform::from_translation(around(a, COLONY_RADIUS + size.y * 0.5, x))
-                        .with_rotation(Quat::from_rotation_arc(Vec3::Y, up))
-                        .with_scale(size),
+                    hull(paint::HULL_DARK, (b % 251) as u8),
+                    Transform::from_translation(around(a, BAY_RADIUS, (MOUTH_X + BAY_DOOR_X) * 0.5))
+                        .with_rotation(Quat::from_rotation_x(a))
+                        .with_scale(Vec3::new(MOUTH_X - BAY_DOOR_X, 22.0, 20.0)),
                     NotShadowCaster,
+                    BayDoor(b as u8 + 1),
                 ));
+                let out = around(a, 1.0, 0.0);
+                for dr in [-13.0f32, 13.0] {
+                    lamps.add(around(a, BAY_RADIUS, BAY_DOOR_X - 1.0) + out * dr, 1.6, amber, Blink::Steady);
+                }
             }
-            // Structural rings every 2 km.
-            let ring_mesh = meshes.add(ring(14.0, 40.0));
-            for i in 0..=16 {
-                let x = -COLONY_HALF_LENGTH + 2_000.0 * i as f32;
-                c.spawn((
-                    Mesh3d(ring_mesh.clone()),
-                    MeshMaterial3d(surfaces.colony.clone()),
-                    hull(paint::HULL_DARK, 40 + i as u8),
-                    Transform::from_xyz(x, 0.0, 0.0),
-                    NotShadowCaster,
-                ));
+            // The deck hatch, ringed in amber; the mouth's rim and the drum's back in rows.
+            lamps.ring(MOUTH_X - 0.6, DECK_HATCH_RADIUS + 3.0, 24, 2.2, amber);
+            lamps.ring(MOUTH_X - 2.0, BAY_RADIUS - 30.0, 120, 2.0, lamp);
+            lamps.ring(MOUTH_X - 2.0, BAY_RADIUS - 100.0, 96, 1.8, green);
+            lamps.ring(DRUM_X.1 + 2.0, DRUM_RADIUS - 40.0, 160, 2.4, lamp);
+            // The spokes' edges, lamps the length of them; a red light where each meets the ceiling.
+            for s in 0..SPOKES {
+                let a = spoke_angle(s);
+                for dx in [-36.0f32, 36.0] {
+                    lamps.line(
+                        around(a, SPINE_RADIUS + 10.0, dx),
+                        around(a, COLONY_INNER_RADIUS - 50.0, dx),
+                        24.0,
+                        1.8,
+                        warm,
+                    );
+                }
+                lamps.add(
+                    around(a, COLONY_INNER_RADIUS - 52.0, -50.0),
+                    4.0,
+                    red,
+                    Blink::Every { period: 2.4, phase: s as f32 / 6.0, lit: 0.15 },
+                );
             }
-            for (side, hub_radius, hub_length) in [(-1.0f32, 340.0, DOCK_HUB_LENGTH), (1.0, 520.0, 500.0)] {
-                c.spawn((
-                    Mesh3d(meshes.add(cap(side))),
-                    MeshMaterial3d(surfaces.colony.clone()),
-                    hull(paint::HULL_DARK, if side < 0.0 { 90 } else { 91 }),
-                    NotShadowCaster,
-                ));
-                // The docking hub (−X; the dock is off its mouth) and the axis port (+X).
-                c.spawn((
-                    Mesh3d(meshes.add(Cylinder::new(hub_radius, hub_length).mesh().resolution(48))),
-                    MeshMaterial3d(surfaces.colony.clone()),
-                    hull(paint::HULL, if side < 0.0 { 92 } else { 93 }),
-                    Transform::from_xyz(side * (COLONY_HALF_LENGTH + hub_length / 2.0), 0.0, 0.0)
-                        .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)),
-                ));
-                // Navigation lights round the cap's rim and the hub's mouth.
-                for i in 0..16 {
-                    let a = TAU * i as f32 / 16.0;
+            // The ring: a row along every seam of the rim and the ceiling, rows round its sides'
+            // edges (white at the hull, green at the ceiling), and red at the rim's corners.
+            let (h, out, inn) = (COLONY_HALF_WIDTH, COLONY_RADIUS, COLONY_INNER_RADIUS);
+            let facet = TAU / FACETS as f32;
+            for f in 0..FACETS {
+                let a = facet * f as f32;
+                lamps.line(
+                    around(a, out + 9.0, -h + CHAMFER),
+                    around(a, out + 9.0, h - CHAMFER),
+                    20.0,
+                    1.8,
+                    lamp,
+                );
+                lamps.line(around(a, inn - 10.0, -h), around(a, inn - 10.0, h), 25.0, 1.5, green * 0.8);
+                for side in [-1.0f32, 1.0] {
+                    lamps.line(
+                        around(a, inn + 10.0, side * (h + 7.0)),
+                        around(a, out - CHAMFER - 10.0, side * (h + 7.0)),
+                        30.0,
+                        1.8,
+                        lamp * 0.7,
+                    );
+                }
+            }
+            for side in [-1.0f32, 1.0] {
+                lamps.ring(side * (h - CHAMFER * 0.5), out - CHAMFER * 0.5 + 2.0, 240, 2.2, lamp);
+                lamps.ring(side * (h + 2.0), inn + 3.0, 180, 2.0, green);
+                // Rows round the rim ruling its slabs, as the ring's lights run in the references.
+                for x in [h * 0.25, h * 0.75] {
+                    lamps.ring(side * x, out + 6.5, 480, 1.4, lamp * 0.8);
+                }
+            }
+            for i in 0..12 {
+                let a = TAU * i as f32 / 12.0;
+                for side in [-1.0f32, 1.0] {
                     c.spawn((
                         Mesh3d(beacon_mesh.clone()),
                         MeshMaterial3d(if i % 2 == 0 { beacon_red.clone() } else { beacon_white.clone() }),
-                        Transform::from_translation(around(
-                            a,
-                            COLONY_RADIUS + 20.0,
-                            side * COLONY_HALF_LENGTH,
-                        )),
-                        Beacon { phase: i as f32 * 0.11 },
-                    ));
-                    c.spawn((
-                        Mesh3d(beacon_mesh.clone()),
-                        MeshMaterial3d(beacon_white.clone()),
-                        Transform::from_translation(around(
-                            a,
-                            hub_radius + 10.0,
-                            side * (COLONY_HALF_LENGTH + hub_length),
-                        )),
-                        Beacon { phase: 0.5 + i as f32 * 0.07 },
+                        Transform::from_translation(around(a, out + 8.0, side * h)),
+                        Beacon { phase: i as f32 * 0.11 + side * 0.25 },
                     ));
                 }
             }
+            c.spawn((
+                Mesh3d(meshes.add(lamps.mesh())),
+                MeshMaterial3d(dot_material.clone()),
+                NoFrustumCulling,
+            ));
             // The dock, off the hub's mouth: a ring of amber lights round the edge of where to stop,
             // with brighter ones chasing round it.
             for i in 0..24 {
@@ -548,243 +510,48 @@ pub fn setup_colony(
                     Beacon { phase: i as f32 / 24.0 },
                 ));
             }
-            // The docking hub, as built: modules stacked on the spire, the bay ring standing off the
-            // end cap where the bays hang at 0.7 g, and the spokes between them.
-            let lamp = Vec3::new(0.75, 1.0, 0.82) * 2.4;
-            let warm = Vec3::new(1.0, 0.82, 0.55) * 2.6;
-            let amber = Vec3::new(1.0, 0.55, 0.12) * 3.4;
-            let red = Vec3::new(1.0, 0.12, 0.06) * 5.0;
-            let mut lamps = Dots::default();
-            // The deck hatch in the middle of the hub's mouth, where a suit landed on the face walks
-            // in: a dark plate ringed with amber lamps.
-            let mouth = -(COLONY_HALF_LENGTH + DOCK_HUB_LENGTH);
-            c.spawn((
-                Mesh3d(meshes.add(Circle::new(DECK_HATCH_RADIUS))),
-                MeshMaterial3d(surfaces.colony.clone()),
-                hull(paint::HULL_DARK, 94),
-                Transform::from_xyz(mouth - 0.4, 0.0, 0.0)
-                    .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)),
-                NotShadowCaster,
-            ));
-            lamps.ring(mouth - 0.9, DECK_HATCH_RADIUS, 32, 2.6, amber);
-            lamps.ring(mouth - 0.9, DECK_HATCH_RADIUS * 0.45, 12, 2.0, warm);
-            for (i, (x, r, t)) in SPIRE_TIERS.into_iter().enumerate() {
-                let (x0, x1) = (x - t / 2.0, x + t / 2.0);
-                let chamfer = t * 0.3;
-                c.spawn((
-                    Mesh3d(meshes.add(lathe(
-                        &[
-                            (x0, SPIRE_RADIUS),
-                            (x1, SPIRE_RADIUS),
-                            (x1, r - chamfer),
-                            (x1 - chamfer, r),
-                            (x0 + chamfer, r),
-                            (x0, r - chamfer),
-                        ],
-                        72,
-                    ))),
-                    MeshMaterial3d(surfaces.colony.clone()),
-                    hull(if i % 2 == 0 { paint::HULL } else { paint::HULL_DARK }, 100 + i as u8),
-                    NotShadowCaster,
-                ));
-                lamps.ring(x0 - 2.0, r - chamfer * 0.5, 64, 3.0, lamp);
-            }
-            let (rx0, rx1) = BAY_RING_X;
-            let ch = 40.0;
-            c.spawn((
-                Mesh3d(meshes.add(lathe(
-                    &[
-                        (rx0, BAY_RING_INNER + ch),
-                        (rx0 + ch, BAY_RING_INNER),
-                        (rx1 - ch, BAY_RING_INNER),
-                        (rx1, BAY_RING_INNER + ch),
-                        (rx1, BAY_RING_OUTER - ch),
-                        (rx1 - ch, BAY_RING_OUTER),
-                        (rx0 + ch, BAY_RING_OUTER),
-                        (rx0, BAY_RING_OUTER - ch),
-                    ],
-                    192,
-                ))),
-                MeshMaterial3d(surfaces.colony.clone()),
-                hull(paint::HULL, 110),
-                NotShadowCaster,
-            ));
-            for x in [rx0 - 3.0, rx1 + 3.0] {
-                lamps.ring(x, BAY_RING_OUTER - ch * 0.5, 280, 3.5, lamp);
-                lamps.ring(x, BAY_RING_INNER + ch * 0.5, 205, 3.0, lamp);
-            }
-            // The bays' doors on the ring's outer face, each with a lamp at its corners.
-            for b in 0..BAYS {
-                let a = TAU * b as f32 / BAYS as f32;
-                c.spawn((
-                    Mesh3d(cube.clone()),
-                    MeshMaterial3d(surfaces.colony.clone()),
-                    hull(paint::HULL_DARK, (b % 251) as u8),
-                    radial_box(
-                        a,
-                        BAY_RADIUS,
-                        (rx0 + BAY_DOOR_X) * 0.5,
-                        Vec3::new(rx0 - BAY_DOOR_X, 32.0, 40.0),
-                    ),
-                    NotShadowCaster,
-                    BayDoor(b as u8 + 1),
-                ));
-                for (dr, dz) in [(-16.0f32, -20.0f32), (-16.0, 20.0), (16.0, -20.0), (16.0, 20.0)] {
-                    let up = around(a, 1.0, 0.0);
-                    let side = Vec3::new(0.0, -a.sin(), a.cos());
-                    lamps.add(
-                        around(a, BAY_RADIUS, rx0 - 8.0) + up * dr + side * dz,
-                        2.2,
-                        amber,
-                        Blink::Steady,
-                    );
-                }
-            }
-            for k in 0..SPOKES {
-                let a = TAU * (k as f32 + 0.5) / SPOKES as f32;
-                let (r0, r1) = (SPIRE_RADIUS, BAY_RING_INNER);
-                let x = (rx0 + rx1) / 2.0;
-                c.spawn((
-                    Mesh3d(cube.clone()),
-                    MeshMaterial3d(surfaces.colony.clone()),
-                    hull(paint::HULL_DARK, 120 + k as u8),
-                    radial_box(a, (r0 + r1) / 2.0, x, Vec3::new(90.0, r1 - r0, 60.0)),
-                    NotShadowCaster,
-                ));
-                for dx in [-48.0f32, 48.0] {
-                    lamps.line(around(a, r0, x + dx), around(a, r1, x + dx), 50.0, 2.6, warm);
-                }
-                lamps.add(
-                    around(a, r1 - 30.0, rx0 - 6.0),
-                    5.0,
-                    red,
-                    Blink::Every { period: 2.4, phase: k as f32 / 6.0, lit: 0.15 },
-                );
-            }
-            // Frames along the windows' edges, and lamps on them and on the rings' edges, outlining
-            // the hull from far off.
-            for k in 0..STRIPS {
-                for edge in [-FRAC_PI_6, FRAC_PI_6] {
-                    let a = window_centre(k) + edge;
-                    c.spawn((
-                        Mesh3d(cube.clone()),
-                        MeshMaterial3d(surfaces.colony.clone()),
-                        hull(paint::HULL_DARK, 130 + k as u8),
-                        radial_box(
-                            a,
-                            COLONY_RADIUS + 5.0,
-                            0.0,
-                            Vec3::new(2.0 * COLONY_HALF_LENGTH, 10.0, 18.0),
-                        ),
-                        NotShadowCaster,
-                    ));
-                    lamps.line(
-                        around(a, COLONY_RADIUS + 12.0, -COLONY_HALF_LENGTH),
-                        around(a, COLONY_RADIUS + 12.0, COLONY_HALF_LENGTH),
-                        90.0,
-                        3.0,
-                        lamp,
-                    );
-                }
-            }
-            for i in 0..=16 {
-                // A sparse row round each ring, dimmer than the frames': the hull's bands read from
-                // afar without wiring it up.
-                let x = -COLONY_HALF_LENGTH + 2_000.0 * i as f32;
-                lamps.ring(x, COLONY_RADIUS + 15.0, 96, 3.0, lamp * 0.45);
-            }
-            // The axis port's end (+X), still being finished: scaffold towers and cranes on the cap.
-            for k in 0..4 {
-                let a = TAU * (k as f32 + 0.25) / 4.0;
-                let r = 1_100.0 + 300.0 * (k % 2) as f32;
-                let height = 260.0 + 60.0 * k as f32;
-                let x = COLONY_HALF_LENGTH + height / 2.0;
-                c.spawn((
-                    Mesh3d(cube.clone()),
-                    MeshMaterial3d(surfaces.colony.clone()),
-                    hull(paint::HULL_DARK, 140 + k as u8),
-                    radial_box(a, r, x, Vec3::new(height, 24.0, 24.0)),
-                    NotShadowCaster,
-                ));
-                let top = COLONY_HALF_LENGTH + height;
-                lamps.line(
-                    around(a, r + 14.0, COLONY_HALF_LENGTH),
-                    around(a, r + 14.0, top),
-                    30.0,
-                    2.4,
-                    warm,
-                );
-                if k % 2 == 0 {
-                    // A crane's boom off the tower's top, reaching in towards the axis.
-                    let reach = 520.0;
-                    c.spawn((
-                        Mesh3d(cube.clone()),
-                        MeshMaterial3d(surfaces.colony.clone()),
-                        hull(paint::HULL, 150 + k as u8),
-                        radial_box(a, r - reach / 2.0, top - 8.0, Vec3::new(14.0, reach, 12.0)),
-                        NotShadowCaster,
-                    ));
-                    lamps.line(around(a, r, top + 2.0), around(a, r - reach, top + 2.0), 40.0, 2.4, warm);
-                    lamps.add(
-                        around(a, r - reach, top + 6.0),
-                        6.0,
-                        red,
-                        Blink::Every { period: 1.6, phase: 0.3 * k as f32, lit: 0.2 },
-                    );
-                }
-            }
-            c.spawn((
-                Mesh3d(meshes.add(lamps.mesh())),
-                MeshMaterial3d(dot_material.clone()),
-                NoFrustumCulling,
-            ));
         })
         .id();
-    commands.entity(root).insert(ColonyRoot { windows: window_material });
+    commands.entity(root).insert(ColonyRoot { glass });
 }
 
-/// Turns the colony as the simulation has it at the view clock's time, keeps its hour, and tells
-/// the window shader the spin, the daylight and the sunlight.
+/// How far along a ray (unit `dir`) it meets the colony's ring, if it does within 60 km. The solid
+/// is the simulation's still ring (`bc_sim::world::colony_sweep`).
+pub fn ray_hit(origin: Vec3, dir: Vec3) -> Option<f32> {
+    const REACH: f32 = 60_000.0;
+    bc_sim::world::colony_sweep(origin, origin + dir * REACH, 0.0).map(|f| f * REACH)
+}
+
+/// Turns the colony as the simulation has it at the view clock's time, keeps its hour, and lights
+/// the ceiling's glass with the town's day.
 fn spin(
     bodies: Res<DrawnBodies>,
     mut hour: ResMut<ColonyDay>,
     mut roots: Query<(&ColonyRoot, &mut Transform)>,
-    suns: Query<&DirectionalLight, With<Sun>>,
-    mut windows: ResMut<Assets<WindowMaterial>>,
+    mut standard: ResMut<Assets<StandardMaterial>>,
 ) {
     let t = bodies.t.max(0.0);
     let (tick, frac) = (t.floor() as u32, (t - t.floor()) as f32);
     let angle = colony_spin_angle(tick, frac);
     hour.0 = day(tick, frac);
-    let sunlight = suns.iter().next().map_or(1.0, |l| l.illuminance / SUN_LUX);
     for (root, mut tf) in &mut roots {
         tf.rotation = Quat::from_rotation_x(angle);
-        if let Some(mut m) = windows.get_mut(&root.windows) {
-            m.colony.centre.w = angle;
-            m.colony.shape.w = hour.0.daylight;
-            m.colony.sun.w = sunlight;
-            m.colony.extra.x = hour.0.lamps;
+        if let Some(mut m) = standard.get_mut(&root.glass) {
+            // By day the town's light comes up through the glass, a pale sky blue (dim enough that
+            // the lattice's panes still read against it); by night, its lamps.
+            let d = hour.0.daylight;
+            let night = Vec3::new(1.0, 0.7, 0.4) * 0.35 * hour.0.lamps;
+            let lit = Vec3::new(0.32, 0.5, 0.82) * d + night;
+            m.emissive = LinearRgba::rgb(lit.x, lit.y, lit.z);
         }
     }
 }
 
-/// Opens the mirrors to the hour.
-#[allow(clippy::type_complexity)]
-fn open_mirrors(
-    hour: Res<ColonyDay>,
-    mut plates: Query<(&MirrorPlate, &mut Transform), (Without<MirrorTip>, Without<MirrorFrame>)>,
-    mut frames: Query<(&MirrorFrame, &mut Transform), (Without<MirrorTip>, Without<MirrorPlate>)>,
-    mut tips: Query<(&MirrorTip, &mut Transform), (Without<MirrorPlate>, Without<MirrorFrame>)>,
-) {
+/// Opens the louvres to the hour.
+fn open_louvres(hour: Res<ColonyDay>, mut plates: Query<(&LouvrePlate, &mut Transform)>) {
     let beta = hour.0.mirror_beta;
-    for (MirrorPlate(k), mut tf) in &mut plates {
-        *tf = mirror_transform(*k, beta);
-    }
-    for (MirrorFrame(k), mut tf) in &mut frames {
-        *tf = mirror_frame(*k, beta);
-    }
-    for (tip, mut tf) in &mut tips {
-        tf.translation = Mirror::new(tip.k, beta).tips()[tip.side];
+    for (LouvrePlate(k), mut tf) in &mut plates {
+        *tf = louvre_transform(*k, beta);
     }
 }
 

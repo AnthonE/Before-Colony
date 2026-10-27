@@ -33,7 +33,7 @@
 //! | [ · ] | the previous or next place the chart lists (and the view flies to it) |
 //! | H · 1 · 2 · 3 · T · P | back to your suit · the views: you, the sector, Earth-Moon space · top-down · the plane |
 
-use std::f32::consts::{FRAC_PI_2, TAU};
+use std::f32::consts::FRAC_PI_2;
 
 use bc_client_core::chart::{
     self as view, ChartCam, Label, Pickable, Pose, clock, declutter, nice_step, pick, range,
@@ -44,13 +44,14 @@ use bc_client_core::sphere::{self, Lagrange};
 use bc_proto::PilotKind;
 use bc_proto::snapshot::{ent_flags, own_flags};
 use bc_sim::bodies::Body;
-use bc_sim::colony::frame::FIRST_WINDOW;
 use bc_sim::config::SECTOR_LIMIT;
 use bc_sim::content::frame;
 use bc_sim::content::landmarks::LANDMARKS;
-use bc_sim::content::salvage::{DOCK_CENTER, DOCK_HUB_LENGTH, DOCK_RADIUS};
+use bc_sim::content::salvage::{DOCK_CENTER, DOCK_RADIUS};
 use bc_sim::field::FIELD_CENTER;
-use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS, colony_spin_angle};
+use bc_sim::world::{
+    COLONY_CENTER, COLONY_HALF_WIDTH, COLONY_INNER_RADIUS, COLONY_RADIUS, colony_spin_angle,
+};
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
@@ -392,36 +393,38 @@ fn setup_chart_scene(
     let cyan = Vec3::new(0.12, 0.42, 0.62);
     let rim = Vec3::new(0.35, 0.95, 1.4);
     let hidden = (NotShadowCaster, NotShadowReceiver, layer.clone());
-    // The colony: a tube along its axis, with its windows; caps at its ends; the docking hub.
-    let mut colony_look = HoloMaterial::new(HoloKind::Colony, cyan, 0.3, rim, 500.0, sun);
-    colony_look.holo.sun.w = FIRST_WINDOW;
+    // The colony: the ring (its hull, its ceiling and its sides), turning; its hub (the drum, the
+    // spine and the spokes) is a landmark, drawn with them.
+    let ring_look = holo(HoloMaterial::new(HoloKind::Plain, cyan, 0.3, rim, 60.0, sun), true);
     let colony = commands
         .spawn((
-            Mesh3d(meshes.add(tube(COLONY_RADIUS, COLONY_HALF_LENGTH, 96, 32))),
-            MeshMaterial3d(holo(colony_look, true)),
+            Mesh3d(meshes.add(tube(COLONY_RADIUS, COLONY_HALF_WIDTH, 96, 6))),
+            MeshMaterial3d(ring_look.clone()),
             Transform::from_translation(COLONY_CENTER),
             hidden.clone(),
         ))
+        .with_children(|c| {
+            c.spawn((
+                Mesh3d(meshes.add(tube(COLONY_INNER_RADIUS, COLONY_HALF_WIDTH, 96, 6))),
+                MeshMaterial3d(holo(
+                    HoloMaterial::new(HoloKind::Plain, cyan * 1.6, 0.45, rim, 40.0, sun),
+                    true,
+                )),
+                hidden.clone(),
+            ));
+            for side in [-1.0f32, 1.0] {
+                c.spawn((
+                    Mesh3d(
+                        meshes.add(Annulus::new(COLONY_INNER_RADIUS, COLONY_RADIUS).mesh().resolution(96)),
+                    ),
+                    MeshMaterial3d(ring_look.clone()),
+                    Transform::from_translation(Vec3::X * side * COLONY_HALF_WIDTH)
+                        .with_rotation(Quat::from_rotation_y(side * FRAC_PI_2)),
+                    hidden.clone(),
+                ));
+            }
+        })
         .id();
-    let cap_look = holo(HoloMaterial::new(HoloKind::Plain, cyan * 0.6, 0.35, rim * 0.8, 400.0, sun), true);
-    for side in [-1.0f32, 1.0] {
-        commands.spawn((
-            Mesh3d(meshes.add(Circle::new(COLONY_RADIUS).mesh().resolution(96))),
-            MeshMaterial3d(cap_look.clone()),
-            Transform::from_translation(COLONY_CENTER + Vec3::X * side * COLONY_HALF_LENGTH)
-                .with_rotation(Quat::from_rotation_y(side * FRAC_PI_2)),
-            hidden.clone(),
-        ));
-    }
-    let hub_len = DOCK_CENTER.x.abs() - (COLONY_HALF_LENGTH - COLONY_CENTER.x) - DOCK_RADIUS * 0.5;
-    let hub_len = hub_len.max(DOCK_HUB_LENGTH);
-    commands.spawn((
-        Mesh3d(meshes.add(Cylinder::new(160.0, hub_len).mesh().resolution(32))),
-        MeshMaterial3d(holo(HoloMaterial::new(HoloKind::Plain, cyan, 0.5, rim, 60.0, sun), true)),
-        Transform::from_translation(COLONY_CENTER - Vec3::X * (COLONY_HALF_LENGTH + hub_len * 0.5))
-            .with_rotation(Quat::from_rotation_z(FRAC_PI_2)),
-        hidden.clone(),
-    ));
     // The landmarks, from the very shapes suits stand on.
     let landmark_look =
         holo(HoloMaterial::new(HoloKind::Plain, Vec3::new(0.1, 0.36, 0.5), 0.6, rim, 25.0, sun), true);
@@ -1467,44 +1470,32 @@ pub fn chart_draw(
                 dashes.line(a, b, box_color);
             }
         }
-        // The colony: its ends, the edges of its windows turning with it, the dock's ring.
+        // The colony: the ring's edges, its spokes turning with it, the dock's ring.
         let colony_col = glow(CYAN, 1.0, 0.55 * sector);
         for side in [-1.0, 1.0] {
-            let at = COLONY_CENTER + Vec3::X * side * COLONY_HALF_LENGTH;
-            lines
-                .circle(Isometry3d::new(at, Quat::from_rotation_y(FRAC_PI_2)), COLONY_RADIUS, colony_col)
-                .resolution(96);
+            let at = COLONY_CENTER + Vec3::X * side * COLONY_HALF_WIDTH;
+            for r in [COLONY_RADIUS, COLONY_INNER_RADIUS] {
+                lines
+                    .circle(Isometry3d::new(at, Quat::from_rotation_y(FRAC_PI_2)), r, colony_col)
+                    .resolution(96);
+            }
         }
-        for k in 0..6 {
-            let a = FIRST_WINDOW + spin + (k as f32 + 0.5) * TAU / 6.0 - TAU / 12.0;
-            let off = Vec3::new(0.0, a.cos(), a.sin()) * COLONY_RADIUS;
+        for k in 0..bc_sim::colony::hub::SPOKES {
+            let a = spin + bc_sim::colony::hub::spoke_angle(k);
+            let out = Vec3::new(0.0, a.cos(), a.sin());
             lines.line(
-                COLONY_CENTER + off - Vec3::X * COLONY_HALF_LENGTH,
-                COLONY_CENTER + off + Vec3::X * COLONY_HALF_LENGTH,
+                COLONY_CENTER + out * bc_sim::colony::hub::SPINE_RADIUS,
+                COLONY_CENTER + out * COLONY_INNER_RADIUS,
                 glow(CYAN, 0.8, 0.3 * sector),
             );
         }
         let dock_col = glow(AMBER, 1.6, 0.9 * sector);
         bold.circle(Isometry3d::new(DOCK_CENTER, Quat::from_rotation_y(FRAC_PI_2)), DOCK_RADIUS, dock_col)
             .resolution(48);
-        label(
-            COLONY_CENTER + Vec3::new(COLONY_HALF_LENGTH * 0.35, COLONY_RADIUS * 1.25, 0.0),
-            "THE FIRST COLONY".into(),
-            CYAN,
-            50,
-        );
+        label(COLONY_CENTER + Vec3::new(0.0, COLONY_RADIUS * 1.35, 0.0), "THE FIRST COLONY".into(), CYAN, 50);
         label(DOCK_CENTER + Vec3::new(0.0, DOCK_RADIUS * 1.4, 0.0), "DOCK".into(), AMBER, 55);
-        // The colony is picked wherever along it the cursor is: at the point of its axis nearest.
-        if let Some(cur) = c.cursor {
-            let (a, b) =
-                (COLONY_CENTER - Vec3::X * COLONY_HALF_LENGTH, COLONY_CENTER + Vec3::X * COLONY_HALF_LENGTH);
-            if let (Some(sa), Some(sb)) = (v.project(a), v.project(b)) {
-                let ab = sb - sa;
-                let k = ((cur - sa).dot(ab) / ab.length_squared().max(1.0)).clamp(0.0, 1.0);
-                let on = a.lerp(b, k);
-                pickable(Place::Colony, on, COLONY_RADIUS / px(on), 0);
-            }
-        }
+        // The colony is picked anywhere on its ring.
+        pickable(Place::Colony, COLONY_CENTER, COLONY_RADIUS / px(COLONY_CENTER), 0);
         pickable(Place::Dock, DOCK_CENTER, (DOCK_RADIUS / px(DOCK_CENTER)).max(8.0), 4);
         // The debris field's middle.
         lines

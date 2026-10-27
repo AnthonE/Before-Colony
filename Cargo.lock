@@ -605,6 +605,7 @@ version = "0.1.0"
 dependencies = [
  "bc-auth",
  "bc-econ",
+ "bc-model",
  "bc-proto",
  "bc-sim",
  "glam",

@@ -31,10 +31,10 @@ use bc_sim::colony::city::{
     grid_x, lots, mix, row_at, unit,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, strip_edge};
+use bc_sim::colony::frame::{HALF_LENGTH as COLONY_HALF_LENGTH, RADIUS as COLONY_RADIUS};
 use bc_sim::colony::furniture::{self, Furniture, Kind as Furn, TRUNK, each_furniture, tree_size};
 use bc_sim::colony::homes::{self, Plan};
 use bc_sim::content::city::{PLACES, PlaceKind};
-use bc_sim::world::{COLONY_HALF_LENGTH, COLONY_RADIUS};
 use glam::{Vec2, Vec3};
 
 /// The finest a curved face is cut across, m.
@@ -2104,8 +2104,7 @@ pub fn station(strip: u8, i: usize) -> (CityPos, CityMesh) {
 /// Hub Gate on strip `strip`: the terminal at the foot of the docking hub's end cap, and the cap
 /// lift's glass shaft up the cap from it to the bay ring, 948 m up.
 pub fn hub_gate(strip: u8) -> (CityPos, CityMesh) {
-    use bc_sim::colony::city::{TERMINAL_HEIGHT, terminal_rect};
-    use bc_sim::colony::hub::BAY_RADIUS;
+    use bc_sim::colony::city::{LIFT_TOP, TERMINAL_HEIGHT, terminal_rect};
     let t = terminal_rect();
     let (ms, _) = t.middle();
     let anchor = CityPos::new(strip, t.x0, ms, 0.0);
@@ -2120,7 +2119,7 @@ pub fn hub_gate(strip: u8) -> (CityPos, CityMesh) {
         false,
     );
     let shaft = Rect::new(ms - 7.0, ms + 7.0, t.x0, t.x0 + 14.0);
-    let top = COLONY_RADIUS - BAY_RADIUS;
+    let top = LIFT_TOP;
     m.city_box(
         &CityBox { rect: shaft, h0: TERMINAL_HEIGHT, h1: top },
         Surface::Glass,

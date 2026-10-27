@@ -54,6 +54,8 @@ pub struct LaunchConfig {
     pub tonemap: String,
     /// `?look=0`: the plain look (no grade, vignette or lit smoke), for comparing against.
     pub look: bool,
+    /// `?look=anime`: the painted look on trial (`docs/RING.md`, "The look").
+    pub paint: bool,
     /// `?life=0`: no traffic or people in the city (`life.rs`), for comparing against and measuring.
     pub life: bool,
     /// `?ssao=0`: no screen-space ambient occlusion (`gfx.rs`), for comparing against.
@@ -110,6 +112,7 @@ impl LaunchConfig {
             calm: flag("calm"),
             tonemap: string("tonemap"),
             look: get(&cfg, "look").as_bool().unwrap_or(true),
+            paint: flag("paint"),
             life: get(&cfg, "life").as_bool().unwrap_or(true),
             ssao: get(&cfg, "ssao").as_bool().unwrap_or(true),
             showcase_hz: number("hz").filter(|h| *h >= 1.0).unwrap_or(60.0).min(240.0),

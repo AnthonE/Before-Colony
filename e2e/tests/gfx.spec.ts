@@ -29,13 +29,13 @@ const scenes: Array<[string, number, number, number]> = [
   ["colony", 2, 6, 12],
   // The dock's ring of lights, off the docking hub.
   ["colony", 5, 6, 12],
-  // The docking hub's end: the bay ring, the spire and the mirrors in their lamps; the same at
-  // night; the bay ring's doors close to; the mirrors opening in the early morning.
+  // The hub's end: the drum's face and its bays, the spine and the ring beyond in their lamps;
+  // the same at night; the bays' doors close to; the louvres opening in the early morning.
   ["colony", 6, 6, 12],
   ["colony", 6, 1900, 12],
   ["colony", 7, 6, 12],
   ["colony", 8, 2620, 12],
-  // The launch shot: an Argo thrown out of its bay's door on the ring, the door behind it.
+  // The launch shot: an Argo thrown out of its bay's door on the hub's face, the door behind it.
   ["colony", 9, 6.4, 12],
   ["field", 1, 6, 12],
   // Wreckage after a fight: hulks, limbs shot off, loose ore.
@@ -82,6 +82,13 @@ const scenes: Array<[string, number, number, number]> = [
   ["hangar", 1, 2, 12],
   ["hangar", 4, 6, 12],
   ["hangar", 5, 8.5, 12],
+  // The Muster, the base in the hub's drum: the test hall from out on the deck, in at its doorway,
+  // from its gallery; the deck rising past it till it's overhead; along Bay Row's airlocks.
+  ["base", 1, 2, 8],
+  ["base", 2, 2, 8],
+  ["base", 3, 2, 8],
+  ["base", 4, 2, 8],
+  ["base", 5, 2, 8],
   // Suits on the landmarks: an Argo walking Fornax's core as the station rolls, rolling onto its toes
   // as each foot pushes off; one kneeling asleep in the Aft Well, its rim lights round it, the back
   // foot's toes tucked under; one lifting off Hermit on the verniers in its soles; one landing on

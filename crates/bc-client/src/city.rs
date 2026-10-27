@@ -21,8 +21,8 @@ use std::collections::{HashMap, HashSet};
 use bc_client_core::city_mesh::{self, ChunkKey, CityMesh};
 use bc_sim::colony::city::{HUB_GATE, SITE, Stage};
 use bc_sim::colony::frame::{CityPos, STRIPS, Under, from_colony, window_centre};
+use bc_sim::colony::frame::{HALF_LENGTH as COLONY_HALF_LENGTH, RADIUS as COLONY_RADIUS};
 use bc_sim::colony::time::key_light;
-use bc_sim::world::{COLONY_HALF_LENGTH, COLONY_RADIUS};
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::Exposure;
 use bevy::camera::visibility::RenderLayers;
@@ -804,7 +804,7 @@ fn light_city(
         b.intensity = look.bloom;
     }
     let t = bodies.t.max(0.0);
-    let spin = bc_sim::world::colony_spin_angle(t.floor() as u32, (t - t.floor()) as f32);
+    let spin = bc_sim::colony::frame::spin_angle(t.floor() as u32, (t - t.floor()) as f32);
     let seconds = (time.now % 3_600.0) as f32;
     let sky = look.sky_params(&d, spin, seconds, gfx.tier != GfxTier::Low);
     let o = origin.0.as_vec3();

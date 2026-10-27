@@ -162,7 +162,7 @@ async fn walk(k: usize, server: &str, secs: u64, totals: &Totals) -> anyhow::Res
     bot.wait_until(10.0, "the hangar", |c| c.hangar.in_hangar()).await?;
     anyhow::ensure!(
         bot.core.welcome.as_ref().is_some_and(|w| w.colony),
-        "the colony is closed (--no-colony)"
+        "the colony is closed (the server needs --colony)"
     );
     let strip = (k % 3) as u8;
     bot.enter_city(strip).await?;
