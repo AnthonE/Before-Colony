@@ -325,7 +325,7 @@ const DUEL_CAMS: [Orbit; 3] =
     [orbit(DUEL, 0.8, 0.3, 380.0), orbit(DUEL, -1.2, 0.1, 260.0), orbit(DUEL, 2.4, -0.25, 320.0)];
 const COLONY_CAMS: [Orbit; 8] = [
     // The whole ring, three-quarters on.
-    orbit(COLONY_CENTER, 0.9, 0.35, 5_500.0),
+    orbit(COLONY_CENTER, 0.9, 0.35, 3_600.0),
     orbit(SQUAD_START, 2.2, 0.35, 190.0),
     // From the sun's side (+X), into the hole: the ceiling's lattice lit, the louvres, the spokes.
     orbit(COLONY_CENTER, 1.4, 0.15, 3_200.0),

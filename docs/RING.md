@@ -27,7 +27,7 @@ this one wins.
 | R1.1: the cylinder's inside closed by default (its code kept behind the server's `--colony` until it's cleared) | done; no rent runs meanwhile (`Homes::hold`) |
 | R1.2, R1.3: the ring in space: its hull, hub, bays, spokes and louvres, in the sector and on every screen | done (protocol 40): `world`'s ring, `colony::hub`'s drum, spine, spokes and bays at 0.4 g, `colony::louvres`, the hub landmark, the field kept, the dock's approach, nav and the salvage routes round it, up as +Y, and a first exterior of slabs and lights (`bc-client`'s `colony.rs`) and the chart's |
 | L1: the look test, painted anime on one camera, signed off by the owner | first pass behind `?look=anime`, waiting on the owner |
-| R1.4: the outside dressed: slab panels, light grids, beacons | to do |
+| R1.4: the outside dressed: slab panels, light grids, beacons | first pass: the ceiling's glass a pale sky blue the lattice reads against, the slabs kept clean, rows of lights ruling them round the rim |
 | R2: Gates' building pieces in `bc_sim::pieces`; the decks; a walkable test building | built: `pieces` (lattice, sock, shape, support, check, parts, prefab), `colony::deck` and `foot::DeckGround`, `content::base`'s test hall walked in at its door and up its stairs (`tests/pieces.rs`, `PIECES_GOLDEN`), drawn by `bc_client_core::piece_mesh` and `bc-client`'s `base.rs` in the drum's inside with its own light (`?showcase=base`); walking it in the game comes with R3 |
 | R1.5, R1.6: the cylinder's inside cleared (homes refunded) | to do |
 | R3: the base opens: the bay's airlock onto Bay Row, the desks in its rooms | to do |

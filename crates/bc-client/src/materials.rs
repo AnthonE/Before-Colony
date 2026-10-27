@@ -253,9 +253,10 @@ pub fn setup_materials(
     let ore = |kind: usize| ore_colour(kind).extend(ORES[kind].1);
     commands.insert_resource(Surfaces {
         // Suits stay clean, as they're drawn (and keep their look on trial or not); the big hulls are
-        // patchworks of plates.
+        // patchworks of plates (the colony's slabs only a little: they're kept clean, as the
+        // references' are).
         armour: hulls.add(hull(Vec4::new(1.1, 0.035, 0.6, 0.35), 0.0, false)),
-        colony: hulls.add(hull(Vec4::new(42.0, 0.6, 0.5, 0.35), 0.45, gfx.paint)),
+        colony: hulls.add(hull(Vec4::new(42.0, 0.6, 0.5, 0.35), 0.15, gfx.paint)),
         // The louvres' facets: seams wide enough to read as their ribs from kilometres.
         mirror: hulls.add(hull(Vec4::new(60.0, 2.0, 0.3, 0.05), 0.5, gfx.paint)),
         plating: hulls.add(hull(Vec4::new(2.4, 0.03, 0.5, 0.7), 0.3, gfx.paint)),

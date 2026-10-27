@@ -349,7 +349,7 @@ pub fn setup_colony(
     // The ceiling's glass: the town's daylight coming up through it (set each frame by the hour).
     let glass = standard.add(StandardMaterial {
         base_color: Color::srgb(0.05, 0.07, 0.1),
-        emissive: LinearRgba::rgb(2.0, 2.6, 3.4),
+        emissive: LinearRgba::rgb(0.32, 0.5, 0.82),
         perceptual_roughness: 0.15,
         ..default()
     });
@@ -476,6 +476,10 @@ pub fn setup_colony(
             for side in [-1.0f32, 1.0] {
                 lamps.ring(side * (h - CHAMFER * 0.5), out - CHAMFER * 0.5 + 2.0, 240, 2.2, lamp);
                 lamps.ring(side * (h + 2.0), inn + 3.0, 180, 2.0, green);
+                // Rows round the rim ruling its slabs, as the ring's lights run in the references.
+                for x in [h * 0.25, h * 0.75] {
+                    lamps.ring(side * x, out + 6.5, 480, 1.4, lamp * 0.8);
+                }
             }
             for i in 0..12 {
                 let a = TAU * i as f32 / 12.0;
@@ -533,10 +537,11 @@ fn spin(
     for (root, mut tf) in &mut roots {
         tf.rotation = Quat::from_rotation_x(angle);
         if let Some(mut m) = standard.get_mut(&root.glass) {
-            // By day the town's light comes up through the glass, pale blue; by night, its lamps.
+            // By day the town's light comes up through the glass, a pale sky blue (dim enough that
+            // the lattice's panes still read against it); by night, its lamps.
             let d = hour.0.daylight;
             let night = Vec3::new(1.0, 0.7, 0.4) * 0.35 * hour.0.lamps;
-            let lit = Vec3::new(2.0, 2.6, 3.4) * d + night;
+            let lit = Vec3::new(0.32, 0.5, 0.82) * d + night;
             m.emissive = LinearRgba::rgb(lit.x, lit.y, lit.z);
         }
     }
