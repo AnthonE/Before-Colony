@@ -329,8 +329,7 @@ mod tests {
             assert!(s.lanes[0] + s.lane_half < s.lanes[1] - s.lane_half, "the lanes overlap");
             assert!(s.collar[0] < s.collar[1] && (s.kick_paint as usize) < PAINTS);
         }
-        // A person's: the band over a doorway's head (2.2 m) and under a storey's ceiling (3 m).
-        assert!(Scale::MUSTER.band[0] > 2.2 && Scale::MUSTER.band[1] < 3.0);
+        // A person's band over a doorway's head and under a storey's ceiling: `piece_mesh`'s tests.
     }
 
     #[test]
