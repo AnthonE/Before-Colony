@@ -11,6 +11,8 @@ mod assets;
 #[cfg(target_arch = "wasm32")]
 mod audio;
 #[cfg(target_arch = "wasm32")]
+mod base;
+#[cfg(target_arch = "wasm32")]
 mod beams;
 #[cfg(target_arch = "wasm32")]
 mod blast;

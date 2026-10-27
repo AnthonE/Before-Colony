@@ -1,5 +1,8 @@
 # The Proving Ground: training inside the First Colony
 
+> **Moving** (October 2026, `RING.md`): the Proving Ground goes up into the Muster, the base in the ring's hub, at
+> 0.4 g, and its course is re-laid there. Until then the cylinder's hall is closed with the rest of its inside.
+
 The owner's ask (October 2026): somewhere inside the colony for pilots to train, "some sort of
 workshop", or "a giant blast chamber": a tutorial area where a new pilot walks around freely,
 then gets into a Lodestar and learns to fly it. They also asked for the feel of X-Wing (1993) and

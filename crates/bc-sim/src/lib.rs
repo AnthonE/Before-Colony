@@ -31,6 +31,7 @@ pub mod math;
 pub mod missiles;
 pub mod orrery;
 pub mod perception;
+pub mod pieces;
 pub mod projectiles;
 pub mod rocks;
 pub mod sensors;

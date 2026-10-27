@@ -132,12 +132,12 @@ fn colony_no_longer_eats_shots_before_suits() {
         assert_eq!(hits, 1, "rewound {rewind}: the hull stopped the shot before the suit");
     }
 
-    // Two suits 6 degrees either side of the top, 20 and 12.5 m up: the straight line between them
-    // dips 5 m into the hull. It shields the target, live or rewound (a rewind flies the whole
-    // 670 m at once, and once went straight through the colony).
+    // Two suits 12 degrees either side of the top, 20 and 12.5 m up: the straight line between them
+    // dips 6 m into the hull. It shields the target, live or rewound (a rewind flies the whole
+    // 420 m at once, and once went straight through the colony).
     for rewind in [0, 8] {
         let mut sim = sector(2);
-        let (a, b) = (over_hull(-6.0, 20.0), over_hull(6.0, 12.5));
+        let (a, b) = (over_hull(-12.0, 20.0), over_hull(12.0, 12.5));
         let target = suit(&mut sim, FrameId::Corvus, Faction::Almagest, b, a - b);
         let argo = suit(&mut sim, FrameId::Argo, Faction::Colonies, a, b - a);
         let (hits, muzzle) = one_beam(&mut sim, argo, target, rewind);

@@ -5,13 +5,21 @@
 //!
 //! Poses are in a strip's city coordinates (`bc_sim::colony::frame::CityPos`: `x` along, `s` across
 //! from the strip's edge, `h` up), where the city stands still: about 8 mm steps over the whole
-//! colony. Nothing here allocates.
+//! colony. The base's deck in the hub (`docs/RING.md`) is one more floor, [`BASE_DECK`], its places
+//! (`bc_sim::colony::deck::DeckPos`: `x` along the axis, `s` round the deck, `h` up) in the same
+//! fields. Nothing here allocates.
 
 use crate::{BitReader, BitWriter, DecodeError, MAX_DATAGRAM, PACKET_KIND_BITS, PacketKind, SLOT_BITS};
 
 /// The colony's land strips.
 pub const STRIPS: u8 = 3;
+/// The floor after them: the base's deck in the hub's drum (`bc_sim::colony::deck::BASE`), Bay Row
+/// and the Muster's buildings.
+pub const BASE_DECK: u8 = STRIPS;
+/// The floors a pose can be on: the strips and the base's deck.
+pub const FLOORS: u8 = STRIPS + 1;
 pub(crate) const STRIP_BITS: u32 = 2;
+const _: () = assert!(FLOORS as u32 <= 1 << STRIP_BITS);
 /// `x` along: [−`X_HALF`, `X_HALF`) m.
 const X_HALF: f32 = 16_384.0;
 pub(crate) const X_BITS: u32 = 22;
@@ -258,7 +266,7 @@ impl PosePacket {
         let mut w = BitWriter::new(buf);
         w.write_bits(PacketKind::Pose as u32, PACKET_KIND_BITS);
         w.write_u16(self.seq);
-        w.write_bits(u32::from(self.pose.strip.min(STRIPS - 1)), STRIP_BITS);
+        w.write_bits(u32::from(self.pose.strip.min(FLOORS - 1)), STRIP_BITS);
         self.pose.write_body(&mut w);
         (!w.overflowed()).then(|| w.bytes_written())
     }
@@ -274,7 +282,7 @@ impl PosePacket {
         if r.overflowed() {
             return Err(DecodeError::Truncated);
         }
-        if strip >= STRIPS {
+        if strip >= FLOORS {
             return Err(DecodeError::Invalid);
         }
         Ok(Self { seq, pose })
@@ -289,13 +297,14 @@ pub struct PlazaWriter<'a> {
 }
 
 impl<'a> PlazaWriter<'a> {
-    /// `tick`: the sector's last tick; `strip`: the viewer's strip, if they're in the city.
+    /// `tick`: the sector's last tick; `strip`: the viewer's floor, if they're on foot in the city
+    /// or on the base's deck ([`BASE_DECK`]).
     pub fn new(buf: &'a mut [u8], tick: u32, strip: Option<u8>) -> Self {
         let mut w = BitWriter::with_limit(buf, MAX_DATAGRAM);
         w.write_bits(PacketKind::Plaza as u32, PACKET_KIND_BITS);
         w.write_u32(tick);
         w.write_bool(strip.is_some());
-        w.write_bits(u32::from(strip.unwrap_or(0).min(STRIPS - 1)), STRIP_BITS);
+        w.write_bits(u32::from(strip.unwrap_or(0).min(FLOORS - 1)), STRIP_BITS);
         Self { w, count: 0 }
     }
 
@@ -344,7 +353,7 @@ impl<'a> PlazaReader<'a> {
         if r.overflowed() {
             return Err(DecodeError::Truncated);
         }
-        if strip >= STRIPS {
+        if strip >= FLOORS {
             return Err(DecodeError::Invalid);
         }
         Ok(Self { r, tick, strip: city.then_some(strip) })
@@ -373,7 +382,7 @@ mod tests {
     fn pose(i: u32) -> PersonPose {
         let f = i as f32;
         PersonPose {
-            strip: (i % 3) as u8,
+            strip: (i % 4) as u8,
             x: -16_000.0 + f * 611.37,
             s: 12.5 + f * 63.11,
             h: -2.0 + (f * 4.7) % 200.0,
@@ -445,6 +454,26 @@ mod tests {
         let mut r = PlazaReader::new(&buf[..n]).unwrap();
         assert_eq!((r.tick, r.strip), (77, None));
         assert!(r.next_person().is_none());
+    }
+
+    #[test]
+    fn the_base_deck_is_a_floor_poses_and_the_plaza_carry() {
+        // Bay Row, by bay 1's airlock: x along the axis, s round the deck.
+        let on_deck = PersonPose { strip: BASE_DECK, x: -599.5, s: 1_256.6, h: 0.0, ..pose(4) };
+        let mut buf = [0u8; 64];
+        let n = PosePacket { seq: 9, pose: on_deck }.encode(&mut buf).unwrap();
+        let q = PosePacket::decode(&buf[..n]).unwrap();
+        assert_eq!(q.pose.strip, BASE_DECK);
+        close(&q.pose, &on_deck);
+        let mut buf = [0u8; MAX_DATAGRAM];
+        let mut w = PlazaWriter::new(&mut buf, 5, Some(BASE_DECK));
+        assert!(w.push(3, 0.02, &on_deck));
+        let n = w.finish();
+        let mut r = PlazaReader::new(&buf[..n]).unwrap();
+        assert_eq!(r.strip, Some(BASE_DECK));
+        let (id, _, p) = r.next_person().unwrap();
+        assert_eq!((id, p.strip), (3, BASE_DECK));
+        close(&p, &on_deck);
     }
 
     #[test]

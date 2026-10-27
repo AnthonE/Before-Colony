@@ -9,7 +9,7 @@ naming" below).
 
 ## The pitch
 
-The first space colony, an O'Neill cylinder at the Earth–Moon L1 point, has just opened its docks.
+The first space colony, a ring at the Earth–Moon L1 point, has just opened its docks.
 The calendar that history will count in, the *Charter Years*, begins the day its charter is
 signed, and nobody has signed it yet. This is the year before: **Before Colony**.
 
@@ -40,46 +40,50 @@ Breakaway, the war. Here none of it has happened. Whether it has to is up to eve
 
 - **Its name.** The colonists call it **the First Colony**, and so does everything they sign; the
   Consortium's papers say L1-01.
-- **The cylinder.** 3.2 km in radius and 32 km long, spinning for gravity, its interior still
-  being finished. The game's sector L1 is the space around it: the debris of its construction
-  (asteroids hauled in for metal), the docking hub at its −X end, and the lanes between.
-- **The docking hub.** The spin ring at 0.7 g where the pilots' bays hang, the launch tunnels,
-  the dock with its ring of amber lights, and the **zero-G foundry**, the only place siderium can
-  be made. Beyond a bay's airlock, the cap lift rides down the end cap's face into the colony.
+- **The ring.** A wheel 2 km across and 600 m wide, turning once a minute for a full gravity at its
+  floor, its interior still being finished. Its town lies on the inside of the rim and rises ahead of
+  you whichever way you look, into the lattice of the ceiling 300 m overhead, where the light falls
+  through. The game's sector L1 is the space around it: the debris of its construction (asteroids
+  hauled in for metal), the docking hub on its axis, and the lanes between. (Until October 2026 the
+  game drew a 32 km cylinder here; `RING.md` is why it's a ring, and the cylinder's districts below
+  are names in waiting.)
+- **The docking hub.** The drum on the ring's axis: the pilots' bays round its forward face at 0.4 g,
+  each launching out of its own door, the dock with its ring of amber lights, and the **zero-G
+  foundry**, the only place siderium can be made. Behind the bays, on the drum's deck, is **the
+  Muster**, the Charter Board's yard for its pilots: Bay Row, where every bay's airlock opens, the
+  briefing room, the armoury, the mess and the Proving Ground. Six spokes run out from the hub to the
+  rim, each with a lift down to the town.
 - **The Charter Board.** The colonists' provisional council. It advances each Arrival 2,000
   credits and an Argo (and another worn Argo to a pilot who has lost everything, though not twice in
   half an hour: `THE CHARTER BOARD ADVANCES YOU A WORN ARGO`), runs the colony's desks on the **Colony Exchange** (it buys ore, sells
   propellant cheap, and keeps machine shops turning out components), and pays a bounty for every
   drone a pilot brings down. The bounties are its quiet war: it can't fight the Consortium
   openly, but it can pay the people who do.
-- **Inside.** Three land strips run the length of the cylinder between its three windows, each a
-  city with a name of its own: **Charter** (the colony's offices, its money, its first streets,
-  its university), **Canal** (a working town along the canal that carries its freight: depots,
-  quays, locks, yards) and **Gardens** (orchards, the arboretum, the colleges, homes on
-  terraces). Each runs from **Hub Gate**, the square at the foot of the docking hub's end cap where
-  the cap lift comes down, to **the building site** at the far end, where the colony is still
-  being built and its cranes stand against the far cap. Down the middle of every strip runs the
-  avenue; along every window, a park and a promenade at the glass. The mirrors outside throw in
-  the day: 32 minutes of light, then dusk, and the city's lamps.
-- **Its districts**, from Hub Gate: in Charter, Charter Square, Exchange Row, Tower Hill (the
-  Axis View tower, the tallest thing on any strip), Meridian, Lantern Street, Firsthomes, Central
-  Park, Arrival Heights, Old Town, the University, Machine Row and Foundry Lane; in Canal, the
-  Depots, Quayside, Canal Central, Lock Town, Waterside, the Basin, Millrace, Twin Bridges, Lower
-  Canal, the Yards, Far Quays and Last Lock; in Gardens, Garden Gate, the Orchards, the Arboretum,
-  the Colleges, Terraces, Green Meridian, Hillside, the Meadow, Vine Street, Greenworks, Fieldside
-  and the Seed Halls.
-- **The lines.** A tram runs down the middle of each strip's avenue, from Hub Gate to the
-  building site: the Charter line in blue, the Canal line in teal, the Gardens line in green.
-  Its stations take their districts' names.
-- **Places an Arrival goes.** The **Exchange floor** on Charter Square (the Colony Exchange's
-  hall: the same book the bays' terminals trade on, and the only place an order waits on it); the
-  **Charter Board**'s hall, where its notices go up, contracts are posted and the charter signed,
-  and what the Board owes a pilot is paid out across its desk; **The Arrival**, a bar off the
-  square where pilots meet, and where the Board pins up the Almagest's Most Wanted behind the bar; and
-  **the Proving Ground** off the square, the Blast Hall where the colony's builders tested
-  thrusters, where the Charter Board tries an Arrival in a suit before it trusts them with one.
-  The colony's law holds inside: no weapons fired within its walls, but in the Blast Hall, where a
-  suit fires training rounds at holograms and nothing it fires leaves the hall.
+- **Inside.** The town runs round the rim in arcs between the spokes, each a quarter with a name of
+  its own: **Charter** (the colony's offices, its money, its first streets), **Canal** (a working
+  quarter along the canal that carries its freight round the ring: depots, quays, locks, yards),
+  **Gardens** (orchards, terraces, homes), and **the building site**, the arc of the rim still open
+  frames and cranes, where the colony is still being built. **Hub Gate** is the square where the
+  first spoke's lift comes down. The louvres round the spine throw in the day: 32 minutes of light,
+  then dusk, and the town's lamps.
+- **Names in waiting.** The cylinder's districts, kept for the ring's streets and quarters as
+  they're built: in Charter, Charter Square, Exchange Row, Tower Hill, Meridian, Lantern Street,
+  Firsthomes, Central Park, Arrival Heights, Old Town, the University, Machine Row and Foundry Lane; in
+  Canal, the Depots, Quayside, Canal Central, Lock Town, Waterside, the Basin, Millrace, Twin
+  Bridges, Lower Canal, the Yards, Far Quays and Last Lock; in Gardens, Garden Gate, the Orchards, the
+  Arboretum, the Colleges, Terraces, Green Meridian, Hillside, the Meadow, Vine Street, Greenworks,
+  Fieldside and the Seed Halls. The tram lines keep their colours (Charter blue, Canal teal, Gardens
+  green) for a loop round the rim.
+- **Places an Arrival goes.** In the Muster, the **briefing room**, where the Charter Board's
+  pilot desk pays out what the Board owes a pilot, posts contracts and patrols and pins up the
+  Almagest's Most Wanted; the **armoury**, which fits weapons to the suit in a pilot's bay; the
+  **mess**; and **the Proving Ground**, the Blast Hall where the colony's builders tested thrusters,
+  where the Charter Board tries an Arrival in a suit before it trusts them with one. Down a spoke in
+  the town, the **Exchange floor** (the Colony Exchange's hall: the same book the bays' terminals
+  trade on, and the only place an order waits on it), the **Charter Board**'s hall, where its
+  notices go up and the charter will be signed, and **The Arrival**, a bar where pilots meet. The
+  colony's law holds inside: no weapons fired within its walls, but in the Blast Hall, where a suit
+  fires training rounds at holograms and nothing it fires leaves the hall.
 - **The economy.** A boomtown. Ore comes in from the field, parts and suits go out from the bays,
   and prices float with what the colony holds. Frames are old and patched, so systems fail, and
   keeping a suit flying is a trade of its own (overhauls, machined components, equipment).
@@ -128,7 +132,7 @@ colony's great works finished, sectors opened) and is announced to every pilot w
 | Era | What the world is | What moves it on |
 |---|---|---|
 | **0. Before Colony** (now) | One colony, one sector (L1), one exchange. The Consortium's drones hold the field. | The Charter Board's first great works: a second foundry, a militia's hangar, the charter vote. |
-| **I. The Charter** (CY 1) | The calendar begins. The colony fields its own militia (pilots on contract) and its own bounties. | More cylinders begun at L1. |
+| **I. The Charter** (CY 1) | The calendar begins. The colony fields its own militia (pilots on contract) and its own bounties. | More rings begun at L1. |
 | **II. The Cluster** | Several colonies at L1, each with its own exchange and prices: hauling between them pays. | Lagrange points L2–L5 and lunar orbit opened by expeditions. |
 | **III. The Spheres** | New sectors, the Moon, the resource satellites. The Alignment arrives: tariffs, patrols, demands. | Factions, the Arrivals' among them, choosing sides. |
 | **IV. The Equinox Wars** | The history the Arrivals remember, or something else. | What everyone did before. |
@@ -254,8 +258,8 @@ What that makes of this game:
   alive; a colony full of gates (Hub Gate, the inner gate), and nobody thinks about the word. In
   Gates, the town is **THE GATE**, and its death screen says
   `THE GATE would not take you - you woke on a beach`.
-- **Worth planting:** one shape across both games, the ring (the dock's ring of amber lights, the
-  course's lit rings; Gates' Severed Gate is a shattered gold ring); one sound (the Orrery's drone
+- **Worth planting:** one shape across both games, the ring (the colony itself, a wheel; the dock's
+  ring of amber lights; the course's lit rings; Gates' Severed Gate is a shattered gold ring); one sound (the Orrery's drone
   sharing its notes with the hum of THE GATE's yard); the sacred math's glyphs, carved on Gates'
   ruins and flickering across the Orrery's display in a seizure; a drone that, rarely, flies for
   a moment like an Orrery seizure.

@@ -16,9 +16,9 @@ use core::f32::consts::FRAC_PI_6;
 use glam::Vec3;
 
 use super::frame::{CityPos, FIRST_WINDOW, STRIP_WIDTH, Under, from_colony, local_frame};
+use crate::colony::frame::RADIUS as COLONY_RADIUS;
 use crate::config::TICK_HZ;
 use crate::math::{length, normalize_or};
-use crate::world::COLONY_RADIUS;
 
 /// The strip the course runs over: Charter's, where the browser's cap lift comes down.
 pub const STRIP: u8 = 0;

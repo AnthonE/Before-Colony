@@ -99,6 +99,7 @@ pub fn run() {
             .init_resource::<UiCmds>()
             .init_resource::<PointerRes>()
             .init_resource::<crate::onfoot::OnFoot>()
+            .init_resource::<crate::onfoot::RefitView>()
             .init_resource::<crate::terminal::TerminalLog>()
             .init_resource::<crate::map::MapOpen>()
             .init_resource::<crate::chat::Spoken>()
@@ -245,6 +246,7 @@ impl Plugin for VisualsPlugin {
                 crate::board::WallBoardPlugin,
                 crate::signs::SignsPlugin,
                 crate::station::StationPlugin,
+                crate::base::BasePlugin,
             ))
             .configure_sets(
                 Update,
@@ -271,6 +273,7 @@ impl Plugin for VisualsPlugin {
                         crate::blast::setup_blasts,
                         crate::ambience::setup_ambience,
                         crate::hangar::setup_bay,
+                        crate::base::setup_base,
                         crate::city::setup_city,
                     ),
                     crate::cockpit::setup_cockpit,

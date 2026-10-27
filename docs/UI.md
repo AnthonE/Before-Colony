@@ -86,8 +86,30 @@ the same document for the sector now and the Proving Ground's best (callsigns an
 the hall's wall). Until the world draws, a still of space at L1 stands behind it. With `?autoplay`
 it's only the link's state. Its states are the gallery's `title*` scenes.
 
+## The suit's console
+
+The suit's maintenance console (the bay's SUIT tab) is laid out like a mech lab: Armored Core VI's
+garage, MechWarrior 5's part cards round the mech, Titanic Scion's list beside the parameters it
+changes. The suit stands in the middle, the real one in its gantry: while the tab is open the camera
+leaves the pilot's eyes and stands off its front (`bay::Refit`, eased in a quarter of a second), the
+page sends the drag and the wheel as `suit_view`, and the panel's middle is clear glass, each part
+round it a pane of its own. Across the top, the suit, whether it would launch (and why not) and its
+totals; under them the slots as numbered tabs (1–9: the six parts, the weapons, the equipment, the
+service), a square where one needs work (red: missing or failed; amber: damaged, worn, a weapon not
+fitted, the tank low). It opens on the first that does.
+
+Down the left, the open slot's choices as cards: what's fitted, what the stores hold for it, the
+slot empty. Each card is a few rows of the stat sheet, the ones it changes, as bars with a tick where
+the suit stands now and the change in green or red (the console's `refit`, worked out by the hangar's
+own fit and strip on a copy, so it can't disagree with what the server will do). Round the suit,
+a callout per slot (the suit's right on the left, as it faces you). On the right, the chosen card in
+full: what it is, its rows, how you fire it (a key against each mount and the special), the stat sheet
+as it would launch with it, and the one thing to do, amber, at the pane's foot. ↑↓ choose, Enter
+does it. Its states are the gallery's `suit*` scenes.
+
 ## Next
 
 - The Orrery's panel as instruments too: its picks' confidence and the threat as bars.
 - HUD options: its scale and opacity as settings (`settings::KNOBS`), as Titanic Scion has them.
+- The suit's console: light the chosen slot's part on the suit itself, and paint (liveries) as a slot.
 - The objective's marker in the view (`DRONE 1.5 km`) can sit under a focus tag: let `tags` keep clear of it.

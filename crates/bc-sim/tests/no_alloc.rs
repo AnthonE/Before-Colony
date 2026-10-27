@@ -781,3 +781,35 @@ fn the_pilots_condition_never_allocates() {
     assert!(changed > 0, "no condition changed");
     assert_eq!(total, 0, "heap operations inside the tick: {total}");
 }
+
+#[test]
+fn the_decks_and_their_buildings_answer_without_allocating() {
+    use bc_sim::colony::deck::{BASE, DeckPos, solid};
+    use bc_sim::content::base::SITES;
+    use bc_sim::foot::{DeckGround, Stride, Walker};
+    use glam::Vec3;
+    let site = &SITES[0];
+    let ground = DeckGround { deck: BASE };
+    let door = site.to_walker(Vec3::new(4.5, 0.0, 0.0));
+    let mut w = Walker::at(site.to_walker(Vec3::new(4.5, 0.0, -6.0)), door);
+    let mut rng = bc_sim::math::Rng::new(9);
+    let mut hits = 0;
+    let ((), n) = bc_alloc::count(|| {
+        // Walkers' boxes all round the hall, and a walker going in at its door.
+        for _ in 0..100_000 {
+            let p = site.to_walker(Vec3::new(
+                rng.signed() * 20.0 + 6.0,
+                rng.next_f32() * 8.0,
+                rng.signed() * 20.0 + 4.5,
+            ));
+            hits += u32::from(solid(BASE, p, p + Vec3::new(0.6, 1.8, 0.6)));
+        }
+        for _ in 0..300 {
+            w.yaw = bc_sim::math::atan2(door.x - w.feet.x, door.z - w.feet.z);
+            w.tick(&ground, &Stride { forward: 1.0, ..Stride::default() });
+        }
+        let _ = DeckPos::from_walker(BASE, w.feet).to_colony();
+    });
+    assert!(hits > 1_000, "only {hits} boxes met the hall");
+    assert_eq!(n, 0, "heap operations on the decks: {n}");
+}

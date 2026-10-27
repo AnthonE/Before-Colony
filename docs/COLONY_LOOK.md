@@ -1,5 +1,9 @@
 # The First Colony, polished: the look, and the passes that get it there
 
+> **Superseded by `RING.md`** (October 2026): the owner chose painted anime, like the 1990s OVA, over this plan's
+> "physically lit, no toon shading" (`RING.md`, "The look"). What's below is the record of the cylinder's passes;
+> the sky function, the colour script's shape and the life drawing carry over.
+
 `COLONY.md` built the city: every block, street and room from closed forms, walked, ridden and
 shared. This plan is about how it looks. The owner's brief: a survival game's realism, as in
 Rust, with anime filling in behind it, and the colony city of Phantasy Star Online remembered
@@ -366,48 +370,6 @@ on Ultra 99 people and 77 cars, none of them on the kilometres of avenue in view
 Skinned civilians and pilots in place of the rigid 12-piece figure (`bc_client_core::figure`).
 Suit-scale props at the building site (gantries, cranes worked by suits). The suits are already
 lit by the strip's sun through Bevy's lighting, so they sit in the city's light as they are.
-
-## The station language: the Ring Deck (a test set)
-
-The clean layer indoors, at a suit's scale, tried out where nothing has to walk or collide yet:
-the Ring Deck (`?showcase=ring`). It is the bay ring's suit deck, a hall 48 × 34 × 192 m running
-along the ring behind its bays, with a passage at one end to the cap lifts and the airlock.
-
-- **Its layout** is `bc_client_core::ring_deck`. It holds the blocks, the signs, the cast's places
-  and the cameras, and its tests hold the hall closed, the signs on their walls, and the shader's
-  numbers equal to its own.
-- **Its drawing** is `bc-client`'s `station`. The paint is `shaders/station.wgsl`, procedural like
-  the city's, with every derivative taken before its surface branch.
-
-What it keeps to, for the colony's halls, lifts and concourse when they are built inside:
-
-- **White panels with fine joints.** A vent or an access hatch here and there, and a dark kick
-  plate at the foot of each wall. Nothing is worn: this layer is the colony's order.
-- **The lines' colours for wayfinding.** They are exactly the city's (`f_line`, checked by a test):
-  Charter blue for the deck's band, its pillars' collars and the suits' lanes, Canal teal for the
-  lifts.
-  - A band runs round the walls, with arrows in it pointing the way to the lifts.
-  - Chevrons in the lanes show which way each lane runs.
-  - A door you can go through has a frame lit in the line's colour.
-- **Safety yellow and black only at a hazard:** a door's meeting edge, the rim's edge, the floor
-  before a bay door, a pillar's foot. Rails are safety orange.
-- **Stencilled signs in plain English,** in the page's Chakra Petch, laid out once into a texture by
-  the UI (as the Proving Ground's board is). Names are the colony's own: `BAY 07`, `RING DECK 2`,
-  `CAP LIFTS`, the three lines.
-- **Light in strips** along the ceiling, blooming, and the exposure high-key (EV 9.5, against the
-  bay's 8), the way PSO's colony is lit.
-- **Earth through glass that looks out and down.** Earth stands about 81° off the colony's axis,
-  so a window facing along the axis would only catch it at a glancing angle; the rim's glass is
-  in the floor's edge instead.
-  - The sky turns at the ring's spin (`sky::SkyTurn`), so Earth wheels past under the rail once
-    every 113.5 s.
-  - It is drawn at the deck's exposure, not the Sun's.
-  - The deck stands far from anything in the world, so the glass shows only the sky.
-
-Where it may live next: the concourse past the bay's airlock (COLONY.md 2.2's lobby with a sign
-per strip, `STORY.md`'s concourse), the axis port's module (PEERS.md P2 #12, the hot interior
-outside the law), or the militia's hangar. Each needs its solids in the sim first, as a layout
-change.
 
 ## Review set
 

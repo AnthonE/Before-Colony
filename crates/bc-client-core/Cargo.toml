@@ -13,6 +13,7 @@ bc-auth.workspace = true
 bc-econ.workspace = true
 bc-proto.workspace = true
 bc-sim.workspace = true
+bc-model.workspace = true
 glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -23,7 +23,8 @@
 //! The server knows none of this: only where the pilot is (`core.hangar.place`) and what they ask
 //! for. Space skips a sequence.
 
-use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, Lift, SPAWN, SUIT_AT, Spot};
+use bc_client_core::base as deck_foot;
+use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, Lift, Refit, SPAWN, SUIT_AT, Spot};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
 use bc_client_core::dock;
@@ -38,13 +39,13 @@ use bc_econ::wire::{HomesView, Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
 use bc_proto::presence::{PersonPose, RIDE_SEATED};
 use bc_sim::colony::city::{
-    AVENUE as AVENUE_WIDTH, CityBox, KERB, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, place_door,
-    seat_near, terminal_rect,
+    AVENUE as AVENUE_WIDTH, CityBox, KERB, LIFT_TOP, Stage, TERMINAL_HEIGHT, arrival_seats, district_at,
+    place_door, seat_near, terminal_rect,
 };
+use bc_sim::colony::deck::{BASE, DeckPos, local_frame as deck_frame};
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hall;
 use bc_sim::colony::homes::{self, Home, HomeId, Overlay, OverlayHome};
-use bc_sim::colony::hub::BAY_RADIUS;
 use bc_sim::colony::pools::{pool, pool_near};
 use bc_sim::colony::transit::{
     CAR_WIDTH, CARS, DOOR_AT, FLOOR, PLATFORM_HALF, PLATFORM_LENGTH, STATION_GAP, STATIONS, TRAINS,
@@ -53,11 +54,11 @@ use bc_sim::colony::transit::{
 use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, STRIP_NAMES};
 use bc_sim::content::homes::Furniture;
 use bc_sim::content::{Kit, Kits};
-use bc_sim::world::COLONY_RADIUS;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::math::DVec3;
 use bevy::prelude::*;
 
+use crate::base::BaseView;
 use crate::camera::MainCamera;
 use crate::city::{CityView, RenderOrigin, colony_point};
 use crate::dev_hooks::DevStatus;
@@ -954,13 +955,43 @@ impl CityFoot {
 /// colony's frame, and the way it looks (down the colony, tipping up as it nears the floor).
 fn lift_view(strip: u8, t: f32) -> (DVec3, Vec3) {
     let u = smoothstep(0.0, LIFT_SECS, t);
-    let (top, bottom) = (COLONY_RADIUS - BAY_RADIUS, TERMINAL_HEIGHT + 6.0);
+    let (top, bottom) = (LIFT_TOP, TERMINAL_HEIGHT + 6.0);
     let h = top + (bottom - top) * u;
     let x = terminal_rect().x0 + 7.0;
     let s = STRIP_WIDTH * 0.5;
     let pitch = (-0.5 + 0.38 * u).clamp(-0.6, 0.0);
     let look = Vec3::new(pitch.cos(), pitch.sin(), 0.0);
     (colony_point(CityPos::new(strip, x, s, h)), local_frame(strip, s) * look)
+}
+
+/// On foot on the base's deck in the hub (`bc_client_core::base`, `docs/RING.md`): the pilot's body
+/// in the deck's frame (`(x, h, −s)`), the bay whose airlock they came out of, where they're being
+/// walked to, and whether they're at their airlock's door.
+#[derive(Clone, Debug)]
+pub struct DeckFoot {
+    pub walker: Walker,
+    pub bay: u8,
+    guide: Option<Guide>,
+    pub at_door: bool,
+}
+
+impl DeckFoot {
+    /// Just out of bay `bay`'s airlock onto Bay Row.
+    fn out(bay: u8) -> Self {
+        Self { walker: deck_foot::out_of_the_airlock(bay), bay, guide: None, at_door: false }
+    }
+
+    /// Where on the deck they stand.
+    pub fn feet(&self) -> DeckPos {
+        DeckPos::from_walker(BASE, self.walker.feet)
+    }
+
+    /// The eye, where it looks and which way is up, in the colony's own frame.
+    fn view(&self) -> (Vec3, Vec3, Vec3) {
+        let at = DeckPos::from_walker(BASE, self.walker.eye());
+        let turn = deck_frame(BASE, at.s);
+        (at.to_colony(), turn * self.walker.look(), turn * Vec3::Y)
+    }
 }
 
 /// The pilot on foot.
@@ -991,6 +1022,8 @@ pub struct OnFoot {
     lift: Lift,
     /// On foot in the colony (or riding down to it).
     pub city: Option<CityFoot>,
+    /// On foot on the base's deck, out of the airlock.
+    pub deck: Option<DeckFoot>,
 }
 
 impl Default for OnFoot {
@@ -1011,6 +1044,7 @@ impl Default for OnFoot {
             airlock_until: 0.0,
             lift: Lift::default(),
             city: None,
+            deck: None,
         }
     }
 }
@@ -1172,7 +1206,7 @@ fn verb(spot: Spot, bay: Option<&Bay>, colony: bool, lift: Lift) -> String {
         (Spot::Cockpit, Some(Bay::Out { .. })) => "COCKPIT: YOUR SUIT IS OUT".into(),
         (Spot::Cockpit, _) => "COCKPIT: THE GANTRY IS EMPTY".into(),
         (Spot::Airlock, _) if colony => lift.prompt(),
-        (Spot::Airlock, _) => "AIRLOCK: LEAVE THE BAY · THE CAP LIFTS ARE CLOSED".into(),
+        (Spot::Airlock, _) => "AIRLOCK: OUT ONTO BAY ROW".into(),
         (spot, _) => spot.name().into(),
     }
 }
@@ -1208,7 +1242,7 @@ pub fn drive_onfoot(
     mut log: ResMut<TerminalLog>,
     mut curtain: Query<&mut BackgroundColor, With<Curtain>>,
     mut city_view: ResMut<CityView>,
-    (map, enter): (Res<crate::map::MapOpen>, Res<crate::chat::Enter>),
+    (map, enter, mut base_view): (Res<crate::map::MapOpen>, Res<crate::chat::Enter>, ResMut<BaseView>),
 ) {
     let now = now_s();
     let dt = time.delta_secs().min(0.1);
@@ -1283,7 +1317,15 @@ pub fn drive_onfoot(
             }
             (_, Some(Place::Hangar)) => {
                 me.city = None;
+                me.deck = None;
                 me.enter(now);
+            }
+            // Out of the airlock onto Bay Row: a cut, the screen fading back in there.
+            (_, Some(Place::Base)) => {
+                if me.deck.is_none() {
+                    me.deck = Some(DeckFoot::out(g.core.hangar.bay));
+                }
+                me.done(now);
             }
             // Down in the colony (the lift's already on its way, unless it was sent some other way);
             // or back, waking at home beside the bed they were asleep in.
@@ -1347,7 +1389,7 @@ pub fn drive_onfoot(
     if g.bay_hold && !holds_the_bay(me.seq, me.t(now)) {
         g.bay_hold = false;
     }
-    let inside = me.seq.indoors() || matches!(place, Some(Place::Hangar | Place::City));
+    let inside = me.seq.indoors() || matches!(place, Some(Place::Hangar | Place::City | Place::Base));
     if indoors.0 != inside {
         indoors.0 = inside;
     }
@@ -1355,7 +1397,8 @@ pub fn drive_onfoot(
     // On foot: legs, eyes and hands.
     let on_foot = me.seq == Seq::Walking && place == Some(Place::Hangar) && me.city.is_none();
     let in_city = me.seq == Seq::Walking && place == Some(Place::City) && me.city.is_some();
-    let live = (on_foot || in_city) && ui.playing() && !ui.panel_open();
+    let on_deck = me.seq == Seq::Walking && place == Some(Place::Base) && me.deck.is_some();
+    let live = (on_foot || in_city || on_deck) && ui.playing() && !ui.panel_open();
     let colony = g.core.welcome.as_ref().is_some_and(|w| w.colony);
     // The pilot's own legs and eyes this frame: keys and the mouse.
     let mut own = Stride::default();
@@ -1691,7 +1734,51 @@ pub fn drive_onfoot(
         me.start(Seq::Boarding, now);
         ask(&net, &g, &Request::BoardTrainer);
     }
-    if !in_city {
+    // Out on Bay Row: walked as in the bay, on the base's deck, the pose sent as in the city; E at
+    // their airlock's door takes them back in.
+    let mut back_in = false;
+    if on_deck && let Some(d) = me.deck.as_mut() {
+        for cmd in &cmds.0 {
+            if let UiCmd::WalkTo { spot } = cmd
+                && let Some((route, facing)) = deck_foot::route(spot, d.bay, d.walker.feet)
+            {
+                d.guide = Some(Guide::new(route, Some(facing)));
+            }
+        }
+        if look != Vec2::ZERO {
+            d.walker.turn(-look.x, -look.y);
+        }
+        if own != Stride::default() {
+            d.guide = None;
+        }
+        let mut left = walk_dt(d.guide.is_some());
+        while left > 1e-4 {
+            let h = left.min(0.1);
+            left -= h;
+            let stride = match d.guide.as_mut() {
+                Some(guide) => {
+                    let stride = guide.steer(&mut d.walker, h);
+                    if guide.arrived() && guide.facing.is_none_or(|f| d.walker.heading().dot(f) > 0.97) {
+                        d.guide = None;
+                    }
+                    stride
+                }
+                None => own,
+            };
+            d.walker.step(&deck_foot::GROUND, &stride, h);
+        }
+        d.at_door = deck_foot::at_the_airlock(&d.walker, d.bay);
+        g.core.set_pose(Some(deck_foot::pose_of(&d.walker)));
+        if let (Some(t), Some(p)) = (net.get(), g.core.poll_pose(now)) {
+            t.send_datagram(&p);
+        }
+        back_in = used_key && d.at_door && !ui.panel_open();
+    }
+    if back_in {
+        me.airlock_until = now + 1.5;
+        ask(&net, &g, &Request::LeaveBase);
+    }
+    if !in_city && !on_deck {
         g.core.set_pose(None);
     }
     let hangar_bay = g.core.hangar.view.as_ref().map(|v| v.bay.clone());
@@ -1779,11 +1866,11 @@ pub fn drive_onfoot(
                     me.start(Seq::LiftDown, now);
                     ask(&net, &g, &Request::EnterCity { strip });
                 }
-                // The colony closed (arcade rules, or `--no-colony`): the airlock only leads out.
+                // The old inside closed (survival's default, `docs/RING.md`): out onto Bay Row, the
+                // base's deck (the screen cuts there once the server says so).
                 (Spot::Airlock, _) => {
                     me.airlock_until = now + 1.5;
-                    ui.toast("THE CAP LIFTS ARE CLOSED: THIS SERVER KEEPS THE COLONY SHUT");
-                    ui.open_pause();
+                    ask(&net, &g, &Request::EnterBase);
                 }
                 (terminal, _) => ui.panel = Panel::Terminal(terminal),
             }
@@ -1876,9 +1963,10 @@ pub fn drive_onfoot(
         Some(Place::Hangar) => "hangar",
         Some(Place::Space) => "space",
         Some(Place::City) => "city",
+        Some(Place::Base) => "base",
         None => "",
     };
-    ui.on_foot = on_foot || in_city;
+    ui.on_foot = on_foot || in_city || on_deck;
     ui.driving = me.city.as_ref().and_then(|c| c.drive).filter(|_| in_city).map_or("", |w| w.name());
     // The map (M), and where the pilot stands on it.
     ui.map &= me.city.is_some();
@@ -1899,6 +1987,14 @@ pub fn drive_onfoot(
     let city_now = me.city.is_some() || flying_inside;
     if city_view.active != city_now {
         *city_view = CityView { active: city_now, sync: false };
+    }
+    // On the base's deck: the base drawn round where they stand.
+    let base_now = me
+        .deck
+        .as_ref()
+        .map_or(BaseView { active: false, ..*base_view }, |d| BaseView { active: true, s: d.feet().s });
+    if *base_view != base_now {
+        *base_view = base_now;
     }
     ui.sequence = me.seq != Seq::Walking;
     ui.prompt = match me.seq {
@@ -1955,6 +2051,10 @@ pub fn drive_onfoot(
             }
             _ => String::new(),
         },
+        Seq::Walking if on_deck => match me.deck.as_ref() {
+            Some(d) if d.at_door => "E  AIRLOCK: BACK INTO YOUR BAY".into(),
+            _ => String::new(),
+        },
         s if s.skippable() => "SPACE  SKIP".into(),
         _ => String::new(),
     };
@@ -1971,15 +2071,38 @@ pub fn drive_onfoot(
     ui.trainer = flying_inside && g.core.hangar.trainer;
 }
 
+/// The suit's console's view of the suit in its gantry (`Refit`), while its tab is open.
+#[derive(Resource, Default)]
+pub struct RefitView(pub Refit);
+
 /// The camera at the pilot's eyes (or where a sequence puts it), after the chase camera has had
-/// its turn.
+/// its turn. In the bay, with the suit's console open on its tab, it stands off the suit instead.
+#[allow(clippy::too_many_arguments)]
 pub fn onfoot_camera(
     me: Res<OnFoot>,
     indoors: Res<Indoors>,
     prefs: Res<ViewPrefs>,
+    ui: Res<Ui>,
+    cmds: Res<UiCmds>,
+    time: Res<Time>,
+    mut refit: ResMut<RefitView>,
     mut origin: ResMut<RenderOrigin>,
     mut cam: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
 ) {
+    for cmd in &cmds.0 {
+        if let UiCmd::SuitView { on, yaw, zoom } = *cmd {
+            refit.0.set(on, yaw, zoom);
+        }
+    }
+    // Only while a terminal of the bay's is open, walking in the bay (the page says which tab).
+    if !matches!(ui.panel, Panel::Terminal(_))
+        || me.city.is_some()
+        || me.deck.is_some()
+        || me.seq != Seq::Walking
+    {
+        refit.0.on = false;
+    }
+    refit.0.step(time.delta_secs());
     let Ok((mut tf, mut projection)) = cam.single_mut() else { return };
     // Walls come close on foot (in the city, a little less close: the far wall is 6 km off).
     let near = match (&me.city, indoors.0) {
@@ -1987,12 +2110,15 @@ pub fn onfoot_camera(
         (None, true) => 0.05,
         _ => 0.5,
     };
+    let fov = prefs.fov.clamp(40.0, 120.0);
+    let in_bay = me.city.is_none() && me.deck.is_none();
+    let fov = if in_bay { refit.0.blended((Vec3::ZERO, Vec3::Z), fov).2 } else { fov };
     if let Projection::Perspective(p) = &mut *projection {
         if p.near != near {
             p.near = near;
         }
         if indoors.0 {
-            p.fov = prefs.fov.clamp(40.0, 120.0).to_radians();
+            p.fov = fov.to_radians();
         }
     }
     if !indoors.0 {
@@ -2015,7 +2141,15 @@ pub fn onfoot_camera(
         *tf = Transform::from_translation(origin.place(eye)).looking_to(look, up);
         return;
     }
-    let (eye, at) = me.view(now);
+    // On the base's deck: drawn round the pilot, upright to its floor (`base::frame`).
+    if let Some(d) = &me.deck {
+        let (eye, look, up) = d.view();
+        let f = crate::base::frame(d.feet().s);
+        *tf = Transform::from_translation(f.transform_point(eye))
+            .looking_to(f.rotation * look, f.rotation * up);
+        return;
+    }
+    let (eye, at, _) = refit.0.blended(me.view(now), 0.0);
     *tf = Transform::from_translation(BAY_ORIGIN + eye).looking_at(BAY_ORIGIN + at, Vec3::Y);
 }
 
@@ -2047,6 +2181,22 @@ pub fn publish_onfoot(
     dev.set("people_names", people.iter().map(|(_, n, _)| *n).collect::<Vec<_>>().join(","));
     let where_ = people.iter().map(|(_, n, p)| format!("{n}@{:.1},{:.1},{:.1}", p.x, p.s, p.h));
     dev.set("people_at", where_.collect::<Vec<_>>().join(";"));
+    // Out on Bay Row: where on the base's deck (along the axis, round it, up), being walked, and
+    // their airlock's door at hand.
+    match &me.deck {
+        Some(d) => {
+            let at = d.feet();
+            dev.set("deck_feet", format!("{:.1},{:.1},{:.1}", at.x, at.s, at.h));
+            dev.set("deck_walking_to", d.guide.is_some());
+            if me.seq == Seq::Walking {
+                dev.set("focus", if d.at_door { "airlock" } else { "" });
+            }
+        }
+        None => {
+            dev.set("deck_feet", "");
+            dev.set("deck_walking_to", false);
+        }
+    }
     // In the colony: the strip, where on it (along, across, up) and the place at hand.
     match &me.city {
         Some(c) => {

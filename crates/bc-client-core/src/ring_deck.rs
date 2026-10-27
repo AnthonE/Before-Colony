@@ -1,15 +1,15 @@
-//! The Ring Deck: the bay ring's suit deck, a hall that runs along the ring behind its bays, where
-//! suits walk between the bays and the lifts. The colony's own infrastructure in its clean language
-//! (`docs/COLONY_LOOK.md`, "The station language"): white panels, the lines' colours for
-//! wayfinding, safety yellow and black only where there's a hazard, stencilled signs in plain
-//! English, and glass in the rim's floor with Earth wheeling past under it as the ring turns.
+//! The Ring Deck: a suit-scale test set of the colony's station language (`docs/RING.md`, "The
+//! station language"), a suit deck in the hub's drum where suits walk between their bays and the
+//! spoke lifts: white panels, the lines' colours for wayfinding, safety yellow and black only where
+//! there's a hazard, stencilled signs in plain English, and glass in the rim's floor with Earth
+//! wheeling past under it as the colony turns.
 //!
 //! A showcase set for now (`?showcase=ring`), drawn by `bc-client`'s `station`: nothing walks or
 //! collides with it, and the server knows nothing of it.
 //!
 //! Metres, the deck's floor centre the origin: x along the colony's axis (+x the bays' wall, −x the
 //! rim, where the floor stops at a rail over the glass), y up (towards the spin axis), z along the
-//! ring (−z the launch tunnels' blast door, +z the passage to the cap lifts). The deck's axes are
+//! ring (−z the launch tunnels' blast door, +z the passage to the spoke lifts). The deck's axes are
 //! the world's, so the colony's spin turns the sky about x.
 
 use glam::Vec3;
@@ -487,9 +487,9 @@ fn signs() -> Vec<Sign> {
         sign("RING DECK 2", [-w, 21.5, -20.0], Vec3::X, Vec3::Y, 5.5, CHARTER),
         sign("SECTION 14", [-w, 17.4, -20.0], Vec3::X, Vec3::Y, 2.0, DARK),
         sign("LAUNCH TUNNELS", [6.0, band, -l], Vec3::Z, Vec3::Y, 2.4, WHITE),
-        sign("CAP LIFTS", [6.0, band, l], Vec3::NEG_Z, Vec3::Y, 2.4, WHITE),
+        sign("SPOKE LIFTS", [6.0, band, l], Vec3::NEG_Z, Vec3::Y, 2.4, WHITE),
         sign("SPOKE 2", [w, 15.0, 86.0], Vec3::NEG_X, Vec3::Y, 3.0, DARK),
-        sign("CAP LIFTS", [-12.0, 18.5, PASSAGE_END], Vec3::NEG_Z, Vec3::Y, 3.6, CANAL),
+        sign("SPOKE LIFTS", [-12.0, 18.5, PASSAGE_END], Vec3::NEG_Z, Vec3::Y, 3.6, CANAL),
         sign("CHARTER", [-12.0, 14.0, PASSAGE_END], Vec3::NEG_Z, Vec3::Y, 1.8, CHARTER),
         sign("CANAL", [-12.0, 11.8, PASSAGE_END], Vec3::NEG_Z, Vec3::Y, 1.8, CANAL),
         sign("GARDENS", [-12.0, 9.6, PASSAGE_END], Vec3::NEG_Z, Vec3::Y, 1.8, GARDENS),
@@ -546,7 +546,7 @@ pub const CAMS: [(Vec3, Vec3); 4] = [
     // Low at the standing suit's feet, up at its bay's door and its number.
     (Vec3::new(6.0, 1.7, -32.0), Vec3::new(24.0, 15.0, -52.0)),
     // Over the trough past the rim's rail, along the rim: Earth rising through the glass, the
-    // rail and the deck to the right, the catwalk on the wall to the left (Earth there at 19 s).
+    // rail and the deck to the right, the catwalk on the wall to the left (Earth there at 10.6 s).
     (Vec3::new(-11.0, 4.0, -20.0), Vec3::new(-17.6, -5.4, -3.6)),
     // By a pillar, towards the opening and the lifts.
     (Vec3::new(15.0, 4.0, 56.0), Vec3::new(6.0, 12.0, 120.0)),

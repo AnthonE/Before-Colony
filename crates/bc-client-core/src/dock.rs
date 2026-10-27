@@ -75,10 +75,12 @@ impl Home {
     }
 
     /// How near its middle a suit is coming in to dock, m: twice its ring's radius (the gantry's
-    /// pad's). The dock's takes in the whole of the docking hub's mouth, its deck hatch with it.
+    /// pad's). The dock's is its ring and 100 m more, well clear of the hub's mouth and the bays'
+    /// doors round it, which a launch comes out of (a suit landed on the deck hatch is docked: its
+    /// own state says so).
     pub fn approach(self) -> f32 {
         match self {
-            Home::Dock => 2.0 * DOCK_RADIUS,
+            Home::Dock => DOCK_RADIUS + 100.0,
             Home::InnerGate => 2.0 * interior::INNER_GATE_RADIUS,
             Home::Gantry => 2.0 * hall::GANTRY_RADIUS,
         }
@@ -148,7 +150,7 @@ pub fn enter_docks(core: &ClientCore) -> bool {
 mod tests {
     use super::*;
     use bc_sim::colony::frame::{CityPos, STRIP_WIDTH};
-    use bc_sim::colony::hub::{BAY_DOOR_X, BAY_RADIUS, SPIRE_MOUTH_X, SPIRE_RADIUS};
+    use bc_sim::colony::hub::{BAY_DOOR_X, BAY_RADIUS};
     use bc_sim::field::FIELD_CENTER;
     use bc_sim::world::COLONY_CENTER;
 
@@ -178,18 +180,15 @@ mod tests {
         assert_eq!(Home::InnerGate.verb(), "home");
     }
 
-    /// Out in the sector: in the ring (at rest or not) and on the docking hub's mouth, Enter docks
-    /// (or is told to come to rest); out by the bays' doors, where a launch throws a suit, and
+    /// Out in the sector: in the ring (at rest or not), or docked on the hub's deck hatch, Enter
+    /// docks (or is told to come to rest); out by the bays' doors, where a launch throws a suit, and
     /// over the field, it doesn't.
     #[test]
     fn out_in_the_sector_enter_docks_at_the_dock_and_its_deck_hatch_only() {
         let dock = Home::Dock;
         assert!(dock.enter_docks(true, None), "docked, wherever it's drawn");
         assert!(dock.enter_docks(false, Some(DOCK_CENTER + Vec3::Y * (DOCK_RADIUS * 0.9))));
-        assert!(dock.enter_docks(false, Some(DOCK_CENTER - Vec3::X * DOCK_RADIUS * 1.5)), "coming in");
-        // The deck hatch, and the rim of the mouth it's in.
-        let mouth = COLONY_CENTER + Vec3::X * SPIRE_MOUTH_X;
-        assert!(dock.near(mouth) && dock.near(mouth + Vec3::Y * SPIRE_RADIUS));
+        assert!(dock.enter_docks(false, Some(DOCK_CENTER - Vec3::X * DOCK_RADIUS * 1.3)), "coming in");
         let door = COLONY_CENTER + Vec3::new(BAY_DOOR_X, BAY_RADIUS, 0.0);
         assert!(!dock.enter_docks(false, Some(door)), "out of the bay's door");
         assert!(!dock.enter_docks(false, Some(FIELD_CENTER)));

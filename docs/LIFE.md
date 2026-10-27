@@ -1,5 +1,8 @@
 # Living in the First Colony: jobs, meals and the great works
 
+> **The colony is a ring now** (October 2026, `RING.md`): meals move to the Muster's mess, and The Arrival to the
+> ring's town. The framework below (seats, the body, meals) is unchanged.
+
 > GTA's city, the Sims' needs and World of Warcraft's server-wide efforts, inside one O'Neill
 > cylinder. You can live in the colony and cook for pilots, and it matters to the pilots who fight.
 

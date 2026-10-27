@@ -89,6 +89,11 @@ pub enum Request {
     },
     /// Ride the cap lift back up to the bay.
     LeaveCity,
+    /// Out through the bay's airlock onto Bay Row, the base's deck in the hub (`docs/RING.md`, "The
+    /// base"): on foot among the other pilots and the Muster's buildings.
+    EnterBase,
+    /// Back in through the bay's airlock from Bay Row (standing at its door).
+    LeaveBase,
     /// On foot at the Blast Hall's gantry in the colony's city: board one of the Charter Board's
     /// trainers and fly it from there (the inside's sector, weapons free in the hall). Nothing of
     /// the pilot's own is taken; `dock`, at rest on the gantry, puts them back on foot there.
@@ -289,6 +294,8 @@ impl Request {
             | Request::Dock
             | Request::EnterCity { .. }
             | Request::LeaveCity
+            | Request::EnterBase
+            | Request::LeaveBase
             | Request::BoardTrainer
             | Request::Withdraw { .. }
             | Request::Deliver { .. }
@@ -401,6 +408,8 @@ pub enum Place {
     Space,
     /// On foot inside the colony, in its city.
     City,
+    /// On foot on the base's deck in the hub, out of the bay's airlock (`docs/RING.md`).
+    Base,
 }
 
 /// Where a pilot waking at home gets up: the home, and the spot beside its bed (dm from the home's
@@ -716,6 +725,8 @@ pub fn apply(
         | Request::Dock
         | Request::EnterCity { .. }
         | Request::LeaveCity
+        | Request::EnterBase
+        | Request::LeaveBase
         | Request::WatchBoard { .. }
         | Request::UseKit { .. }
         | Request::Eject { .. }
@@ -984,6 +995,8 @@ mod tests {
             (Request::Dock, None),
             (Request::EnterCity { strip: 0 }, None),
             (Request::LeaveCity, None),
+            (Request::EnterBase, None),
+            (Request::LeaveBase, None),
             (Request::BoardTrainer, None),
             (Request::Withdraw { id: 1 }, None),
             (Request::Deliver { id: 1, qty: 1 }, None),
@@ -1001,7 +1014,7 @@ mod tests {
             .iter()
             .map(|(r, _)| serde_json::to_value(r).unwrap()["t"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(tags.len(), 32, "every request: {tags:?}");
+        assert_eq!(tags.len(), 34, "every request: {tags:?}");
         // Each refusal says where to go, as the server's notes and the e2e read them.
         for (k, place) in [
             (Floor, "the exchange floor's counter"),
@@ -1026,6 +1039,9 @@ mod tests {
             back,
             Update::Place { place: Place::Space, bay: 3, strip: None, trainer: false, wake: None }
         );
+        // Out on Bay Row: the page reads it as `base`.
+        let base = Update::Place { place: Place::Base, bay: 3, strip: None, trainer: false, wake: None };
+        assert!(String::from_utf8(encode(&base)).unwrap().contains(r#""place":"base""#));
         let flying = Update::Place { place: Place::Space, bay: 3, strip: None, trainer: true, wake: None };
         assert_eq!(decode::<Update>(&encode(&flying)), Some(flying));
         let mut b = crate::proving::Board::default();

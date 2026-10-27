@@ -9,6 +9,7 @@
 //! [`ClientCore::poll_inputs`] returns.
 
 pub mod aimpoint;
+pub mod base;
 pub mod baselines;
 pub mod bay;
 pub mod beam_view;
@@ -45,6 +46,7 @@ pub mod objectives;
 pub mod own;
 pub mod page;
 pub mod palette;
+pub mod piece_mesh;
 pub mod plaza;
 pub mod pointer;
 pub mod predict;

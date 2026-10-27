@@ -9,9 +9,13 @@
 //! A new screen or tab gets a scene here.
 
 use bc_econ::exchange::Exchange;
+use bc_econ::faults::Faults;
 use bc_econ::proving::{Board, Feat};
+use bc_econ::stores::PartUnit;
 use bc_econ::wire::{HangarView, MarketView, Place};
-use bc_econ::{Hangar, Item, Material, Ore, Side};
+use bc_econ::{Bay, Hangar, Item, Material, Ore, Side};
+use bc_proto::{FrameId, Part};
+use bc_sim::content::{ModuleKind, frame};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -37,6 +41,9 @@ pub struct Scene {
     /// as its `/status` would).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub front: Option<Value>,
+    /// The suit console's open slot (`bcUi.suitSlot`): the page keeps it, the game never says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slot: Option<&'static str>,
 }
 
 /// Everything the gallery shows.
@@ -68,7 +75,7 @@ fn survival(place: &'static str) -> View {
 }
 
 fn scene(name: &'static str, about: &'static str, expect: &'static str, view: View) -> Scene {
-    Scene { name, about, expect, view, hangar: None, front: None }
+    Scene { name, about, expect, view, hangar: None, front: None, slot: None }
 }
 
 /// A server's `/status`, as much of it as the front screen reads: its rules, who's up, and the
@@ -102,10 +109,30 @@ fn front(name: &'static str, about: &'static str, expect: &'static str, front: V
 /// fabricator, the exchange with the colony's quotes and an order of theirs resting, the Charter
 /// Board's contracts and the Proving Ground's board.
 fn hangar_state(place: Place) -> HangarState {
+    hangar_state_with(place, |_| {})
+}
+
+/// [`hangar_state`], with the hangar changed by `tweak` first.
+fn hangar_state_with(place: Place, tweak: impl Fn(&mut Hangar)) -> HangarState {
     let mut h = Hangar::starter();
     h.credits = 12_480;
     h.stores.add(Item::Ore(Ore::NickelIron), 18_400);
     h.stores.add(Item::Material(Material::Steel), 2_250);
+    // For the suit's console: a spare head off a wreck, the beam rifle the starter came without,
+    // a G-seat fitted and two more pieces of equipment for the torso's mounts.
+    h.stores.add_part(PartUnit {
+        line: FrameId::Argo,
+        part: Part::Head,
+        condition: 82,
+        faults: Faults::default(),
+    });
+    if let Some(m) = frame(FrameId::Argo).loadout[0] {
+        h.stores.add(Item::Weapon(m.weapon), 1);
+    }
+    for kind in [ModuleKind::GSeat, ModuleKind::CompositePlating, ModuleKind::CapacitorBank] {
+        h.stores.add(Item::Module(kind), 1);
+    }
+    let _ = h.fit(Item::Module(ModuleKind::GSeat));
     let mut ex = Exchange::new();
     ex.seed_missing();
     let _ = ex.place(ME, Item::Ore(Ore::NickelIron), Side::Sell, 1_200, 4_000, 0, true);
@@ -116,6 +143,7 @@ fn hangar_state(place: Place) -> HangarState {
     {
         board.record(feat, name, name, ms, NOW);
     }
+    tweak(&mut h);
     HangarState {
         place: Some(place),
         bay: 7,
@@ -143,6 +171,17 @@ fn hangar(place: Place, colony: bool, home: Option<(u32, bool)>) -> Value {
     crate::terminal::hangar_json(&hangar_state(place), &log, colony, home)
 }
 
+/// The suit's console, open on `slot`, with the bay as `tweak` leaves it.
+fn suit(name: &'static str, about: &'static str, slot: &'static str, tweak: fn(&mut Hangar)) -> Scene {
+    let log = [("FITTED G-SEAT".to_string(), true)].into_iter().collect();
+    let state = hangar_state_with(Place::Hangar, tweak);
+    Scene {
+        slot: Some(slot),
+        hangar: Some(crate::terminal::hangar_json(&state, &log, true, None)),
+        ..terminal(name, about, "hangar", "suit", None)
+    }
+}
+
 /// A flat to let on strip 0 (the first building of flats with one on its ground floor).
 fn a_home() -> u32 {
     use bc_sim::colony::city::{CITY, ROWS, Stage, block, lots};
@@ -167,7 +206,15 @@ fn terminal(
 ) -> Scene {
     let at = if place == "city" { Place::City } else { Place::Hangar };
     let view = View { panel: PanelKind::Terminal, terminal: tab, on_foot: true, ..survival(place) };
-    Scene { name, about, expect: "#terminal", view, hangar: Some(hangar(at, true, home)), front: None }
+    Scene {
+        name,
+        about,
+        expect: "#terminal",
+        view,
+        hangar: Some(hangar(at, true, home)),
+        front: None,
+        slot: None,
+    }
 }
 
 pub fn gallery() -> Gallery {
@@ -369,7 +416,39 @@ pub fn gallery() -> Gallery {
         ),
         terminal("fabricator", "The bay's fabricator.", "hangar", "fabricator", None),
         terminal("stores", "The bay's stores.", "hangar", "stores", None),
-        terminal("suit", "The suit's maintenance console.", "hangar", "suit", None),
+        suit(
+            "suit",
+            "The suit's console on its torso: the radiators to overhaul, its parts' armour.",
+            "torso",
+            |_| {},
+        ),
+        suit("suit-head", "The suit's console on its head, a spare in the stores.", "head", |_| {}),
+        suit(
+            "suit-weapons",
+            "The suit's console on its weapons: the beam rifle to fit, how each fires.",
+            "weapons",
+            |_| {},
+        ),
+        suit(
+            "suit-equipment",
+            "The suit's console on its equipment: a G-seat fitted, two to swap in.",
+            "equipment",
+            |_| {},
+        ),
+        suit(
+            "suit-service",
+            "The suit's console on its service: propellant, wear, repair all.",
+            "service",
+            |_| {},
+        ),
+        suit("suit-empty", "The suit's console with the gantry empty.", "torso", |h| {
+            let _ = h.dismantle();
+        }),
+        suit("suit-out", "The suit's console with the suit out in the sector.", "torso", |h| {
+            if let Bay::Docked { suit } = std::mem::take(&mut h.bay) {
+                h.bay = Bay::Out { suit };
+            }
+        }),
         terminal("exchange-bay", "The Colony Exchange, from the bay's terminal.", "hangar", "exchange", None),
         terminal("exchange-desk", "The Exchange floor's counter, in the city.", "city", "exchange", None),
         terminal("charter", "The Charter Board's desk.", "city", "charter", None),

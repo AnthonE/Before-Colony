@@ -15,7 +15,7 @@ use bc_proto::{
 use bc_sim::field::Field;
 use bc_sim::math::look_rotation;
 use bc_sim::tuning::FlightRules;
-use bc_sim::world::{colony_altitude, colony_up};
+use bc_sim::world::{altitude, up_at};
 use bc_sim::{Sim, SimConfig};
 use glam::Vec3;
 
@@ -91,10 +91,10 @@ fn locked_on_a_pilot_closes_settles_and_circles_and_predicts_it_exactly() {
         sim.step();
 
         let (a, b) = (sim.suits.flight[i], sim.suits.flight[j]);
-        let up = colony_up(a.pos);
+        let up = up_at(a.pos);
         let r = b.pos - a.pos;
-        // Its level is its altitude over the colony; the range, along the ground.
-        let h = colony_altitude(b.pos) - colony_altitude(a.pos);
+        // Its level is its altitude; the range, along the ground.
+        let h = altitude(b.pos) - altitude(a.pos);
         let flat = (r.length_squared() - h * h).max(0.0).sqrt();
         if t <= 1_200 && closed_at.is_none() && (flat - stop).abs() < 3.0 && h.abs() < 3.0 {
             closed_at = Some(t);

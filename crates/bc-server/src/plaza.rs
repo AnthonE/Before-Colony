@@ -16,13 +16,18 @@
 //!
 //! Pilots flying suits inside the colony see the people too: those on the strip under the suit,
 //! near it in the air ([`Plaza::fill_around`]).
+//!
+//! The base's deck in the hub (`docs/RING.md`, "The base") is one more floor ([`BASE_DECK`]): out of
+//! a bay's airlock onto Bay Row, the first pose near that airlock, on foot only, out of the deck's
+//! walls and its buildings' (`bc_sim::colony::deck::solid`). Its people see only each other.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use bc_proto::presence::{MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
+use bc_proto::presence::{BASE_DECK, MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
 use bc_sim::colony::city::{MAX_HEIGHT, Stage, arrival_seats, place_door, solid};
+use bc_sim::colony::deck::{self, BASE, DeckPos};
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, STRIPS, Under, from_colony, within_caps};
 use bc_sim::colony::homes;
 use bc_sim::colony::pools::pool_near;
@@ -209,10 +214,26 @@ fn aboard(p: &PersonPose) -> bool {
         && p.riding().is_some_and(|k| u32::from(k) < TRAINS)
 }
 
+/// Whether a pose on the base's deck could be: on foot (nothing is ridden or driven there), a thin
+/// core of its body out of the deck's walls and its buildings'.
+fn on_the_base(p: &PersonPose) -> bool {
+    let e = 0.05;
+    mode(p) == Mode::Foot
+        && !p.markab()
+        && !deck::solid(
+            BASE,
+            Vec3::new(p.x - e, p.h + 0.4, -p.s - e),
+            Vec3::new(p.x + e, p.h + 1.4, -p.s + e),
+        )
+}
+
 /// Whether a pose could be anyone's: inside the colony, its body out of the walls (a thin core of
 /// it: a step's worth of the walker's box may brush one; a Markab's middle, which keeps 0.6 m off
-/// any face it's on, whichever way up).
+/// any face it's on, whichever way up); on the base's deck, [`on_the_base`].
 fn possible(p: &PersonPose) -> bool {
+    if p.strip == BASE_DECK {
+        return on_the_base(p);
+    }
     if p.riding().is_some() {
         return aboard(p);
     }
@@ -232,6 +253,9 @@ fn possible(p: &PersonPose) -> bool {
 /// Whether a pilot on foot rode a lift from `last` to `now`: both at the lift doors of the same
 /// building, on different storeys.
 fn lifted(last: &PersonPose, now: &PersonPose) -> bool {
+    if last.strip == BASE_DECK || now.strip == BASE_DECK {
+        return false;
+    }
     let at = |p: &PersonPose| {
         let plan = homes::plan_at(p.strip, p.s, p.x)?;
         Some(((plan.bx, plan.row, plan.lot), plan.at_lift(p.s, p.x, p.h)?))
@@ -269,7 +293,7 @@ impl Plaza {
     /// after it, never the other way round).
     fn may_cross(&self, me: &Person, last: &PersonPose, now: &PersonPose) -> bool {
         let Some(reg) = &self.homes else { return true };
-        if mode(last) != Mode::Foot || mode(now) != Mode::Foot {
+        if mode(last) != Mode::Foot || mode(now) != Mode::Foot || now.strip == BASE_DECK {
             return true;
         }
         let home = |p: &PersonPose| homes::home_at(p.strip, p.s, p.x, p.h + 1.0);
@@ -285,11 +309,17 @@ impl Plaza {
         self.enter_at(id, name, strip, hub_gate(strip));
     }
 
+    /// `id` came out of bay `bay`'s airlock onto Bay Row, the base's deck.
+    pub fn enter_base(&self, id: u16, name: &str, bay: u8) {
+        let out = deck::out_of_the_airlock(bay);
+        self.enter_at(id, name, BASE_DECK, (out.s, out.x));
+    }
+
     /// `id` came into strip `strip`'s city at `(s, x)` (out of a trainer, at the Blast Hall's
-    /// gantry): their first pose must be near there.
+    /// gantry), or onto the base's deck ([`BASE_DECK`]): their first pose must be near there.
     pub fn enter_at(&self, id: u16, name: &str, strip: u8, arrival: (f32, f32)) {
         if let Ok(mut all) = self.people.lock() {
-            let strip = strip % STRIPS as u8;
+            let strip = strip.min(BASE_DECK);
             all.insert(
                 id,
                 Person {
@@ -443,7 +473,8 @@ impl Plaza {
     }
 
     /// Where `id` is in the colony's own frame at tick `tick` (a rider: where their train has
-    /// them); before their first pose, where they came in. `None` if they're not in the city.
+    /// them); before their first pose, where they came in. `None` if they're not on foot in the
+    /// city or on the base's deck.
     pub fn where_is(&self, id: u16, tick: u32) -> Option<Vec3> {
         let all = self.people.lock().ok()?;
         let me = all.get(&id)?;
@@ -454,6 +485,9 @@ impl Plaza {
             }
             None => (me.arrival.0, me.arrival.1, 0.0),
         };
+        if me.strip == BASE_DECK {
+            return Some(DeckPos::new(BASE, x, s, h).to_colony());
+        }
         Some(CityPos::new(me.strip, x, s, h).to_colony())
     }
 
@@ -468,15 +502,19 @@ impl Plaza {
         WHYS.iter().zip(by).map(|(w, n)| (*w, n)).collect()
     }
 
-    /// For `/status`: how many are in the city, by strip, and how many poses have been refused
-    /// (no positions).
-    pub fn counts(&self) -> (usize, [usize; 3], u32) {
-        let Ok(all) = self.people.lock() else { return (0, [0; 3], 0) };
+    /// For `/status`: how many are in the city, by strip, how many poses have been refused, and how
+    /// many are out on the base's deck (no positions).
+    pub fn counts(&self) -> (usize, [usize; 3], u32, usize) {
+        let Ok(all) = self.people.lock() else { return (0, [0; 3], 0, 0) };
         let mut by_strip = [0; 3];
+        let mut base = 0;
         for p in all.values() {
-            by_strip[p.strip as usize % 3] += 1;
+            match by_strip.get_mut(p.strip as usize) {
+                Some(n) => *n += 1,
+                None => base += 1,
+            }
         }
-        (all.len(), by_strip, all.values().map(|p| p.refused).sum())
+        (all.len() - base, by_strip, all.values().map(|p| p.refused).sum(), base)
     }
 }
 
@@ -1015,5 +1053,55 @@ mod tests {
         assert!(seen(&plaza, 1, t0 + Duration::from_secs(6)).is_empty());
         assert_eq!(plaza.name(3).as_deref(), Some("Viktor"));
         assert_eq!(plaza.counts().1, [2, 1, 0]);
+    }
+
+    #[test]
+    fn out_on_bay_row_pilots_walk_the_base_deck_and_see_only_each_other() {
+        use bc_sim::content::base::SITES;
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let on_deck = |p: DeckPos| PersonPose { strip: BASE_DECK, ..at(0, p.s, p.x) };
+        // Two pilots out of bays 1's and 2's airlocks; one down in the city.
+        plaza.enter_base(1, "Maren", 1);
+        plaza.enter_base(2, "Pagan", 2);
+        plaza.enter(3, "Major Ines", 0);
+        assert_eq!(plaza.accept(1, 1, on_deck(deck::out_of_the_airlock(1)), t0, 0), Verdict::Taken);
+        // Out of bay 2's airlock, a first pose by bay 40's isn't where they came out.
+        assert_eq!(plaza.accept(2, 1, on_deck(deck::out_of_the_airlock(40)), t0, 0), Verdict::Implausible);
+        assert_eq!(plaza.accept(2, 2, on_deck(deck::out_of_the_airlock(2)), t0, 0), Verdict::Taken);
+        let (s, x) = hub_gate(0);
+        assert_eq!(plaza.accept(3, 1, at(0, s, x), t0, 0), Verdict::Taken);
+        // A pose in the city from someone on the deck isn't theirs; nor is one riding a tram there.
+        let t1 = t0 + Duration::from_millis(200);
+        assert_eq!(plaza.accept(1, 2, at(0, s, x), t1, 0), Verdict::Implausible);
+        let riding = PersonPose { ride: 1, ..on_deck(deck::out_of_the_airlock(1)) };
+        assert_eq!(plaza.accept(1, 3, riding, t1, 0), Verdict::Implausible);
+        // Across Bay Row to the test hall's front: taken; into one of its walls: not.
+        let site = &SITES[0];
+        let front = site.to_walker(Vec3::new(4.5, 0.0, -1.0));
+        let t2 = t0 + Duration::from_secs(3);
+        assert_eq!(plaza.accept(1, 4, on_deck(DeckPos::from_walker(BASE, front)), t2, 0), Verdict::Taken);
+        let mut wall = None;
+        site.each_solid(&mut |b| {
+            if b.max.y - b.min.y > 2.0 && b.min.y < 0.5 {
+                wall.get_or_insert((b.min + b.max) * 0.5);
+            }
+        });
+        let wall = DeckPos::from_walker(BASE, wall.expect("a wall").with_y(0.0));
+        let t3 = t2 + Duration::from_millis(800);
+        assert_eq!(plaza.accept(1, 5, on_deck(wall), t3, 0), Verdict::Implausible, "in the hall's wall");
+        // Maren sees Pagan (on the deck), not Major Ines (in the city).
+        let mut buf = [0u8; MAX_DATAGRAM];
+        let mut w = PlazaWriter::new(&mut buf, 1, Some(BASE_DECK));
+        let mut shown = Vec::new();
+        plaza.fill(1, t3, 0, &mut w, &mut shown);
+        assert_eq!(shown, vec![2]);
+        // Where Maren is, in the colony's own frame, is on the deck by the hall.
+        let here = plaza.where_is(1, 0).unwrap();
+        let back = deck::deck_at(here).expect("over the deck");
+        assert_eq!(back.deck, BASE);
+        assert!((back.walker() - front).length() < 0.05, "{back:?}");
+        let (city, by_strip, _, base) = plaza.counts();
+        assert_eq!((city, by_strip, base), (1, [1, 0, 0], 2));
     }
 }

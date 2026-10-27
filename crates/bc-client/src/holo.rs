@@ -36,7 +36,6 @@ impl Plugin for HoloPlugin {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HoloKind {
     Plain = 0,
-    Colony = 1,
     Earth = 2,
     Moon = 3,
 }

@@ -2,7 +2,7 @@
 //! handles as a first-person shooter's player moves, not as a spacecraft does.
 //!
 //! - **An upright view.** The view's up settles onto the ground's ([`ground`]): away from the
-//!   colony out in space (`bc_sim::world::colony_up`, the lock-on's ground too), toward its axis
+//!   sector's out in space (`bc_sim::world::up_at`, the lock-on's ground too), toward its axis
 //!   inside it, and onto the surface an armed grip is bringing the suit down to. The mouse turns
 //!   the aim about that up, as on foot, and never past [`PITCH_LIMIT`] of the horizon ([`turn`]).
 //!   Q / E roll the view off it while they're held; let go, and it levels out ([`level`]).
@@ -31,7 +31,7 @@ use bc_sim::colony::frame::up_at;
 use bc_sim::content::frame;
 use bc_sim::flight::ROLL_LEVEL_GAIN;
 use bc_sim::ground::{Footing, lockon_assist};
-use bc_sim::world::colony_up;
+use bc_sim::world::up_at as space_up;
 use glam::{Quat, Vec3};
 
 use crate::InputContext;
@@ -64,8 +64,7 @@ pub fn flies(p: &Predictor, world: &World, buttons: u16) -> bool {
 }
 
 /// The ground's up where the predicted suit is, at tick `tick`: inside the colony, toward its axis;
-/// out in space with the grip armed (`grip`), the surface it's coming down to; else away from the
-/// colony.
+/// out in space with the grip armed (`grip`), the surface it's coming down to; else the sector's.
 pub fn ground(p: &Predictor, tick: u32, grip: bool) -> Vec3 {
     let s = &p.state;
     if p.interior() {
@@ -74,7 +73,7 @@ pub fn ground(p: &Predictor, tick: u32, grip: bool) -> Vec3 {
     if grip && let Some(h) = surface_hint(&p.bodies(tick), s) {
         return h.normal;
     }
-    colony_up(s.pos)
+    space_up(s.pos)
 }
 
 /// `up` turned toward `to` by at most `step`, rad.

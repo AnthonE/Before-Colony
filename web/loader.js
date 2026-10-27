@@ -109,6 +109,9 @@ async function main() {
     tonemap: params.get("tonemap") || "",
     // `?look=0`: the plain look (no grade, vignette or lit smoke), to compare against.
     look: params.get("look") !== "0",
+    // `?look=anime`: the painted look on trial (docs/RING.md, "The look"): the colony, the bays and the
+    // stations shaded in painted bands.
+    paint: params.get("look") === "anime",
     // `?life=0`: no traffic or people in the colony's city, to compare and to measure.
     life: params.get("life") !== "0",
     // `?ssao=0`: no screen-space ambient occlusion (WebGPU), to compare against.

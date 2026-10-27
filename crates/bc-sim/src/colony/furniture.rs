@@ -24,9 +24,9 @@ use super::city::{
     room, row_at, row_span, unit,
 };
 use super::frame::STRIP_WIDTH;
+use crate::colony::frame::HALF_LENGTH as COLONY_HALF_LENGTH;
 use crate::content::city::PLACES;
 use crate::math::floor;
-use crate::world::COLONY_HALF_LENGTH;
 
 /// The street lamps (`city_lib.wgsl`'s `LAMP_GAP`, `LAMP_OUT`): about this far apart down a kerb,
 /// spaced evenly from corner to corner; each lantern this far out over the street from its kerb.

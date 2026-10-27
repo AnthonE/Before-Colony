@@ -194,8 +194,8 @@ pub const GANTRY_TOP: f32 = 24.0;
 pub const SUIT_AT: Vec3 = Vec3::new(0.0, 9.6, 6.0);
 /// The cockpit hatch, in the front of the suit's chest.
 pub const HATCH: Vec3 = Vec3::new(0.0, 12.6, 3.7);
-/// Gravity in the hub's spin ring, m/s² (0.7 g).
-pub const GRAVITY: f32 = 6.9;
+/// Gravity on the hub's drum, where the bays are, m/s² (0.4 g).
+pub const GRAVITY: f32 = 3.92;
 /// Where a pilot comes in: just inside the airlock, facing the suit.
 pub const SPAWN: Vec3 = Vec3::new(-15.4, 0.0, -20.0);
 
@@ -368,6 +368,94 @@ fn overlap(min: Vec3, max: Vec3, b: &Block) -> bool {
         && max.z > b.min.z
 }
 
+/// The suit's console's view of the suit in its gantry (`docs/UI.md`, "The suit's console"): while
+/// its tab is open the camera leaves the pilot's eyes and stands off the suit's front, swung round
+/// it as the page's drag says and as near as its wheel says, kept inside the bay's walls. It eases
+/// in and out in a quarter of a second (`docs/UI.md`, rule 7).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Refit {
+    /// The console's tab is open.
+    pub on: bool,
+    /// Round the suit, radians: 0 square on to its front, positive to its left (the viewer's right).
+    pub yaw: f32,
+    /// 1 the whole suit; more is nearer.
+    pub zoom: f32,
+    /// How far into the view, 0..1 (eased).
+    pub blend: f32,
+}
+
+impl Default for Refit {
+    fn default() -> Self {
+        Self { on: false, yaw: Refit::YAW, zoom: 1.0, blend: 0.0 }
+    }
+}
+
+impl Refit {
+    /// Where it starts: a three-quarter view.
+    pub const YAW: f32 = 0.3;
+    /// How far round it swings either way (further, the gantry's pillars stand in the way).
+    pub const YAW_MAX: f32 = 0.75;
+    pub const ZOOM: (f32, f32) = (0.8, 2.4);
+    /// The whole suit from this far off, at [`Refit::FOV_DEG`] (the bay doors are 30 m in front
+    /// of it).
+    pub const DISTANCE: f32 = 28.0;
+    /// The view's vertical field, degrees: the suit fits the panel's clear middle, under its top
+    /// and above its keys.
+    pub const FOV_DEG: f32 = 66.0;
+    /// Seconds to ease in or out.
+    pub const EASE_S: f32 = 0.25;
+    /// What the camera looks at: above the middle of a suit standing in the gantry, so the suit
+    /// stands a little low in the view, where the panel's middle is clear.
+    const AT: Vec3 = Vec3::new(SUIT_AT.x, 12.0, SUIT_AT.z);
+    /// The eye, a little under it (a suit looks its size from below).
+    const EYE_Y: f32 = 9.5;
+    /// The camera keeps this far inside the walls, the doors and the ceiling.
+    const MARGIN: f32 = 1.5;
+
+    /// The page's word: the tab open or not, and the drag and the wheel.
+    pub fn set(&mut self, on: bool, yaw: f32, zoom: f32) {
+        self.on = on;
+        if yaw.is_finite() {
+            self.yaw = yaw.clamp(-Self::YAW_MAX, Self::YAW_MAX);
+        }
+        if zoom.is_finite() && zoom > 0.0 {
+            self.zoom = zoom.clamp(Self::ZOOM.0, Self::ZOOM.1);
+        }
+    }
+
+    /// `dt` seconds on: the blend towards in or out.
+    pub fn step(&mut self, dt: f32) {
+        let to = if self.on { 1.0 } else { 0.0 };
+        let step = dt.max(0.0) / Self::EASE_S;
+        self.blend = if self.blend < to { (self.blend + step).min(to) } else { (self.blend - step).max(to) };
+    }
+
+    /// The eye and what it looks at, in the bay (its walls hold the eye in).
+    pub fn view(&self) -> (Vec3, Vec3) {
+        let d = Self::DISTANCE / self.zoom;
+        // The suit faces the doors (−z): its front is towards −z, its left towards +x.
+        let eye = Vec3::new(Self::AT.x + d * self.yaw.sin(), Self::EYE_Y, Self::AT.z - d * self.yaw.cos());
+        let m = Self::MARGIN;
+        let eye = Vec3::new(
+            eye.x.clamp(-HALF_WIDTH + m, HALF_WIDTH - m),
+            eye.y.clamp(m, HEIGHT - m),
+            eye.z.clamp(-HALF_LENGTH + m, HALF_LENGTH - m),
+        );
+        (eye, Self::AT)
+    }
+
+    /// The pilot's own eye and look-at (`walk`) blended towards the console's view, eased; and
+    /// the field, from the pilot's (`fov_deg`).
+    pub fn blended(&self, walk: (Vec3, Vec3), fov_deg: f32) -> (Vec3, Vec3, f32) {
+        if self.blend <= 0.0 {
+            return (walk.0, walk.1, fov_deg);
+        }
+        let t = self.blend * self.blend * (3.0 - 2.0 * self.blend);
+        let (eye, at) = self.view();
+        (walk.0.lerp(eye, t), walk.1.lerp(at, t), fov_deg + (Self::FOV_DEG - fov_deg) * t)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,5 +523,55 @@ mod tests {
         // The hatch is at a pilot's eye on the catwalk.
         assert!((HATCH.y - (CATWALK_Y + 1.62)).abs() < 1.0);
         const { assert!(HATCH.z > CATWALK_Z[1]) };
+    }
+    #[test]
+    fn the_consoles_view_frames_the_suit_from_inside_the_bay() {
+        let inside = |p: Vec3| p.x.abs() < HALF_WIDTH && p.z.abs() < HALF_LENGTH && p.y > 0.0 && p.y < HEIGHT;
+        let mut r = Refit::default();
+        for yaw in [-3.0, -0.75, -0.4, 0.0, 0.3, 0.6, 0.75, 3.0] {
+            for zoom in [0.1, 0.8, 1.0, 2.4, 9.0] {
+                r.set(true, yaw, zoom);
+                let (eye, at) = r.view();
+                assert!(inside(eye), "{yaw} {zoom}: {eye}");
+                // In front of the suit (it faces the doors) and looking at it.
+                assert!(eye.z < SUIT_AT.z - 2.0, "{yaw} {zoom}: {eye}");
+                assert!((at - eye).length() > 8.0);
+            }
+        }
+        // Square on and zoomed out, the whole suit (19 m) fits the panel's clear middle, about
+        // three fifths of the view.
+        r.set(true, 0.0, 1.0);
+        let (eye, at) = r.view();
+        let seen = 2.0 * (at - eye).length() * (Refit::FOV_DEG.to_radians() / 2.0).tan();
+        assert!(seen * 0.6 > 20.0, "{seen}");
+        // Swung round as far as it goes, the gantry's front pillars (x ±7, z 4.2) stay behind the
+        // line to the suit's middle.
+        r.set(true, Refit::YAW_MAX, 1.0);
+        let (eye, at) = r.view();
+        let k = (eye.x - 7.0) / (eye.x - at.x);
+        assert!(eye.z + k * (at.z - eye.z) < 4.2, "{eye}");
+        // Nonsense from the page is ignored.
+        r.set(true, f32::NAN, f32::INFINITY);
+        assert_eq!((r.yaw, r.zoom), (Refit::YAW_MAX, 1.0));
+    }
+
+    #[test]
+    fn the_consoles_view_eases_in_and_out_in_a_quarter_second() {
+        let mut r = Refit::default();
+        let walk = (Vec3::new(6.5, 1.6, -3.0), Vec3::new(6.5, 1.3, -1.2));
+        assert_eq!(r.blended(walk, 70.0), (walk.0, walk.1, 70.0));
+        r.set(true, Refit::YAW, 1.0);
+        for _ in 0..15 {
+            r.step(1.0 / 60.0);
+        }
+        assert_eq!(r.blend, 1.0);
+        let (eye, at, fov) = r.blended(walk, 70.0);
+        assert_eq!((eye, at), r.view());
+        assert!((fov - Refit::FOV_DEG).abs() < 1e-4);
+        r.set(false, 0.0, 0.0);
+        r.step(0.1);
+        assert!(r.blend > 0.0 && r.blend < 1.0);
+        r.step(0.2);
+        assert_eq!(r.blended(walk, 70.0), (walk.0, walk.1, 70.0));
     }
 }

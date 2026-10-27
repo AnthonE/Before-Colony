@@ -5,9 +5,9 @@
 #      BC_ORACLE (local|jev; jev needs TYPESAFE_API_KEY),
 #      BC_RULES (survival|arcade; default survival), BC_FLIGHT (anime|real; default anime: the
 #      tank is a boost gauge that refills), BC_DATA (a directory: keep pilots, hangars and the
-#      exchange across restarts), BC_COLONY=0 (close the colony; it's open by default under
-#      survival rules: the bay's airlock leads down into its city, where an agent strolls outside
-#      each Hub Gate), BC_AGENT_KEYS (a directory: each agent signs in with its own wallet,
+#      exchange across restarts), BC_COLONY=1 (open the retired cylinder's inside, closed by
+#      default while the ring is built, docs/RING.md: the bay's airlock leads down into its city,
+#      where an agent strolls outside each Hub Gate), BC_AGENT_KEYS (a directory: each agent signs in with its own wallet,
 #      <name>.key there, made on the first run; without it they fly as guests)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -18,10 +18,10 @@ cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT INT TERM
 data=()
 [ -n "${BC_DATA:-}" ] && data=(--data-dir "$BC_DATA")
-# The colony is open by default under survival rules (arcade rules have none).
+# The colony's inside is closed while the ring is built; BC_COLONY=1 opens the old one (survival only).
 colony=0
-[ "${BC_RULES:-survival}" = "survival" ] && [ "${BC_COLONY:-1}" != "0" ] && colony=1
-[ "$colony" = "0" ] && [ "${BC_RULES:-survival}" = "survival" ] && data+=(--no-colony)
+[ "${BC_RULES:-survival}" = "survival" ] && [ "${BC_COLONY:-0}" = "1" ] && colony=1
+[ "$colony" = "1" ] && data+=(--colony)
 ./target/release/bc-server --drones "${BC_DRONES:-24}" --oracle "${BC_ORACLE:-local}" --rules "${BC_RULES:-survival}" --flight "${BC_FLIGHT:-anime}" "${data[@]}" &
 pids+=($!)
 sleep 1

@@ -1,4 +1,4 @@
-//! The Ring Deck, drawn (`bc_client_core::ring_deck`): the bay ring's suit deck in the colony's
+//! The Ring Deck, drawn (`bc_client_core::ring_deck`): a suit deck in the hub's drum in the colony's
 //! clean language, a showcase set for now (`?showcase=ring`).
 //!
 //! - Its solids are one mesh, painted by `shaders/station.wgsl` from what each face carries (white

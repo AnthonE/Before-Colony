@@ -18,7 +18,7 @@ use bc_sim::content::frame;
 use bc_sim::field::Field;
 use bc_sim::math::look_rotation;
 use bc_sim::tuning::FlightRules;
-use bc_sim::world::colony_up;
+use bc_sim::world::up_at;
 use bc_sim::{Sim, SimConfig};
 use glam::{Quat, Vec3};
 
@@ -37,7 +37,7 @@ fn shooter_controls_fly_where_the_pilot_looks_upright_and_predict_it_exactly() {
         SimConfig { target_drones: 0, field_rocks: 0, flight: FlightRules::Anime, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
     let start = Vec3::new(0.0, 2_000.0, 0.0);
-    let ground = colony_up(start);
+    let ground = up_at(start);
     // Facing away from where the pilot will look, rolled 70° off the colony's up.
     let away = ground.any_orthonormal_vector();
     let face = Quat::from_axis_angle(away, 1.2) * look_rotation(away, ground);
@@ -100,7 +100,7 @@ fn shooter_controls_fly_where_the_pilot_looks_upright_and_predict_it_exactly() {
         sim.step();
 
         let f = sim.suits.flight[i];
-        let ground = colony_up(f.pos);
+        let ground = up_at(f.pos);
         let nose = f.rot * Vec3::Z;
         if on_aim.is_none() && nose.angle_between(aim) < 3f32.to_radians() {
             on_aim = Some(t);

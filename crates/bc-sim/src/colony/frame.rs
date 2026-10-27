@@ -1,7 +1,7 @@
 //! The colony's frames. Three are in play:
 //!
-//! - The **sector's**, where suits fly: the colony's centre is [`COLONY_CENTER`] and it turns about
-//!   +X by [`colony_spin_angle`].
+//! - The **sector's**, where suits fly: the colony's centre is [`CENTER`] and it turns about +X by
+//!   [`spin_angle`].
 //! - The **colony's own**, turning with it: the same axes at spin angle 0, centred on the axis. Inside
 //!   it nothing moves, so the city is drawn and walked in it. An angle round the axis is measured from
 //!   +Y towards +Z: the point at angle `a` and radius `r` is `(x, r cos a, r sin a)`.
@@ -15,6 +15,10 @@
 //!
 //! On foot the walker uses a right-handed frame with Y up: `(x, h, −s)`, so that the axis (+X) and
 //! up (+Y) give −s for +Z, as `local_frame` turns it.
+//!
+//! These are the retired cylinder's (`docs/RING.md`): its inside keeps its own numbers ([`RADIUS`],
+//! [`HALF_LENGTH`], [`CENTER`], [`SPIN_PERIOD_TICKS`]) until it's cleared, so the ring outside
+//! (`world`) can change without it.
 
 use core::f32::consts::{FRAC_PI_3, FRAC_PI_6, PI, TAU};
 
@@ -22,9 +26,20 @@ use glam::{Quat, Vec3};
 
 use crate::config::DT;
 use crate::math::{atan2, cos, floor, quat_axis_angle, sin, sqrt};
-use crate::world::{
-    COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS, COLONY_SPIN_PERIOD_TICKS, colony_spin_angle,
-};
+
+/// The cylinder's radius at its floor, m.
+pub const RADIUS: f32 = 3_200.0;
+/// Half the cylinder's length, m: its end caps are at x = ±16,000.
+pub const HALF_LENGTH: f32 = 16_000.0;
+/// The cylinder's centre in the sector.
+pub const CENTER: Vec3 = Vec3::new(0.0, -4_200.0, 0.0);
+/// The cylinder turns once every this many ticks (113.5 s): 1 g at its floor.
+pub const SPIN_PERIOD_TICKS: u32 = 3_405;
+
+/// How far the cylinder has turned about its axis at tick `t` plus `frac` of the next, rad.
+pub fn spin_angle(t: u32, frac: f32) -> f32 {
+    TAU * (((t % SPIN_PERIOD_TICKS) as f32 + frac) / SPIN_PERIOD_TICKS as f32)
+}
 
 /// Land strips (and windows) round the hull.
 pub const STRIPS: usize = 3;
@@ -33,9 +48,9 @@ pub const FIRST_WINDOW: f32 = 0.4;
 /// A strip's (or a window's) arc, rad.
 pub const STRIP_ARC: f32 = FRAC_PI_3;
 /// A land strip's width at the floor, m (3,351 m).
-pub const STRIP_WIDTH: f32 = COLONY_RADIUS * STRIP_ARC;
+pub const STRIP_WIDTH: f32 = RADIUS * STRIP_ARC;
 /// How fast the colony turns, rad/s: 1 g at the floor.
-pub const SPIN_RATE: f32 = TAU / (COLONY_SPIN_PERIOD_TICKS as f32 * DT);
+pub const SPIN_RATE: f32 = TAU / (SPIN_PERIOD_TICKS as f32 * DT);
 
 /// The centre of window `k`, rad.
 pub fn window_centre(k: usize) -> f32 {
@@ -76,13 +91,13 @@ impl CityPos {
 
     /// The angle round the axis, rad.
     pub fn angle(&self) -> f32 {
-        strip_edge(self.strip as usize) + self.s / COLONY_RADIUS
+        strip_edge(self.strip as usize) + self.s / RADIUS
     }
 
     /// Where it is in the colony's own frame.
     pub fn to_colony(&self) -> Vec3 {
         let a = self.angle();
-        let r = COLONY_RADIUS - self.h;
+        let r = RADIUS - self.h;
         Vec3::new(self.x, r * cos(a), r * sin(a))
     }
 
@@ -113,7 +128,7 @@ pub enum Under {
 /// What's under a point of the colony's own frame, and how far up from it the point is.
 pub fn from_colony(p: Vec3) -> Under {
     let r = sqrt(p.y * p.y + p.z * p.z);
-    let h = COLONY_RADIUS - r;
+    let h = RADIUS - r;
     // Round from the first window's near edge: each 120° is a window and then a strip.
     let rel = atan2(p.z, p.y) - (FIRST_WINDOW - FRAC_PI_6);
     let rel = rel - floor(rel / TAU) * TAU;
@@ -121,15 +136,15 @@ pub fn from_colony(p: Vec3) -> Under {
     let k = (floor(rel / span) as usize).min(STRIPS - 1);
     let within = rel - k as f32 * span;
     if within < STRIP_ARC {
-        Under::Window { k: k as u8, s: within * COLONY_RADIUS, h }
+        Under::Window { k: k as u8, s: within * RADIUS, h }
     } else {
-        Under::Land(CityPos { strip: k as u8, x: p.x, s: (within - STRIP_ARC) * COLONY_RADIUS, h })
+        Under::Land(CityPos { strip: k as u8, x: p.x, s: (within - STRIP_ARC) * RADIUS, h })
     }
 }
 
 /// The colony's own frame at the sector's tick `t` plus `frac`: its rotation and centre.
 pub fn colony_pose(t: u32, frac: f32) -> (Quat, Vec3) {
-    (quat_axis_angle(Vec3::X, colony_spin_angle(t, frac)), COLONY_CENTER)
+    (quat_axis_angle(Vec3::X, spin_angle(t, frac)), CENTER)
 }
 
 /// A point of the colony's own frame in the sector at tick `t` plus `frac`.
@@ -146,18 +161,18 @@ pub fn sector_to_colony(p: Vec3, t: u32, frac: f32) -> Vec3 {
 
 /// The colony's pull at `h` metres up from the floor, m/s²: 1 g at the floor, none at the axis.
 pub fn gravity(h: f32) -> f32 {
-    SPIN_RATE * SPIN_RATE * (COLONY_RADIUS - h)
+    SPIN_RATE * SPIN_RATE * (RADIUS - h)
 }
 
 /// How long a metre of `s` is at height `h`, m: the strip narrows towards the axis.
 pub fn s_scale(h: f32) -> f32 {
-    (COLONY_RADIUS - h) / COLONY_RADIUS
+    (RADIUS - h) / RADIUS
 }
 
 /// Turns the walker's frame on strip `strip` at `s` into the colony's own: +X stays the axis, +Y
 /// becomes up (towards the axis) there, +Z becomes −s.
 pub fn local_frame(strip: u8, s: f32) -> Quat {
-    quat_axis_angle(Vec3::X, strip_edge(strip as usize) + s / COLONY_RADIUS + PI)
+    quat_axis_angle(Vec3::X, strip_edge(strip as usize) + s / RADIUS + PI)
 }
 
 /// Up (towards the axis) at a point of the colony's own frame off the axis.
@@ -168,7 +183,7 @@ pub fn up_at(p: Vec3) -> Vec3 {
 
 /// Whether `x` is between the end caps.
 pub fn within_caps(x: f32) -> bool {
-    x.abs() <= COLONY_HALF_LENGTH
+    x.abs() <= HALF_LENGTH
 }
 
 #[cfg(test)]
@@ -179,12 +194,12 @@ mod tests {
 
     #[test]
     fn the_spin_is_worlds_and_one_g_at_the_floor() {
-        assert!((SPIN_RATE * COLONY_SPIN_PERIOD_TICKS as f32 * DT - TAU).abs() < 1e-5);
+        assert!((SPIN_RATE * SPIN_PERIOD_TICKS as f32 * DT - TAU).abs() < 1e-5);
         assert!((gravity(0.0) / G0 - 1.0).abs() < 1e-4, "{} g", gravity(0.0) / G0);
         // The bays hang in the docking hub's ring at 0.7 g: 948 m up, r 2,252 m.
-        let bays = gravity(COLONY_RADIUS - 2_252.0) / G0;
+        let bays = gravity(RADIUS - 2_252.0) / G0;
         assert!((bays - 0.7).abs() < 0.005, "{bays} g in the bay ring");
-        assert_eq!(gravity(COLONY_RADIUS), 0.0);
+        assert_eq!(gravity(RADIUS), 0.0);
         assert!((STRIP_WIDTH - 3_351.03).abs() < 0.01);
     }
 
@@ -254,13 +269,12 @@ mod tests {
             assert!((back - p).length() < 5e-3, "{t}: {back} vs {p}");
             // The axis doesn't move.
             assert!(
-                (colony_to_sector(Vec3::new(500.0, 0.0, 0.0), t, 0.0) - (COLONY_CENTER + Vec3::X * 500.0))
-                    .length()
+                (colony_to_sector(Vec3::new(500.0, 0.0, 0.0), t, 0.0) - (CENTER + Vec3::X * 500.0)).length()
                     < 1e-3
             );
         }
         // A whole turn later it's where it was, to the bit.
-        assert_eq!(colony_to_sector(p, 7, 0.5), colony_to_sector(p, 7 + COLONY_SPIN_PERIOD_TICKS, 0.5));
+        assert_eq!(colony_to_sector(p, 7, 0.5), colony_to_sector(p, 7 + SPIN_PERIOD_TICKS, 0.5));
     }
 
     #[test]

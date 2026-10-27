@@ -5,8 +5,9 @@
 use bc_proto::snapshot::own_flags;
 use bc_proto::{CARGO_KINDS, ChunkDesc, NO_CHUNK};
 use bc_sim::chunks::segment_pos;
+use bc_sim::colony::hub::MOUTH_X;
 use bc_sim::content::salvage::hold_kg;
-use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
+use bc_sim::world::{COLONY_CENTER, COLONY_HALF_WIDTH, COLONY_RADIUS};
 use glam::Vec3;
 
 use crate::world::{ObjectMotion, World};
@@ -71,26 +72,35 @@ impl World {
 }
 
 /// Where to head next from `from` on the way to `to`: straight there, unless the colony is in the
-/// way (the dock is on its axis, past the −X end cap). Then over the end cap nearer the two, level
-/// with the field above the colony.
+/// way (the dock is on its axis, off the docking hub's mouth). Then up over the ring on `from`'s
+/// side of it, across over it, and down from `to`'s side: points 1.5 km over the rim, 700 m off
+/// either side of the colony (its drum on the −X side, its ring on the +X).
 pub fn route(from: Vec3, to: Vec3) -> Vec3 {
     if clear_of_colony(from, to) {
         return to;
     }
-    let end = if from.x + to.x < 0.0 { -1.0 } else { 1.0 };
-    let over = Vec3::new(
-        COLONY_CENTER.x + end * (COLONY_HALF_LENGTH + 700.0),
-        COLONY_CENTER.y + COLONY_RADIUS + 1_500.0,
-        COLONY_CENTER.z,
-    );
-    if from.distance(over) < 300.0 { to } else { over }
+    let ends = (MOUTH_X - 700.0, COLONY_HALF_WIDTH + 700.0);
+    let middle = COLONY_CENTER.x + (MOUTH_X + COLONY_HALF_WIDTH) * 0.5;
+    let over = |p: Vec3| {
+        let x = if p.x < middle { ends.0 } else { ends.1 };
+        COLONY_CENTER + Vec3::new(x, COLONY_RADIUS + 1_500.0, 0.0)
+    };
+    let (up, down) = (over(from), over(to));
+    if from.distance(down) < 300.0 {
+        to
+    } else if from.distance(up) < 300.0 || clear_of_colony(from, down) {
+        down
+    } else {
+        up
+    }
 }
 
-/// Whether the straight line from `a` to `b` keeps 100 m off the colony (checked every 1/64 of it).
+/// Whether the straight line from `a` to `b` keeps 100 m off the colony: its ring and the hub in it,
+/// as one cylinder from the drum's mouth to the ring's far side (checked every 1/64 of it).
 fn clear_of_colony(a: Vec3, b: Vec3) -> bool {
     (0..=64).all(|k| {
         let p = a.lerp(b, k as f32 / 64.0) - COLONY_CENTER;
-        p.x.abs() > COLONY_HALF_LENGTH + 150.0 || p.y.hypot(p.z) > COLONY_RADIUS + 100.0
+        p.x < MOUTH_X - 150.0 || p.x > COLONY_HALF_WIDTH + 150.0 || p.y.hypot(p.z) > COLONY_RADIUS + 100.0
     })
 }
 
@@ -105,7 +115,9 @@ mod tests {
         let over = route(field, DOCK_CENTER);
         assert!(over != DOCK_CENTER, "straight through the colony");
         assert!(clear_of_colony(field, over) && clear_of_colony(over, DOCK_CENTER));
-        assert_eq!(route(over, DOCK_CENTER), DOCK_CENTER);
+        let down = route(over, DOCK_CENTER);
+        assert!(clear_of_colony(over, down) && clear_of_colony(down, DOCK_CENTER));
+        assert_eq!(route(down, DOCK_CENTER), DOCK_CENTER);
         // And back.
         let back = route(DOCK_CENTER, field);
         assert!(clear_of_colony(DOCK_CENTER, back) && clear_of_colony(back, field));

@@ -44,7 +44,6 @@ use bc_sim::ground::{Footing, RELEASE_SPEED, STANCE};
 use bc_sim::orrery::fire_control::intercept;
 use bc_sim::orrery::hypotheses::Maneuver;
 use bc_sim::sim::LURK_SETTLE_TICKS;
-use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
 use bevy::prelude::*;
 use bevy::text::LetterSpacing;
 
@@ -187,12 +186,9 @@ pub fn hide_spot(core: &ClientCore) -> Option<&'static str> {
     def.hides.iter().find(|h| (own.pos - h.center).length() <= h.radius).map(|h| h.name)
 }
 
-/// How far a point is outside the colony's hull (m): to its side, or past an end.
+/// How far a point is outside the colony's ring (m; negative in it).
 fn off_the_hull(p: Vec3) -> f32 {
-    let rel = p - COLONY_CENTER;
-    let radial = Vec2::new(rel.y, rel.z).length() - COLONY_RADIUS;
-    let axial = rel.x.abs() - COLONY_HALF_LENGTH;
-    if axial <= 0.0 { radial.abs() } else { Vec2::new(axial, radial.max(0.0)).length() }
+    bc_sim::world::colony_clearance(p)
 }
 
 /// What the HUD remembers of hiding between frames.

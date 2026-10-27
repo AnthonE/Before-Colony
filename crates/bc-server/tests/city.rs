@@ -1,8 +1,8 @@
-//! The colony's inside over real WebTransport. With the colony open (`Config::colony`; the server
-//! opens it by default under survival rules) a pilot rides the cap lift down from their bay into a
-//! strip's city and back up, trades on the exchange from its Exchange floor while they're there,
-//! and can't launch from it; `/status` follows them. With it shut (`--no-colony`), the lifts are
-//! closed.
+//! The colony's inside over real WebTransport. With the colony open (`Config::colony`; the server's
+//! `--colony`, the retired cylinder's inside kept for these tests, `docs/RING.md`) a pilot rides the
+//! cap lift down from their bay into a strip's city and back up, trades on the exchange from its
+//! Exchange floor while they're there, and can't launch from it; `/status` follows them. With it
+//! shut (the default), the lifts are closed.
 
 use std::time::Duration;
 
