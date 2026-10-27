@@ -1595,7 +1595,7 @@ fn hall_golden_wasm() {
 /// Hash of the base's buildings (`bc_sim::pieces`, `content::base`): every solid each one stands as
 /// on its deck, the deck's pull, and a walker going in at the test hall's door, to its counter, up
 /// its stairs and down them again, on the base's deck at 0.4 g.
-const PIECES_GOLDEN: u64 = 0x2a40_463c_edf4_752c;
+const PIECES_GOLDEN: u64 = 0x2f3d_9b7a_6297_381f;
 
 fn pieces_hash() -> u64 {
     use bc_sim::colony::deck::{BASE, DeckPos, gravity};

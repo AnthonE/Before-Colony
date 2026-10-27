@@ -11,7 +11,7 @@ use bc_client_core::figure::{self, Paint, Piece};
 use bc_client_core::markab::attitude;
 use bc_client_core::markab_mesh::{self, Paint as Coat};
 use bc_client_core::plaza::suit_colour;
-use bc_proto::presence::{JET_BOOST, JET_LIFT, PersonPose, RIDE_CAR, RIDE_SCOOTER};
+use bc_proto::presence::{BASE_DECK, JET_BOOST, JET_LIFT, PersonPose, RIDE_CAR, RIDE_SCOOTER};
 use bc_sim::colony::frame::{CityPos, local_frame};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -180,6 +180,9 @@ fn scooter_meshes() -> [Mesh; 3] {
 #[derive(Component)]
 struct Figure {
     id: u16,
+    /// The floor they were drawn on (`PersonPose::strip`: a strip, or the base's deck): the city's
+    /// figures are on its render layer, the deck's on the world's.
+    floor: u8,
     /// Their callsign, as the radio names them.
     name: String,
     phase: f32,
@@ -286,13 +289,14 @@ fn setup_people(
     });
 }
 
-/// Builds a figure for `id`, named `name`.
+/// Builds a figure for `id`, named `name`, on floor `floor` (the base's deck's on the world's render
+/// layer; a strip's on the city's).
 fn spawn_figure(
     commands: &mut Commands,
     scene: &PeopleScene,
     materials: &mut Assets<StandardMaterial>,
     font: &UiFont,
-    id: u16,
+    (id, floor): (u16, u8),
     name: &str,
 ) -> Entity {
     let [r, g, b] = suit_colour(name);
@@ -310,7 +314,7 @@ fn spawn_figure(
         double_sided: true,
         ..default()
     });
-    let layer = RenderLayers::layer(CITY_LAYER);
+    let layer = RenderLayers::layer(if floor == BASE_DECK { 0 } else { CITY_LAYER });
     let root = commands
         .spawn((Transform::default(), Visibility::default(), Placed(Default::default()), layer.clone()))
         .id();
@@ -400,6 +404,7 @@ fn spawn_figure(
         .id();
     commands.entity(root).insert(Figure {
         id,
+        floor,
         name: name.to_string(),
         phase: 0.0,
         last: None,
@@ -420,7 +425,7 @@ fn draw_people(
     mut commands: Commands,
     vis: Res<crate::view::VisTime>,
     crowd: Res<Crowd>,
-    view: Res<CityView>,
+    (view, base): (Res<CityView>, Res<crate::base::BaseView>),
     scene: Option<Res<PeopleScene>>,
     font: Res<UiFont>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -428,28 +433,33 @@ fn draw_people(
     mut joints: Query<(&mut Transform, &mut Visibility), Without<Figure>>,
 ) {
     let Some(scene) = scene else { return };
-    let want: HashMap<u16, (&str, &PersonPose)> = if view.active {
+    let want: HashMap<u16, (&str, &PersonPose)> = if view.active || base.active {
         crowd.0.iter().map(|(id, n, p)| (*id, (n.as_str(), p))).collect()
     } else {
         HashMap::new()
     };
     let mut have = Vec::new();
     for (e, mut f, mut placed, mut tf) in &mut figures {
-        let Some((_, pose)) = want.get(&f.id) else {
+        // Gone, or on another floor than their figure's (it's built again there).
+        let Some((_, pose)) = want.get(&f.id).filter(|(_, p)| p.strip == f.floor) else {
             commands.entity(f.tag).despawn();
             commands.entity(e).despawn();
             continue;
         };
         have.push(f.id);
-        let at = CityPos::new(pose.strip, pose.x, pose.s, pose.h);
-        placed.0 = colony_point(at);
         // A Markab turns every way: its pose is its middle, and its whole attitude.
         let turned = if pose.markab() {
             attitude(pose.yaw, pose.pitch, pose.roll)
         } else {
             Quat::from_rotation_y(pose.yaw)
         };
-        tf.rotation = local_frame(pose.strip, pose.s) * turned;
+        if pose.strip == BASE_DECK {
+            // On the base's deck, drawn round the view as the deck is.
+            (tf.translation, tf.rotation) = crate::base::place_pose(pose, turned, base.s);
+        } else {
+            placed.0 = colony_point(CityPos::new(pose.strip, pose.x, pose.s, pose.h));
+            tf.rotation = local_frame(pose.strip, pose.s) * turned;
+        }
         // Stride by how far they went.
         if let Some((x, s, _)) = f.last {
             let d = (pose.x - x).hypot(pose.s - s).min(2.0);
@@ -504,9 +514,9 @@ fn draw_people(
             }
         }
     }
-    for (id, (name, _)) in &want {
+    for (id, (name, pose)) in &want {
         if !have.contains(id) {
-            spawn_figure(&mut commands, &scene, &mut materials, &font, *id, name);
+            spawn_figure(&mut commands, &scene, &mut materials, &font, (*id, pose.strip), name);
         }
     }
 }
@@ -552,13 +562,17 @@ fn name_tags(
         if text.0 != want {
             text.0 = want;
         }
-        let head = origin.place(placed.0) + tf.rotation * Vec3::Y * 2.05;
-        let seen = match (eye, land(placed.0.as_vec3())) {
-            (Some(e), Some(c)) if e.strip == c.strip => {
-                bc_sim::colony::homes::same_space(c.strip, (e.s, e.x, e.h), (c.s, c.x, c.h))
-            }
-            _ => true,
-        };
+        // (The base's deck is drawn where its figures stand, round the view.)
+        let on_deck = f.floor == BASE_DECK;
+        let head =
+            if on_deck { tf.translation } else { origin.place(placed.0) } + tf.rotation * Vec3::Y * 2.05;
+        let seen = on_deck
+            || match (eye, land(placed.0.as_vec3())) {
+                (Some(e), Some(c)) if e.strip == c.strip => {
+                    bc_sim::colony::homes::same_space(c.strip, (e.s, e.x, e.h), (c.s, c.x, c.h))
+                }
+                _ => true,
+            };
         let near = f.id != OWN && seen && cam_tf.translation().distance(head) < NAME_REACH;
         let shown = near.then(|| cam.world_to_viewport(cam_tf, head).ok()).flatten();
         match shown {
@@ -589,15 +603,16 @@ pub fn fill_crowd(
     let g = game.borrow();
     let (tick, frac) = g.core.colony_tick(crate::net::now_s());
     *trams = crate::trams::TramClock(tick, frac);
-    let mut people: Vec<(u16, String, PersonPose)> = if g.core.hangar.in_city() || g.core.inside() {
-        g.core
-            .people(crate::net::now_s())
-            .into_iter()
-            .map(|(id, name, p)| (id, name.to_string(), p))
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let mut people: Vec<(u16, String, PersonPose)> =
+        if g.core.hangar.in_city() || g.core.hangar.in_base() || g.core.inside() {
+            g.core
+                .people(crate::net::now_s())
+                .into_iter()
+                .map(|(id, name, p)| (id, name.to_string(), p))
+                .collect()
+        } else {
+            Vec::new()
+        };
     // The pilot's own vehicle, as everyone else sees it (in a car their figure is out of sight).
     if let Some(v) = me.city.as_ref().and_then(|c| c.drive) {
         people.push((OWN, g.core.cfg.name.clone(), v.pose(0.0)));

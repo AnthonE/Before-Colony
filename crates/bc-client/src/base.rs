@@ -1,8 +1,9 @@
 //! The Muster, drawn (`docs/RING.md`, "The base"): the base's deck in the hub's drum, and the
 //! buildings standing on it from their pieces (`bc_client_core::piece_mesh`: the same boxes the
-//! walker collides with, dressed). Until the base opens it's seen in the showcase
-//! (`?showcase=base`), drawn far above the sector ([`BASE_ORIGIN`]) as the bay is, the deck's frame
-//! at the first building turned upright there.
+//! walker collides with, dressed). It's drawn far above the sector ([`BASE_ORIGIN`]) as the bay is,
+//! and only while the view is on the deck ([`BaseView`]: a pilot out of their airlock on Bay Row, or
+//! `?showcase=base`), turned so the deck is upright where the view is ([`frame`]): the deck's walker
+//! frame there at the origin, whoever's walking it and however far round.
 //!
 //! - The drum's inside: the deck's floor round it (r 400), rising ahead and behind until it meets
 //!   itself overhead past the spine's casing (r 120); the drum's two ends; along the back end, Bay
@@ -15,7 +16,8 @@
 use std::f32::consts::TAU;
 
 use bc_client_core::piece_mesh::{PieceMesh, site_frame, site_mesh};
-use bc_sim::colony::deck::{BASE, DECKS, DeckPos};
+use bc_proto::presence::PersonPose;
+use bc_sim::colony::deck::{BASE, DECKS, DeckPos, local_frame};
 use bc_sim::colony::hub::{BAYS, bay_angle};
 use bc_sim::content::base::SITES;
 use bevy::asset::RenderAssetUsages;
@@ -45,27 +47,70 @@ const SKY: f32 = 380.0;
 /// A building's lamps, lumens.
 const LAMP: f32 = 5.0e5;
 
-/// Whether the view is on the base's deck: it has its own light (`sky.rs` stands aside, as for the
-/// city).
-#[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
+/// Where along the axis the deck is drawn from: its middle.
+const VIEW_X: f32 = (DECKS[BASE as usize].x0 + DECKS[BASE as usize].x1) * 0.5;
+
+/// Whether the view is on the base's deck (it has its own light: `sky.rs` stands aside, as for the
+/// city), and how far round the deck it is (`s`, m: the deck is drawn upright there).
+#[derive(Resource, Clone, Copy, PartialEq, Debug)]
 pub struct BaseView {
     pub active: bool,
+    pub s: f32,
 }
+
+impl Default for BaseView {
+    fn default() -> Self {
+        Self { active: false, s: SITES[0].s }
+    }
+}
+
+/// The root everything of the base is drawn under.
+#[derive(Component)]
+struct BaseRoot;
 
 pub struct BasePlugin;
 
 impl Plugin for BasePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BaseView>().add_systems(Update, light_base.in_set(crate::view::Vis::Fx));
+        app.init_resource::<BaseView>()
+            .add_systems(Update, (follow, light_base).chain().in_set(crate::view::Vis::Fx));
     }
 }
 
-/// How a point of the colony's own frame is drawn: the deck's frame at the first building's foot
-/// turned upright at [`BASE_ORIGIN`] (walker +Y up, its +X along the axis).
-fn base_transform() -> Transform {
-    let (foot, turn) = site_frame(&SITES[0]);
-    let back = turn.inverse();
+/// How a point of the colony's own frame is drawn with the view `s` round the deck: the deck's
+/// walker frame there turned upright at [`BASE_ORIGIN`] (+Y up, +X along the axis, +Z the way `s`
+/// falls), its middle along the axis at the origin.
+pub fn frame(s: f32) -> Transform {
+    let back = local_frame(BASE, s).inverse();
+    let foot = DeckPos::new(BASE, VIEW_X, s, 0.0).to_colony();
     Transform::from_translation(BASE_ORIGIN - back * foot).with_rotation(back)
+}
+
+/// Where a point of the deck's walker frame is drawn with the view `s` round the deck.
+pub fn world(w: Vec3, s: f32) -> Vec3 {
+    frame(s).transform_point(DeckPos::from_walker(BASE, w).to_colony())
+}
+
+/// Where a pilot on the deck (as the plaza has them) is drawn, and how their figure is turned
+/// (`turned`: about their own up), with the view `s` round the deck.
+pub fn place_pose(p: &PersonPose, turned: Quat, s: f32) -> (Vec3, Quat) {
+    let at = DeckPos::new(BASE, p.x, p.s, p.h);
+    let f = frame(s);
+    (f.transform_point(at.to_colony()), f.rotation * local_frame(BASE, p.s) * turned)
+}
+
+/// Keeps the base drawn round the view, and shown only while the view is on the deck.
+fn follow(view: Res<BaseView>, mut roots: Query<(&mut Transform, &mut Visibility), With<BaseRoot>>) {
+    if !view.is_changed() {
+        return;
+    }
+    for (mut tf, mut vis) in &mut roots {
+        *tf = frame(view.s);
+        let want = if view.active { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+    }
 }
 
 /// The drum's inside round the deck: its floor, its ends, the spine's casing overhead with its
@@ -137,10 +182,10 @@ fn to_mesh(m: PieceMesh) -> Mesh {
         .with_inserted_indices(Indices::U32(m.indices))
 }
 
-/// Builds the base: the drum's inside, its buildings and their lamps, and its daylight.
+/// Builds the base (hidden till the view is on its deck): the drum's inside, its buildings and
+/// their lamps.
 pub fn setup_base(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, surfaces: Res<Surfaces>) {
-    let frame = base_transform();
-    let root = commands.spawn((Name::new("base"), frame, Visibility::default())).id();
+    let root = commands.spawn((Name::new("base"), BaseRoot, frame(SITES[0].s), Visibility::Hidden)).id();
     commands.spawn((
         Mesh3d(meshes.add(drum_kit().mesh())),
         MeshMaterial3d(surfaces.station.clone()),
@@ -217,10 +262,20 @@ fn light_base(
     mut suns: Query<(Entity, &mut DirectionalLight, &mut Transform), (With<Sun>, Without<MainCamera>)>,
     mut fill: Query<&mut Visibility, With<FillLight>>,
     mut ambient: ResMut<GlobalAmbientLight>,
+    mut lit: Local<bool>,
 ) {
     if !view.active {
+        // Off the deck: space's Sun as `sky::setup_sky` spawns it, as the city puts it back (the
+        // rest of space's light is `sky.rs`'s, which sees the view leave).
+        if std::mem::take(&mut *lit) {
+            for (_, mut light, mut tf) in &mut suns {
+                light.color = Color::linear_rgb(1.0, 0.965, 0.92);
+                *tf = Transform::default().looking_to(-crate::sky::SUN_DIR, Vec3::Y);
+            }
+        }
         return;
     }
+    *lit = true;
     let s = gfx.settings;
     let stale = cams.iter().any(|(_, e)| e.is_none_or(|e| e.ev100 != BASE_EV100));
     for (sun, mut light, mut tf) in &mut suns {

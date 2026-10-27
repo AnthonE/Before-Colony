@@ -466,8 +466,7 @@ impl Plugin for ShowcasePlugin {
             app.add_systems(Update, hangar_script.after(script).in_set(crate::view::Vis::Drive));
         }
         if self.scene == Scene::Base {
-            app.add_systems(Startup, crate::base::setup_base.after(crate::materials::setup_materials))
-                .add_systems(Update, base_script.after(script).in_set(crate::view::Vis::Drive));
+            app.add_systems(Update, base_script.after(script).in_set(crate::view::Vis::Drive));
         }
         if self.scene == Scene::City {
             app.add_systems(Startup, city_script)
@@ -1363,25 +1362,31 @@ fn walker_at(w: Vec3) -> Vec3 {
     (crate::city::colony_point(CityPos::from_walker(strip, w)) - city_origin()).as_vec3()
 }
 
-/// The base's cameras, in the test hall's frame (`content::base::TEST_HALL`: x along its front, z
-/// in from it, y up; its doorway in the front's second cell, a flight up its back right corner to
-/// the gallery over its back row).
+/// The base's cameras: round the test hall in its own frame (`content::base::TEST_HALL`: x along its
+/// front, z in from it, y up; its doorway in the front's second cell, facing Bay Row, a flight up its
+/// back right corner to the gallery over its back row), and out on the deck in its walker frame.
 fn base_cams() -> Vec<Orbit> {
-    let at = |p: Vec3| crate::base::BASE_ORIGIN + p;
-    let toward = |from: Vec3, to: Vec3| look(at(from), at(to) - at(from));
+    use bc_sim::content::base::SITES;
+    let site = &SITES[0];
+    let world = |w: Vec3| crate::base::world(w, site.s);
+    let hall = |p: Vec3| world(site.to_walker(p));
+    let toward = |from: Vec3, to: Vec3| look(from, to - from);
+    // The walker frame from the hall's doorway: Bay Row is towards −x, the deck's `s` grows to −z.
+    let door = site.to_walker(Vec3::new(4.5, 0.0, 0.0));
+    let deck = |d: Vec3| world(door + d);
     vec![
-        // Out on the deck before its doorway.
-        toward(Vec3::new(4.5, 1.7, -9.0), Vec3::new(5.0, 2.6, 3.0)),
+        // Out on Bay Row before its doorway.
+        toward(hall(Vec3::new(4.5, 1.7, -9.0)), hall(Vec3::new(5.0, 2.6, 3.0))),
         // In at the doorway: the flight up to the gallery, the skylight's shaft.
-        toward(Vec3::new(4.5, 1.65, 0.6), Vec3::new(9.5, 3.0, 7.5)),
+        toward(hall(Vec3::new(4.5, 1.65, 0.6)), hall(Vec3::new(9.5, 3.0, 7.5))),
         // From the gallery, down into the hall.
-        toward(Vec3::new(2.0, 4.65, 7.6), Vec3::new(6.0, 0.8, 1.5)),
-        // Back on the deck: the hall, and the floor rising beyond it till it's overhead.
-        look(at(Vec3::new(-4.0, 3.0, -45.0)), Vec3::new(0.12, 0.42, 1.0)),
+        toward(hall(Vec3::new(2.0, 4.65, 7.6)), hall(Vec3::new(6.0, 0.8, 1.5))),
+        // On Bay Row short of the hall: the deck rising past it round the drum till it's overhead.
+        toward(deck(Vec3::new(-12.0, 3.0, 40.0)), deck(Vec3::new(-4.0, 45.0, -60.0))),
         // Along Bay Row, its airlocks on the left, curving up ahead.
-        look(at(Vec3::new(-56.0, 1.7, -12.0)), Vec3::new(0.25, 0.12, 1.0)),
+        toward(deck(Vec3::new(-16.0, 1.7, 30.0)), deck(Vec3::new(-10.0, 4.0, -10.0))),
         // From high over the deck, near the spine's casing.
-        toward(Vec3::new(6.0, 200.0, -120.0), Vec3::new(6.0, 0.0, 4.0)),
+        toward(deck(Vec3::new(40.0, 200.0, 60.0)), deck(Vec3::ZERO)),
     ]
 }
 
@@ -2108,7 +2113,7 @@ fn script(
 }
 
 /// The hangar scene: the pilot's view indoors, the suit in its gantry, and the bay cycling.
-/// The view is on the base's deck, in its light.
+/// The view is on the base's deck, by the test hall, in its light.
 fn base_script(mut view: ResMut<crate::base::BaseView>) {
     if !view.active {
         view.active = true;

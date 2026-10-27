@@ -14,7 +14,7 @@ use crate::pieces::prefab::{Placed, Prefab, RoomDef, Site, edge_x, edge_z, fligh
 use crate::pieces::shape::*;
 
 /// Bumped with `PROTOCOL_VERSION` on any change to the base's buildings.
-pub const BASE_VERSION: u16 = 1;
+pub const BASE_VERSION: u16 = 2;
 
 /// The test hall's pieces, in the order they'd be built: its foundations, its walls (a doorway in
 /// the middle of its front), a flight in its back corner up to the gallery over its back half, the
@@ -101,5 +101,7 @@ pub const TEST_HALL: Prefab = Prefab {
     storeys: 2,
 };
 
-/// Where the base's buildings stand.
-pub const SITES: [Site; 1] = [Site { deck: BASE, x: -540.0, s: 400.0, turn: 0, prefab: &TEST_HALL }];
+/// Where the base's buildings stand: by the first bays (a sector's slots take their bays from bay
+/// 1 up, `hub::bay_of_slot`), across Bay Row from them, their doors facing it. The test hall stands
+/// between bays 1's and 2's airlocks, 22 m across the row.
+pub const SITES: [Site; 1] = [Site { deck: BASE, x: -580.0, s: 1_268.0, turn: 1, prefab: &TEST_HALL }];

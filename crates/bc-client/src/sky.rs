@@ -192,7 +192,12 @@ fn apply_light_tier(
     city: Res<crate::city::CityView>,
     base: Res<crate::base::BaseView>,
 ) {
-    if !gfx.is_changed() && added.is_empty() && !indoors.is_changed() && !city.is_changed() {
+    if !gfx.is_changed()
+        && added.is_empty()
+        && !indoors.is_changed()
+        && !city.is_changed()
+        && !base.is_changed()
+    {
         return;
     }
     // Inside the colony, its own light (`city::light_city`); on the base's deck, the base's

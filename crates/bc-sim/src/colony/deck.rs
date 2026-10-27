@@ -99,6 +99,28 @@ impl DeckPos {
     }
 }
 
+/// Bay Row: the walkway along the base deck's back end (its low x), behind the bays, every bay's
+/// airlock opening onto it. How far out from the end it runs, m.
+pub const BAY_ROW_WIDTH: f32 = 12.0;
+/// How far out from its airlock's door a pilot steps onto Bay Row, m.
+const OUT_OF_THE_AIRLOCK: f32 = 2.5;
+
+/// Where bay `n`'s airlock door is: in the base deck's back end, its foot's middle, at the bay's own
+/// angle round the axis (the bay stands behind it, `hub::bay_angle`).
+pub fn airlock(n: u8) -> DeckPos {
+    let d = &DECKS[BASE as usize];
+    let a = crate::colony::hub::bay_angle(n) - d.seam;
+    let a = a - floor(a / TAU) * TAU;
+    DeckPos::new(BASE, d.x0, a * d.floor_r, 0.0)
+}
+
+/// Where a pilot steps out of bay `n`'s airlock onto Bay Row, a pace out from its door (and where
+/// they must be to go back in).
+pub fn out_of_the_airlock(n: u8) -> DeckPos {
+    let door = airlock(n);
+    DeckPos { x: door.x + OUT_OF_THE_AIRLOCK, ..door }
+}
+
 /// The deck a point of the colony's own frame is over, if it's over one (between its ends, and
 /// between its floor and its ceiling), and where on it.
 pub fn deck_at(p: Vec3) -> Option<DeckPos> {
@@ -156,6 +178,20 @@ mod tests {
         assert!((gravity(RING, 0.0) / G0 - 1.0).abs() < 1e-3, "{}", gravity(RING, 0.0) / G0);
         assert!((gravity(BASE, 0.0) / G0 - 0.4).abs() < 5e-3, "{}", gravity(BASE, 0.0) / G0);
         assert!((gravity(BASE, 0.0) - crate::colony::hub::bay_g()).abs() < 1e-3);
+    }
+
+    #[test]
+    fn every_bays_airlock_lets_out_onto_bay_row_clear_of_everything() {
+        use crate::colony::hub::{BAYS, bay_angle};
+        let (half, tall) = (Vec3::new(0.3, 0.0, 0.3), Vec3::Y * 1.8);
+        for n in 1..=BAYS as u8 {
+            let out = out_of_the_airlock(n);
+            let da = (out.angle() - bay_angle(n)).rem_euclid(TAU);
+            assert!(da.min(TAU - da) < 1e-4, "bay {n}: its airlock isn't at its angle");
+            let w = out.walker();
+            assert!(!solid(BASE, w - half, w + half + tall), "bay {n}: its step onto Bay Row is in a wall");
+            assert!(out.x - DECKS[BASE as usize].x0 < BAY_ROW_WIDTH);
+        }
     }
 
     #[test]

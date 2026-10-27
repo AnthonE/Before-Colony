@@ -227,6 +227,20 @@ impl BotClient {
         self.wait_until(10.0, "the bay", |c| c.hangar.in_hangar()).await
     }
 
+    /// Survival: out through the bay's airlock onto Bay Row, the base's deck, and returns once
+    /// there (where it stands is its bay's airlock's doorstep, `bc_sim::colony::deck::out_of_the_airlock`,
+    /// until it says otherwise with [`BotClient::set_pose`]).
+    pub async fn enter_base(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::EnterBase).await?;
+        self.wait_until(10.0, "Bay Row", |c| c.hangar.in_base()).await
+    }
+
+    /// Back in through the bay's airlock (from its door).
+    pub async fn leave_base(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::LeaveBase).await?;
+        self.wait_until(10.0, "the bay", |c| c.hangar.in_hangar()).await
+    }
+
     /// Where the agent stands in the city: sent 15 times a second as it steps.
     pub fn set_pose(&mut self, pose: bc_proto::presence::PersonPose) {
         self.core.set_pose(Some(pose));

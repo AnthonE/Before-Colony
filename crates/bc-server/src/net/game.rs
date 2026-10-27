@@ -727,8 +727,10 @@ impl StatusView {
             "oracle": self.oracle,
             "rules": if self.survival { "survival" } else { "arcade" },
             // Pilots may go down into the colony's city from their bays; how many are down there
-            // (never where), and how many of their poses weren't passed on.
+            // (never where), and how many of their poses weren't passed on. And how many are out on
+            // the base's deck.
             "colony": self.colony,
+            "base": { "people": city.3 },
             "city": {
                 "people": city.0,
                 "by_strip": city.1,

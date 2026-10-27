@@ -271,6 +271,7 @@ impl Plugin for VisualsPlugin {
                         crate::blast::setup_blasts,
                         crate::ambience::setup_ambience,
                         crate::hangar::setup_bay,
+                        crate::base::setup_base,
                         crate::city::setup_city,
                     ),
                     crate::cockpit::setup_cockpit,
