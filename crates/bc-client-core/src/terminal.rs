@@ -18,17 +18,34 @@ use bc_econ::exchange::FEE_BP;
 use bc_econ::faults::overhaul_cost;
 use bc_econ::food::Dish;
 use bc_econ::item::{LINES, part_name, part_slug};
-use bc_econ::suit::{Suit, repair_cost};
+use bc_econ::suit::{Slot, Stats, Suit, repair_cost};
 use bc_econ::wear::{SERVICE_FROM, service_cost};
 use bc_econ::wire::HangarView;
 use bc_econ::{Bay, Hangar, Item};
 use bc_proto::Part;
+use bc_sim::TICK_HZ;
 use bc_sim::content::modules::MOUNTS;
 use bc_sim::content::systems::FAILED;
-use bc_sim::content::{Grade, System, frame, frame_name, weapon_name};
+use bc_sim::content::{
+    Grade, System, WeaponClass, frame, frame_designation, frame_name, weapon, weapon_name,
+};
 use serde_json::{Value, json};
 
 use crate::hangar::HangarState;
+use crate::page::special_name;
+
+/// What fires each loadout mount (`bc-client`'s `input.rs`): primary, secondary, melee.
+const MOUNT_KEYS: [&str; 3] = ["LMB", "RMB", "F"];
+
+fn weapon_class(c: WeaponClass) -> &'static str {
+    match c {
+        WeaponClass::Beam => "beam",
+        WeaponClass::Ballistic => "ballistic",
+        WeaponClass::Missile => "missile",
+        WeaponClass::Melee => "melee",
+        WeaponClass::Cone => "flame",
+    }
+}
 
 fn amounts(list: &[(Item, u64)]) -> Vec<Value> {
     list.iter().map(|(i, q)| json!([i.slug(), q])).collect()
@@ -91,11 +108,23 @@ pub fn catalogue() -> Value {
                 .map(|m| match spec.loadout.get(m).copied().flatten() {
                     Some(mount) => {
                         let loads = munitions_per_load(mount.weapon) > 0;
+                        let w = weapon(mount.weapon);
+                        // A trigger held: a salvo's shots every cooldown.
+                        let per_s = f64::from(TICK_HZ) / f64::from(w.cooldown.max(1));
+                        let tenths = |x: f32| (f64::from(x) * per_s * 10.0).round() / 10.0;
                         json!({
                             "weapon": Item::Weapon(mount.weapon).slug(),
                             "name": weapon_name(mount.weapon),
                             "rounds": if loads { rounds_per_load(mount.weapon) } else { 0 },
                             "munitions": munitions_per_load(mount.weapon),
+                            "class": weapon_class(w.class),
+                            // The part it hangs on: losing it loses the weapon.
+                            "part": part_slug(mount.arm.part()),
+                            "key": MOUNT_KEYS[m],
+                            "damage_s": (f64::from(w.damage * f32::from(w.salvo.max(1))) * per_s).round(),
+                            "range": f64::from(w.range).round(),
+                            "heat_s": tenths(w.heat),
+                            "energy_s": tenths(w.energy),
                         })
                     }
                     None => Value::Null,
@@ -104,9 +133,11 @@ pub fn catalogue() -> Value {
             json!({
                 "slug": l.slug(),
                 "name": frame_name(l),
+                "designation": frame_designation(l),
                 "lodestar": lodestar_tech(Item::Part(l, Part::Torso)),
                 "tank": tank_kg(l),
                 "mounts": mounts,
+                "special": special_name(spec.special),
             })
         })
         .collect();
@@ -146,6 +177,83 @@ fn rebuilt(v: &HangarView) -> Hangar {
         h.stores.add_part(*unit);
     }
     h
+}
+
+/// The suit's stat sheet once `strip` has come off and `fit` gone on, as the hangar would do it;
+/// `None` where the hangar would refuse (or the bay ends up empty).
+fn after(h: &Hangar, strip: Option<Slot>, fit: Option<Item>) -> Option<Stats> {
+    let mut h = h.clone();
+    if let Some(slot) = strip {
+        h.strip(slot).ok()?;
+    }
+    if let Some(item) = fit {
+        h.fit(item).ok()?;
+    }
+    match &h.bay {
+        Bay::Docked { suit } => Some(suit.stats()),
+        _ => None,
+    }
+}
+
+/// The refit, slot by slot (`part.<part>`, `mount.<0..3>`, `module.<0..5>`): the stat sheet
+/// without what's in it (`null` where it can't come off), and with each thing the stores hold
+/// that could go there instead, what's there taken off first; and the spare parts of the suit's
+/// line in the stores, by part (how many, the best condition).
+fn refit(v: &HangarView, suit: &Suit) -> (Value, Value) {
+    let h = rebuilt(v);
+    let held = |item: Item| v.stock.iter().any(|(i, q)| *i == item && *q > 0);
+    let mut slots = serde_json::Map::new();
+    let mut add = |key: String, fitted: bool, slot: Slot, candidates: Vec<Item>| {
+        let strip = fitted.then_some(slot);
+        let with: serde_json::Map<String, Value> = candidates
+            .into_iter()
+            .filter_map(|i| after(&h, strip, Some(i)).map(|st| (i.slug(), json!(st))))
+            .collect();
+        let without = if fitted { after(&h, strip, None) } else { None };
+        slots.insert(key, json!({ "without": without, "with": with }));
+    };
+    let mut spares = serde_json::Map::new();
+    for p in Part::ALL {
+        let units: Vec<u8> =
+            v.parts.iter().filter(|u| u.line == suit.line && u.part == p).map(|u| u.condition).collect();
+        let item = Item::Part(suit.line, p);
+        let fitted = suit.parts[p as usize].is_some();
+        add(
+            format!("part.{}", part_slug(p)),
+            fitted,
+            Slot::Part { part: p },
+            if units.is_empty() { Vec::new() } else { vec![item] },
+        );
+        if !units.is_empty() {
+            let best = units.iter().copied().max().unwrap_or(0);
+            spares.insert(part_slug(p).to_string(), json!({ "count": units.len(), "best": best }));
+        }
+    }
+    for m in 0..3 {
+        let Some(w) = suit.weapon_on(m) else { continue };
+        let item = Item::Weapon(w);
+        let candidates = if held(item) { vec![item] } else { Vec::new() };
+        add(format!("mount.{m}"), suit.mounts[m], Slot::Mount { mount: m as u8 }, candidates);
+    }
+    for (k, part) in MOUNTS.iter().enumerate() {
+        // Equipment for this part's mounts, one of a kind to a suit.
+        let candidates: Vec<Item> = v
+            .stock
+            .iter()
+            .filter_map(|(i, q)| match i {
+                Item::Module(kind)
+                    if *q > 0
+                        && kind.part() == *part
+                        && !suit.modules.iter().enumerate().any(|(j, on)| j != k && *on == Some(*kind)) =>
+                {
+                    Some(*i)
+                }
+                _ => None,
+            })
+            .collect();
+        add(format!("module.{k}"), suit.modules[k].is_some(), Slot::Module { module: k as u8 }, candidates);
+    }
+    (Value::Object(slots), Value::Object(spares))
 }
 
 /// The suit's console: what could be fitted from the stores, what repairs would take, and
@@ -220,11 +328,14 @@ fn console(v: &HangarView) -> Value {
             })
         })
         .collect();
+    let (refit, spares) = refit(v, suit);
     json!({
         "launch": launch,
         "repairs": repairs,
         "overhauls": overhauls,
         "fits": fits,
+        "refit": refit,
+        "spares": spares,
         "grade": suit.grade.slug(),
         "grades": grades,
         "stats": suit.stats(),
@@ -315,5 +426,47 @@ mod tests {
             assert_eq!(listed[0]["name"], d.name());
         }
         assert_eq!((c["body_full_s"].as_u64(), c["peckish_s"].as_u64()), (Some(8 * 3_600), Some(3_600)));
+    }
+    #[test]
+    fn the_refit_says_what_each_choice_would_make_of_the_suit() {
+        use bc_econ::stores::PartUnit;
+        use bc_sim::content::ModuleKind;
+        let mut h = Hangar::starter();
+        h.stores.add(Item::Module(ModuleKind::CompositePlating), 1);
+        h.stores.add_part(PartUnit {
+            line: bc_proto::FrameId::Argo,
+            part: Part::Head,
+            condition: 90,
+            faults: Default::default(),
+        });
+        let con = console(&HangarView::of(&h, 0));
+        let mass = |v: &Value| v["mass_kg"].as_u64().expect("a mass");
+        let now = mass(&con["stats"]);
+        let refit = &con["refit"];
+        // Plating on the torso's first mount weighs; it takes less damage.
+        let plated = &refit["module.1"]["with"]["module.composite_plating"];
+        assert!(mass(plated) > now);
+        assert!(plated["armour"].as_f64() < con["stats"]["armour"].as_f64());
+        // Nothing's on the mount to take off; the head comes off lighter, and the spare can go on.
+        assert!(refit["module.1"]["without"].is_null());
+        assert!(mass(&refit["part.head"]["without"]) < now);
+        assert!(refit["part.head"]["with"]["part.argo.head"].is_object());
+        assert_eq!(con["spares"]["head"]["best"], 90);
+        // The torso can't come off with the rest on it.
+        assert!(refit["part.torso"]["without"].is_null());
+        // The beam rifle the starter came without isn't in the stores to fit.
+        assert_eq!(refit["mount.0"]["with"], json!({}));
+    }
+
+    #[test]
+    fn each_mount_says_what_fires_it_and_what_it_does() {
+        let c = catalogue();
+        let argo = c["lines"].as_array().unwrap().iter().find(|l| l["slug"] == "argo").unwrap();
+        let keys: Vec<&str> =
+            argo["mounts"].as_array().unwrap().iter().map(|m| m["key"].as_str().unwrap()).collect();
+        assert_eq!(keys, ["LMB", "RMB", "F"]);
+        for m in argo["mounts"].as_array().unwrap() {
+            assert!(m["damage_s"].as_f64().unwrap() > 0.0 && m["range"].as_f64().unwrap() > 0.0, "{m}");
+        }
     }
 }

@@ -475,6 +475,16 @@ pub enum Cmd {
         #[serde(default)]
         furniture: String,
     },
+    /// The suit's console: its tab open (`on`), and the view of the suit in its gantry the page's
+    /// drag and wheel ask for (`bay::Refit`: `yaw` in radians round it, `zoom` 1 the whole suit).
+    SuitView {
+        #[serde(default)]
+        on: bool,
+        #[serde(default)]
+        yaw: f32,
+        #[serde(default)]
+        zoom: f32,
+    },
 }
 
 impl Cmd {
@@ -501,6 +511,10 @@ mod tests {
             Some(Cmd::FlyTo { spot: "exchange".into(), up: 40.0, ahead: 0.0 })
         );
         assert_eq!(Cmd::parse(r#"{"cmd":"lift","storey":3}"#), Some(Cmd::Lift { storey: 3 }));
+        assert_eq!(
+            Cmd::parse(r#"{"cmd":"suit_view","on":true,"yaw":0.5,"zoom":1.2}"#),
+            Some(Cmd::SuitView { on: true, yaw: 0.5, zoom: 1.2 })
+        );
         assert!(matches!(Cmd::parse(r#"{"cmd":"hangar","req":{"t":"sign"}}"#), Some(Cmd::Hangar { .. })));
         assert_eq!(Cmd::parse(r#"{"cmd":"warp"}"#), None);
         assert_eq!(Cmd::parse("not json"), None);

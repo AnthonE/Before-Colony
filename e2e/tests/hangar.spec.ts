@@ -115,15 +115,27 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await until(page, "the terminal closed", (s) => !s.terminal, 60_000);
   await use(page, "suit");
   await until(page, "the suit's console", (s) => s.terminal === "suit", 60_000);
+  // It opens on what needs work (the torso's tired radiators), the suit in its gantry framed in
+  // the middle (the page asks the game for the view).
+  await expect(page.locator("#terminal")).toHaveClass(/refitting/);
+  await expect(page.locator(".refit-slots button.active")).toContainText("TORSO");
   await expect(page.locator("#term-body")).toContainText("AS IT WOULD LAUNCH");
+  await page.click('.refit-slots [data-slot="torso"]');
   await page.click('[data-act="overhaul"][data-part="torso"]');
   await expect(page.locator("#term-log")).toContainText("OVERHAULED RADIATORS", { timeout: 30_000 });
+  // Equipment: the G-seat is offered on the torso's mount; chosen, the card says what it changes.
+  await page.keyboard.press("8");
+  await page.click('[data-act="refit-pick"][data-key="module.g_seat"]');
+  await expect(page.locator(".refit-detail")).toContainText("PILOT BEARS");
   await page.click('[data-act="fit"][data-item="module.g_seat"]');
   s = await until(page, "the G-seat fitted", (s) => s.bay_modules === 1 && s.bay_faults === 0, 30_000);
   // Refined propellant: the standard in the tank is pumped back to the stores, and back again.
+  await page.click('.refit-slots [data-slot="service"]');
+  await page.click('[data-act="refit-pick"][data-key="grade.refined"]');
   await page.click('[data-act="fuel"][data-grade="refined"]');
   await expect(page.locator("#term-log")).toContainText("KG REFINED", { timeout: 30_000 });
-  await expect(page.locator("#term-body")).toContainText("PROPELLANT · REFINED");
+  await expect(page.locator('[data-key="grade.refined"]')).toContainText("IN THE TANK");
+  await page.click('[data-act="refit-pick"][data-key="grade.standard"]');
   await page.click('[data-act="fuel"][data-grade="standard"]');
   await expect(page.locator("#term-log")).toContainText(/KG STANDARD · 10 KG PUMPED BACK/, { timeout: 30_000 });
   await page.keyboard.press("Escape");

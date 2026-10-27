@@ -64,6 +64,7 @@ async function main() {
     for (const id of ["toast", "news", "debrief"]) document.getElementById(id)?.classList.add("hidden");
     // Off whatever was open (a terminal opens on its tab only as it opens).
     ui.update({ ...g.scenes[0].view, ...neutral, toastSeq: seq, newsSeq: seq, debriefSeq: seq, radioSeq: seq });
+    ui.suitSlot(s.slot);
     if (s.hangar) ui.hangar(JSON.stringify(s.hangar));
     seq += 1;
     const v = { ...s.view };
