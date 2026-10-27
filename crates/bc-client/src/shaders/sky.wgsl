@@ -20,6 +20,12 @@ struct Sky {
     // x: star brightness; y: detail, 0 (cheapest) to 1; z: sunlight scale (colony eclipse); w: the
     // Milky Way's lift (1: as it is; under 1, its faint haze raised towards its bright core).
     params: vec4<f32>,
+    // How a view direction is turned into the sky's own (a quaternion: identity but where the view
+    // turns with the colony's spin, the Ring Deck's).
+    turn: vec4<f32>,
+    // x: a scale on the sky's light (1 but through the Ring Deck's glass, turned down to its
+    // exposure).
+    gain: vec4<f32>,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> sky: Sky;
@@ -294,9 +300,15 @@ fn sun_disc(d: vec3<f32>, sun: vec3<f32>) -> vec3<f32> {
     return col * sky.params.z;
 }
 
+// `v` turned by the quaternion `q`.
+fn turned(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
 @fragment
 fn fragment(in: SkyOut) -> @location(0) vec4<f32> {
-    let d = normalize(in.dir);
+    let d = turned(sky.turn, normalize(in.dir));
     let sun = sky.sun.xyz;
     let pix = length(fwidth(d));
     var col = stars(d, pix) + galaxy(d);
@@ -307,7 +319,7 @@ fn fragment(in: SkyOut) -> @location(0) vec4<f32> {
     if (e.w == 0.0 && m.w == 0.0) {
         col += sun_disc(d, sun);
     }
-    var out = vec4(col * view.exposure, 1.0);
+    var out = vec4(col * sky.gain.x * view.exposure, 1.0);
     // Keep the half-float target finite.
     out = vec4(min(out.rgb, vec3(30000.0)), 1.0);
 #ifdef TONEMAP_IN_SHADER

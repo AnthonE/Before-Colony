@@ -89,6 +89,9 @@ const scenes: Array<[string, number, number, number]> = [
   ["base", 3, 2, 8],
   ["base", 4, 2, 8],
   ["base", 5, 2, 8],
+  // Bay 01's airlock from the walkway: the station language at a person's scale, its number over
+  // its lit frame, KEEP CLEAR before it.
+  ["base", 7, 2, 8],
   // Suits on the landmarks: an Argo walking Fornax's core as the station rolls, rolling onto its toes
   // as each foot pushes off; one kneeling asleep in the Aft Well, its rim lights round it, the back
   // foot's toes tucked under; one lifting off Hermit on the verniers in its soles; one landing on
@@ -121,6 +124,13 @@ const scenes: Array<[string, number, number, number]> = [
   ["markab", 5, 24, 4],
   ["markab", 4, 33.9, 4],
   ["markab", 1, 34.1, 4],
+  // The Ring Deck, a suit-scale test set of the station language: down the deck, the
+  // Altair flying the lanes; up at bay 07 from the Argo's feet; over the rim's rail, Earth under
+  // the glass; towards the lifts by a pillar.
+  ["ring", 1, 6, 12],
+  ["ring", 2, 6, 12],
+  ["ring", 3, 10.6, 12],
+  ["ring", 4, 6, 12],
 ];
 // What the Markab's driver is doing at each of those moments (`showcase_markab::Act`).
 const markabActs: Record<string, string> = {

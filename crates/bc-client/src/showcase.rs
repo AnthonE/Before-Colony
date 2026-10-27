@@ -87,8 +87,16 @@ pub enum Scene {
     Markab,
     /// The Muster, the base in the hub's drum (`docs/RING.md`), its buildings from their pieces: the
     /// test hall from out on the deck (1), in at its doorway (2), from its gallery (3), the deck
-    /// rising ahead and overhead (4), along Bay Row's airlocks (5), and from high over the deck (6).
+    /// rising ahead and overhead (4), along Bay Row's airlocks (5), from high over the deck (6), and
+    /// bay 01's airlock from the walkway (7).
     Base,
+    /// The Ring Deck (`bc_client_core::ring_deck`), a suit-scale test set of the colony's station
+    /// language: an Argo standing before bay 07, an Altair flying the lanes on a 40 s loop, and
+    /// Earth wheeling past under the rim's glass once a turn of the colony (63.4 s; under it from
+    /// the start). Cameras: down the deck (1), up at bay 07 from the Argo's feet (2), along the rim
+    /// over its trough, Earth rising through the glass at 10.6 s (3), towards the lifts by a pillar
+    /// (4).
+    Ring,
 }
 
 impl Scene {
@@ -109,6 +117,7 @@ impl Scene {
             "city" | "inside" => Some(Self::City),
             "markab" | "stunt" | "rocket" => Some(Self::Markab),
             "base" | "muster" => Some(Self::Base),
+            "ring" | "station" | "deck" => Some(Self::Ring),
             _ => None,
         }
     }
@@ -130,6 +139,7 @@ impl Scene {
             Self::City => "city",
             Self::Markab => "markab",
             Self::Base => "base",
+            Self::Ring => "ring",
         }
     }
 
@@ -139,6 +149,10 @@ impl Scene {
             Self::City => city_cams(),
             Self::Markab => markab_cams(),
             Self::Base => base_cams(),
+            Self::Ring => {
+                use bc_client_core::ring_deck::{CAMS, DECK_ORIGIN};
+                CAMS.iter().map(|&(eye, at)| look(DECK_ORIGIN + eye, at - eye)).collect()
+            }
             Self::Hangar => {
                 use bc_client_core::bay::{HATCH, SPAWN, SUIT_AT, Spot};
                 let o = crate::hangar::BAY_ORIGIN;
@@ -468,6 +482,9 @@ impl Plugin for ShowcasePlugin {
         if self.scene == Scene::Base {
             app.add_systems(Update, base_script.after(script).in_set(crate::view::Vis::Drive));
         }
+        if self.scene == Scene::Ring {
+            app.add_systems(Update, ring_script.after(script).in_set(crate::view::Vis::Drive));
+        }
         if self.scene == Scene::City {
             app.add_systems(Startup, city_script)
                 .add_systems(Update, city_crowd.after(script).in_set(crate::view::Vis::Drive));
@@ -561,6 +578,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
             vec![(Argo, Faction::Colonies), (Argo, Faction::Colonies), (Argo, Faction::Alliance)]
         }
         Scene::City | Scene::Markab | Scene::Base => vec![],
+        Scene::Ring => vec![(Argo, Faction::Colonies), (Altair, Faction::Colonies)],
     }
 }
 
@@ -1374,6 +1392,7 @@ fn base_cams() -> Vec<Orbit> {
     // The walker frame from the hall's doorway: Bay Row is towards −x, the deck's `s` grows to −z.
     let door = site.to_walker(Vec3::new(4.5, 0.0, 0.0));
     let deck = |d: Vec3| world(door + d);
+    let bay_1 = bc_sim::colony::deck::airlock(1).walker();
     vec![
         // Out on Bay Row before its doorway.
         toward(hall(Vec3::new(4.5, 1.7, -9.0)), hall(Vec3::new(5.0, 2.6, 3.0))),
@@ -1387,6 +1406,8 @@ fn base_cams() -> Vec<Orbit> {
         toward(deck(Vec3::new(-16.0, 1.7, 30.0)), deck(Vec3::new(-10.0, 4.0, -10.0))),
         // From high over the deck, near the spine's casing.
         toward(deck(Vec3::new(40.0, 200.0, 60.0)), deck(Vec3::ZERO)),
+        // Bay 01's airlock from out on the walkway: its number, its lit frame, KEEP CLEAR.
+        toward(world(bay_1 + Vec3::new(9.0, 2.2, 0.0)), world(bay_1 + Vec3::new(0.0, 3.4, 0.0))),
     ]
 }
 
@@ -1884,6 +1905,37 @@ fn script(
         // The bay is driven by `hangar_script`; the city by `city_script`; the Markab by
         // `markab_crowd`; the base stands still.
         Scene::Hangar | Scene::City | Scene::Markab | Scene::Base => {}
+        Scene::Ring => {
+            use bc_client_core::ring_deck::{DECK_ORIGIN, STANDING, flyer};
+            // The Argo before bay 07, facing the deck, looking about.
+            set(0, &mut |d| {
+                d.pos = DECK_ORIGIN + STANDING;
+                d.rot = facing(Vec3::new(-1.0, 0.0, 0.3));
+                let a = (t * 0.35) as f32;
+                d.aim = d.rot * Vec3::new(0.35 * a.sin(), 0.08 * (a * 1.3).cos(), 1.0).normalize();
+                d.vel = Vec3::ZERO;
+                d.flags = 0;
+                d.thrust = Vec3::ZERO;
+            });
+            // The Altair down the lanes on its jets, banked into the turns, boosting out of them.
+            let (at, vel) = flyer(t as f32);
+            let (ahead, _) = flyer(t as f32 + 0.5);
+            let bank =
+                vel.with_y(0.0).normalize_or(Vec3::Z).cross((ahead - at).with_y(0.0).normalize_or(Vec3::Z)).y;
+            let turning = bank.abs() > 0.02;
+            set(1, &mut |d| {
+                d.pos = DECK_ORIGIN + at;
+                d.vel = vel;
+                d.rot = facing(vel.with_y(0.0)) * Quat::from_rotation_z(-bank * 1.2);
+                d.aim = d.rot * Vec3::Z;
+                d.flags = if turning { 0 } else { ent_flags::BOOST };
+                d.thrust = if turning {
+                    Vec3::new(-bank.signum() * 0.6, 0.4, 0.2)
+                } else {
+                    Vec3::new(0.0, 0.3, 0.7)
+                };
+            });
+        }
         Scene::Surface => {
             let pose = fornax_at(t);
             let fornax = Body::Landmark(0);
@@ -2109,6 +2161,16 @@ fn script(
                 });
             }
         }
+    }
+}
+
+/// The Ring Deck's scene: the view indoors, on the deck (`station`).
+fn ring_script(mut indoors: ResMut<crate::hangar::Indoors>, mut set: ResMut<crate::hangar::IndoorSet>) {
+    if !indoors.0 {
+        indoors.0 = true;
+    }
+    if *set != crate::hangar::IndoorSet::Deck {
+        *set = crate::hangar::IndoorSet::Deck;
     }
 }
 

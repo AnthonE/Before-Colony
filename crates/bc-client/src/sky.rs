@@ -62,8 +62,9 @@ impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/sky.wgsl");
         app.add_plugins(MaterialPlugin::<SkyMaterial>::default())
+            .init_resource::<SkyTurn>()
             .add_systems(Startup, setup_sky)
-            .add_systems(Update, (apply_light_tier, eclipse, animate_sky));
+            .add_systems(Update, (apply_light_tier, eclipse, animate_sky, turn_sky));
     }
 }
 
@@ -83,6 +84,26 @@ struct SkyUniform {
     galaxy: Vec4,
     /// x: star brightness; y: detail 0..1; z: sun disc scale; w: the Milky Way's lift (1: none).
     params: Vec4,
+    /// How a view direction is turned into the sky's own (a quaternion: [`SkyTurn`]'s, inverted).
+    turn: Vec4,
+    /// x: a scale on the sky's light ([`SkyTurn::gain`]).
+    gain: Vec4,
+}
+
+/// How the sky is turned and how bright it's drawn, seen from where the view is: as it is (no
+/// turn, full light) but from the Ring Deck (`station`), which turns with the colony's spin and is
+/// lit for lamps, not sunlight, so the sky through its glass is turned down to its exposure.
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct SkyTurn {
+    /// A star in direction `d` is seen in `turn * d`.
+    pub turn: Quat,
+    pub gain: f32,
+}
+
+impl Default for SkyTurn {
+    fn default() -> Self {
+        Self { turn: Quat::IDENTITY, gain: 1.0 }
+    }
 }
 
 impl Material for SkyMaterial {
@@ -147,6 +168,8 @@ fn setup_sky(
             moon: MOON_DIR.extend(MOON_RADIUS),
             galaxy: GALAXY_NORMAL.extend(0.0),
             params: Vec4::new(gfx.starlight(), gfx.settings.sky_detail, 1.0, gfx.milky_way_lift()),
+            turn: Vec4::W,
+            gain: Vec4::X,
         },
     });
     commands.spawn((
@@ -190,12 +213,14 @@ fn apply_light_tier(
     mut sky_materials: ResMut<Assets<SkyMaterial>>,
     mut floods: Query<(&mut SpotLight, &crate::hangar::Flood)>,
     city: Res<crate::city::CityView>,
+    set: Res<crate::hangar::IndoorSet>,
     base: Res<crate::base::BaseView>,
 ) {
     if !gfx.is_changed()
         && added.is_empty()
         && !indoors.is_changed()
         && !city.is_changed()
+        && !set.is_changed()
         && !base.is_changed()
     {
         return;
@@ -206,21 +231,26 @@ fn apply_light_tier(
         return;
     }
     let s = gfx.settings;
-    // In the hangar bay: lamps, not the Sun; no sky to reflect.
+    // In the hangar bay: lamps, not the Sun; no sky to reflect. On the Ring Deck, the same, brighter
+    // and even, the colony's own halls' light.
     let inside = indoors.0;
+    let deck = *set == crate::hangar::IndoorSet::Deck;
+    let (ev, fog, density, fill) = if deck {
+        use crate::station::{DECK_AMBIENT, DECK_EV100, DECK_FOG, DECK_FOG_DENSITY};
+        (DECK_EV100, DECK_FOG, DECK_FOG_DENSITY, DECK_AMBIENT)
+    } else {
+        use crate::hangar::{INDOOR_AMBIENT, INDOOR_EV100};
+        (INDOOR_EV100, Color::srgb(0.06, 0.07, 0.085), 0.0055, INDOOR_AMBIENT)
+    };
     for cam in &cams {
         let mut e = commands.entity(cam);
-        e.insert(Exposure { ev100: if inside { crate::hangar::INDOOR_EV100 } else { EV100 } });
+        e.insert(Exposure { ev100: if inside { ev } else { EV100 } });
         // The bay's few lamps reach all of it: one light cluster (WebGL2's per-cluster light
         // lists overflow when every lamp covers every cluster, and tiles of the screen go dark).
         e.insert(if inside { ClusterConfig::Single } else { ClusterConfig::default() });
         // The bay has air in it: the far end of the bay and the launch tunnel fade into its haze.
         if inside && gfx.look {
-            e.insert(DistanceFog {
-                color: Color::srgb(0.06, 0.07, 0.085),
-                falloff: FogFalloff::Exponential { density: 0.0055 },
-                ..default()
-            });
+            e.insert(DistanceFog { color: fog, falloff: FogFalloff::Exponential { density }, ..default() });
         } else {
             e.remove::<DistanceFog>();
         }
@@ -240,8 +270,8 @@ fn apply_light_tier(
     ambient.color = Color::srgb(0.55, 0.65, 0.9);
     ambient.brightness = if s.ibl { 250.0 } else { 2_500.0 };
     if inside {
-        ambient.color = Color::srgb(0.8, 0.85, 0.95);
-        ambient.brightness = crate::hangar::INDOOR_AMBIENT;
+        ambient.color = if deck { Color::srgb(0.9, 0.93, 1.0) } else { Color::srgb(0.8, 0.85, 0.95) };
+        ambient.brightness = fill;
     }
     for (e, mut light) in &mut suns {
         light.shadow_maps_enabled = s.shadows && !inside;
@@ -327,6 +357,20 @@ fn animate_sky(
     for dome in &skies {
         if let Some(mut m) = materials.get_mut(&dome.0) {
             m.sky.galaxy.w = (time.now % 100_000.0) as f32;
+        }
+    }
+}
+
+/// Turns the sky, and sets how bright it's drawn, as [`SkyTurn`] says.
+fn turn_sky(turn: Res<SkyTurn>, skies: Query<&SkyDome>, mut materials: ResMut<Assets<SkyMaterial>>) {
+    if !turn.is_changed() {
+        return;
+    }
+    let q = turn.turn.inverse();
+    for dome in &skies {
+        if let Some(mut m) = materials.get_mut(&dome.0) {
+            m.sky.turn = Vec4::new(q.x, q.y, q.z, q.w);
+            m.sky.gain = Vec4::new(turn.gain, 0.0, 0.0, 0.0);
         }
     }
 }

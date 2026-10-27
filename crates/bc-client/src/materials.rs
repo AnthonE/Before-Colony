@@ -200,6 +200,8 @@ pub struct Surfaces {
     pub rock: Handle<RockMaterial>,
     /// Keeps the shared WGSL library loaded, so shaders can import it.
     _noise: Handle<Shader>,
+    /// And the painted look's (`bc::anime`: the hull's and the station's shaders import it).
+    _anime: Handle<Shader>,
 }
 
 pub struct MaterialsPlugin;
@@ -207,6 +209,7 @@ pub struct MaterialsPlugin;
 impl Plugin for MaterialsPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/noise.wgsl");
+        embedded_asset!(app, "shaders/anime.wgsl");
         embedded_asset!(app, "shaders/hull.wgsl");
         embedded_asset!(app, "shaders/rock.wgsl");
         app.add_plugins((
@@ -271,6 +274,7 @@ pub fn setup_materials(
             },
         }),
         _noise: assets.load("embedded://bc_client/shaders/noise.wgsl"),
+        _anime: assets.load("embedded://bc_client/shaders/anime.wgsl"),
     });
 }
 

@@ -245,6 +245,7 @@ impl Plugin for VisualsPlugin {
                 crate::course::CoursePlugin,
                 crate::board::WallBoardPlugin,
                 crate::signs::SignsPlugin,
+                crate::station::StationPlugin,
                 crate::base::BasePlugin,
             ))
             .configure_sets(
@@ -257,6 +258,7 @@ impl Plugin for VisualsPlugin {
                     (
                         setup_assets,
                         crate::materials::setup_materials,
+                        crate::station::setup_stations,
                         crate::beams::setup_ribbons,
                         crate::model::build_suit_meshes,
                     ),

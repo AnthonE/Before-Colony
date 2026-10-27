@@ -115,12 +115,7 @@ mod tests {
     const FACADE: &str = include_str!("../../bc-client/src/shaders/city_facade.wgsl");
 
     fn constant(name: &str) -> f32 {
-        let line = LIB
-            .lines()
-            .find(|l| l.trim_start().starts_with(&format!("const {name}:")))
-            .unwrap_or_else(|| panic!("no {name} in city_lib.wgsl"));
-        let v = line.split('=').nth(1).unwrap().trim().trim_end_matches(';').trim();
-        v.parse().unwrap_or_else(|_| panic!("{name} = {v}"))
+        crate::wgsl::constant(LIB, name)
     }
 
     #[test]
