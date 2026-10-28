@@ -19,7 +19,7 @@ const T: array<f32, 7> = array<f32, 7>(1.0, 0.62, 0.35, 0.12, -0.25, -0.55, -0.9
 const SIZE: array<f32, 7> = array<f32, 7>(0.28, 0.05, 0.09, 0.03, 0.12, 0.06, 0.2);
 const COLOR: array<vec3<f32>, 7> = array<vec3<f32>, 7>(
     vec3(1.0, 0.85, 0.6), vec3(0.4, 0.8, 1.0), vec3(1.0, 0.5, 0.25), vec3(0.6, 1.0, 0.6),
-    vec3(0.5, 0.45, 1.0), vec3(1.0, 0.7, 0.4), vec3(0.35, 0.6, 1.0),
+    vec3(0.55, 0.65, 1.0), vec3(1.0, 0.7, 0.4), vec3(0.35, 0.6, 1.0),
 );
 
 struct Out {
@@ -58,11 +58,11 @@ fn fragment(in: Out) -> @location(0) vec4<f32> {
         // Glare round the Sun itself.
         a = pow(1.0 - r, 3.0) * 0.6;
     } else if (in.ghost % 3u == 1u) {
-        // A faint ring.
-        a = exp(-pow((r - 0.8) * 12.0, 2.0)) * 0.06;
+        // A faint ring (fainter than it was: hard purple circles over every view of the colony).
+        a = exp(-pow((r - 0.8) * 12.0, 2.0)) * 0.022;
     } else {
         // A soft disc, brightest at its rim.
-        a = smoothstep(1.0, 0.6, r) * (0.3 + 0.7 * r * r) * 0.035;
+        a = smoothstep(1.0, 0.6, r) * (0.3 + 0.7 * r * r) * 0.025;
     }
     let rgb = COLOR[in.ghost] * a * flare.sun.w * 3.0;
     return vec4(glow_out(rgb), 0.0);

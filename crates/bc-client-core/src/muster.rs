@@ -21,7 +21,7 @@ use bc_sim::content::base::SITES;
 use bc_sim::pieces::parts::Aabb;
 use glam::Vec3;
 
-use crate::piece_mesh::{Frame, PieceMesh, walker_uv};
+use crate::piece_mesh::{Frame, PieceMesh, REPEAT, uv_origin, walker_uv};
 use crate::station::{
     ARROWS, BACK, BAND, CHARTER, CHEVRONS, DARK, GARDENS, HULL, LANES, Sign, Surface, WHITE, YELLOW, colour,
 };
@@ -75,7 +75,6 @@ pub fn bay_row() -> PieceMesh {
     let (x0, round) = (d.x0, d.round());
     let mut m = PieceMesh::default();
     let f = Frame::COLONY;
-    let flat = |w: Vec3, n: Vec3| walker_uv(w, n, 0.0);
     // The wall and the walkway round the whole deck, a strip at a time (their arrows each pointing
     // the short way round to the buildings).
     let strips = (round / 6.0).ceil() as usize;
@@ -86,6 +85,8 @@ pub fn bay_row() -> PieceMesh {
         // UVs along a wall facing +x run along −s: arrows along +u point to lower s.
         let arrows = if towards < 0.0 { ARROWS } else { ARROWS | BACK };
         let len = Vec3::NEG_Z * (s1 - s0);
+        let o = uv_origin(Vec3::new(x0, 0.0, -s0));
+        let flat = move |w: Vec3, n: Vec3| walker_uv(w - o, n, 0.0);
         m.rect(
             BASE,
             &f,
@@ -95,7 +96,7 @@ pub fn bay_row() -> PieceMesh {
             colour(Wall, CHARTER, BAND | arrows, 7),
             &flat,
         );
-        let across = |w: Vec3, _: Vec3| [w.z, w.x - x0];
+        let across = move |w: Vec3, _: Vec3| [w.z - o.z, w.x - x0];
         let floor = colour(Floor, CHARTER, LANES, 11);
         m.rect(BASE, &f, Vec3::new(x0, 0.02, -s0), Vec3::X * BAY_ROW_WIDTH, len, floor, &across);
         let edge = colour(Hazard, WHITE, 0, 3);
@@ -110,10 +111,11 @@ pub fn bay_row() -> PieceMesh {
         let boxed = |m: &mut PieceMesh, lo: [f32; 3], hi: [f32; 3], c: [f32; 4], centred: bool| {
             let b =
                 Aabb::new(Vec3::new(x0 + lo[0], lo[1], z + lo[2]), Vec3::new(x0 + hi[0], hi[1], z + hi[2]));
+            let o = uv_origin(Vec3::new(x0, 0.0, z));
             let uv = move |w: Vec3, n: Vec3| {
-                let mut uv = walker_uv(w, n, 0.0);
+                let mut uv = walker_uv(w - o, n, 0.0);
                 if centred {
-                    uv[0] -= z;
+                    uv[0] -= z - o.z;
                 }
                 uv
             };
@@ -162,6 +164,74 @@ pub fn bay_row() -> PieceMesh {
         // Between this door and the next, a lamp on the wall.
         let lamp = -spacing * 0.5;
         boxed(&mut m, [0.0, 6.75, lamp - 0.8], [0.8, 7.25, lamp + 0.8], colour(Glow, WHITE, 0, seed), false);
+    }
+    m
+}
+
+/// The road round the deck: how far out from the back end it starts and how wide it is (a lane each
+/// way, `station::Scale::MUSTER`'s lanes), m.
+const ROAD_X: f32 = 100.0;
+const ROAD_W: f32 = 12.5;
+/// The pads out past the road, where the base's carriers and suits stand: how far out from the back
+/// end, how big, how far apart round the deck and the width of their hazard border, m.
+const PAD_X: f32 = 130.0;
+const PAD: f32 = 30.0;
+const PAD_EVERY: f32 = 72.0;
+const PAD_BORDER: f32 = 0.8;
+/// How far under the deck its markings lie, m (the walker stands on the deck itself, and the
+/// buildings' foundations, flush with it, hide what's under them).
+const UNDER: f32 = 0.05;
+
+/// The deck out past Bay Row (and under the drum's floor, which it is), so it reads as a parade ground in use, not a bare plain (`docs/RING.md`,
+/// "The base"): deck plates over it all, a road round the deck with a lane each way and hazard
+/// edges, and pads out past the road bordered in hazard stripes. Only paint: nothing of it stands
+/// on the deck to walk into. In the colony's own frame.
+pub fn deck_floor() -> PieceMesh {
+    use Surface::*;
+    let d = deck();
+    let (x0, round) = (d.x0, d.round());
+    let mut m = PieceMesh::default();
+    let f = Frame::COLONY;
+    let start = x0 + BAY_ROW_WIDTH + EDGE;
+    let segs = (round / REPEAT).ceil() as usize;
+    for k in 0..segs {
+        let (s0, s1) = (round * k as f32 / segs as f32, round * (k + 1) as f32 / segs as f32);
+        let len = Vec3::NEG_Z * (s1 - s0);
+        let o = uv_origin(Vec3::new(x0, 0.0, -s0));
+        let flat = |from: f32| move |w: Vec3, _: Vec3| [w.z - o.z, w.x - from];
+        // Side by side across the deck, none over another: plates, the road's edge, the road, its
+        // other edge, plates.
+        let road = x0 + ROAD_X;
+        let plates = colour(Floor, WHITE, 0, (k % 251) as u8);
+        let edge = colour(Hazard, WHITE, 0, 3);
+        for (from, to, c) in [
+            (start, road - EDGE, plates),
+            (road - EDGE, road, edge),
+            (road, road + ROAD_W, colour(Floor, CHARTER, LANES, 13)),
+            (road + ROAD_W, road + ROAD_W + EDGE, edge),
+            (road + ROAD_W + EDGE, d.x1, plates),
+        ] {
+            m.rect(BASE, &f, Vec3::new(from, -UNDER, -s0), Vec3::X * (to - from), len, c, &flat(from));
+        }
+    }
+    // The pads, each a square border of hazard stripes.
+    let border = colour(Hazard, WHITE, 0, 5);
+    let pads = (round / PAD_EVERY).floor() as usize;
+    for k in 0..pads {
+        let s = round * k as f32 / pads as f32 + PAD_EVERY * 0.25;
+        let (x, z) = (x0 + PAD_X, -s);
+        let o = uv_origin(Vec3::new(x, 0.0, z));
+        let uv = move |w: Vec3, _: Vec3| [w.z - o.z, w.x - o.x];
+        let h = -UNDER + 0.02;
+        let b = PAD_BORDER;
+        for (at, across, along) in [
+            (Vec3::new(x, h, z), Vec3::X * PAD, Vec3::NEG_Z * b),
+            (Vec3::new(x, h, z - PAD + b), Vec3::X * PAD, Vec3::NEG_Z * b),
+            (Vec3::new(x, h, z - b), Vec3::X * b, Vec3::NEG_Z * (PAD - 2.0 * b)),
+            (Vec3::new(x + PAD - b, h, z - b), Vec3::X * b, Vec3::NEG_Z * (PAD - 2.0 * b)),
+        ] {
+            m.rect(BASE, &f, at, across, along, border, &uv);
+        }
     }
     m
 }
@@ -278,6 +348,34 @@ mod tests {
         }
         assert_eq!(signs[0].text, "BAY 01");
         assert_eq!(signs[2 * (BAYS as usize - 1)].text, format!("BAY {BAYS}"));
+    }
+
+    /// The deck's markings lie just under it, over the whole deck past Bay Row, wound to face up,
+    /// clear of the Muster's buildings' insides (under their foundations), their UVs metres.
+    #[test]
+    fn the_deck_is_marked_under_its_surface() {
+        let m = deck_floor();
+        let d = deck();
+        assert_eq!(m.uvs.len(), m.positions.len());
+        for p in &m.positions {
+            let at = deck_at(Vec3::from(*p)).expect("over the base deck");
+            assert!(at.h < 0.0 && at.h > -UNDER - 1e-3, "{at:?}");
+            assert!(at.x >= d.x0 + BAY_ROW_WIDTH + EDGE - 1e-3 && at.x <= d.x1 + 1e-3, "{at:?}");
+        }
+        for (t, idx) in triangles(&m).zip(m.indices.chunks(3)) {
+            let n = Vec3::from(m.normals[idx[0] as usize]);
+            let at = deck_at(t[0]).unwrap();
+            let up = local_frame(BASE, at.s) * Vec3::Y;
+            assert!(n.dot(up) > 0.99, "a marking not facing up at {at:?}");
+        }
+        let far = m.uvs.iter().flatten().fold(0.0f32, |a, v| a.max(v.abs()));
+        assert!(far < 3.0 * REPEAT + d.x1 - d.x0, "UVs out to {far} m");
+        assert!(crate::piece_mesh::uv_stretch(&m) < 0.03);
+        // The pads and the road keep clear of the buildings' footprints.
+        for site in &SITES {
+            let b = site.bounds();
+            assert!(b.max.x < d.x0 + ROAD_X - EDGE, "{} reaches the road", site.prefab.name);
+        }
     }
 
     /// The band's arrows point the short way round to the Muster's buildings, on both sides of them.

@@ -118,16 +118,14 @@ fn follow(view: Res<BaseView>, mut roots: Query<(&mut Transform, &mut Visibility
     }
 }
 
-/// The drum's inside round the deck: its floor, its ends (the back end over Bay Row's wall, which
+/// The drum's inside round the deck: its ends (the back end over Bay Row's wall, which
 /// `muster` draws), the spine's casing overhead with its light strips.
 fn drum_kit() -> Kit {
     let mut k = Kit::default();
     let d = &DECKS[BASE as usize];
     let (x0, x1, r) = (d.x0, d.x1, d.floor_r);
     let casing = r - d.roof_h;
-    // The floor, a few centimetres under the deck so its facets never stand through a building's
-    // foundations (which are flush with the deck itself).
-    k.lathe(&[(x0, r + 0.05), (x1, r + 0.05)], 512, painted(paint::HULL_DARK));
+    // (The floor is `muster::deck_floor`'s plates and markings.)
     // The ends, facing in.
     k.lathe(&[(x0, casing), (x0, r - muster::WALL_H)], 256, painted(paint::HULL));
     k.lathe(&[(x1, r + 0.05), (x1, casing)], 256, painted(paint::HULL));
@@ -177,8 +175,15 @@ pub fn setup_base(
     let root = commands.spawn((Name::new("base"), BaseRoot, frame(SITES[0].s), Visibility::Hidden)).id();
     commands.spawn((
         Mesh3d(meshes.add(drum_kit().mesh())),
-        MeshMaterial3d(surfaces.station.clone()),
+        // The colony's own clean slabs: Fornax's weathered plating read as blotches overhead.
+        MeshMaterial3d(surfaces.colony.clone()),
         HullTag::paint(paint::HULL, 5).tag(),
+        NotShadowCaster,
+        ChildOf(root),
+    ));
+    commands.spawn((
+        Mesh3d(meshes.add(to_mesh(muster::deck_floor()))),
+        MeshMaterial3d(stations.muster.clone()),
         NotShadowCaster,
         ChildOf(root),
     ));

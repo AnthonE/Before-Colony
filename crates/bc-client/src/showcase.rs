@@ -287,6 +287,16 @@ fn orbit_from(target: Vec3, from: Vec3, dist: f32) -> Orbit {
     orbit(target, d.x.atan2(d.z), d.y.clamp(-1.0, 1.0).asin(), dist)
 }
 
+/// Bay 1's door in the colony scene, open (not drawn, and its floods lit) while the Argo rides its
+/// cradle and for a while after it's thrown out, as the game opens a launching pilot's.
+fn colony_bay_door(show: Res<Show>, mut doors: Query<(&crate::colony::BayDoor, &mut Visibility)>) {
+    let open = show.prev < LAUNCH_AT + 3.0;
+    for (door, mut vis) in &mut doors {
+        let want = if door.0 == 1 && open { Visibility::Hidden } else { Visibility::Inherited };
+        vis.set_if_neq(want);
+    }
+}
+
 /// When the colony scene's Argo is thrown out of bay 1's door, s.
 const LAUNCH_AT: f64 = 5.5;
 
@@ -464,6 +474,7 @@ impl Plugin for ShowcasePlugin {
             steps: 0,
             film: None,
         })
+        .init_resource::<crate::ambience::DustDrift>()
         .add_systems(
             Startup,
             (spawn_showcase, (spawn_wreckage, spawn_chips).after(crate::rocks::setup_field)),
@@ -475,9 +486,13 @@ impl Plugin for ShowcasePlugin {
                 .chain()
                 .in_set(crate::view::Vis::Drive),
         )
+        .add_systems(Update, dust_drift.after(film_follow).in_set(crate::view::Vis::Drive))
         .add_systems(Update, overlay.in_set(crate::view::Vis::Camera));
         if self.scene == Scene::Hangar {
             app.add_systems(Update, hangar_script.after(script).in_set(crate::view::Vis::Drive));
+        }
+        if self.scene == Scene::Colony {
+            app.add_systems(Update, colony_bay_door.after(script).in_set(crate::view::Vis::Drive));
         }
         if self.scene == Scene::Base {
             app.add_systems(Update, base_script.after(script).in_set(crate::view::Vis::Drive));
@@ -1059,6 +1074,22 @@ fn film_follow(mut show: ResMut<Show>, suits: Query<&SuitDrive>) {
     }
 }
 
+/// The dust's drift ([`crate::ambience::DustDrift`]): the pilot's in the chase scene, which flies
+/// its camera; otherwise the suit the film hook follows, or none, the camera being a rig moved
+/// round the scene (a slow push-in 4 km out would streak it like a warp jump).
+fn dust_drift(show: Res<Show>, suits: Query<&SuitDrive>, mut drift: ResMut<crate::ambience::DustDrift>) {
+    let want = if show.scene == Scene::Chase {
+        None
+    } else {
+        let follow = film_params().and_then(|f| film_param(&f, "follow"));
+        let suit = follow.and_then(|i| show.suits.get(i as usize)).and_then(|e| suits.get(*e).ok());
+        Some(suit.map_or(Vec3::ZERO, |d| d.vel))
+    };
+    if drift.0 != want {
+        drift.0 = want;
+    }
+}
+
 fn advance_clock(
     mut show: ResMut<Show>,
     mut vis: ResMut<VisTime>,
@@ -1400,12 +1431,12 @@ fn base_cams() -> Vec<Orbit> {
         toward(hall(Vec3::new(4.5, 1.65, 0.6)), hall(Vec3::new(9.5, 3.0, 7.5))),
         // From the gallery, down into the hall.
         toward(hall(Vec3::new(2.0, 4.65, 7.6)), hall(Vec3::new(6.0, 0.8, 1.5))),
-        // On Bay Row short of the hall: the deck rising past it round the drum till it's overhead.
-        toward(deck(Vec3::new(-12.0, 3.0, 40.0)), deck(Vec3::new(-4.0, 45.0, -60.0))),
+        // On Bay Row short of the hall: the deck, its road and pads rising past it round the drum.
+        toward(deck(Vec3::new(-12.0, 3.0, 40.0)), deck(Vec3::new(40.0, 50.0, -200.0))),
         // Along Bay Row, its airlocks on the left, curving up ahead.
         toward(deck(Vec3::new(-16.0, 1.7, 30.0)), deck(Vec3::new(-10.0, 4.0, -10.0))),
-        // From high over the deck, near the spine's casing.
-        toward(deck(Vec3::new(40.0, 200.0, 60.0)), deck(Vec3::ZERO)),
+        // From high behind the hall: Bay Row, the hall, the road and the pads, the deck curving up.
+        toward(deck(Vec3::new(70.0, 55.0, 110.0)), deck(Vec3::new(10.0, 0.0, -60.0))),
         // Bay 01's airlock from out on the walkway: its number, its lit frame, KEEP CLEAR.
         toward(world(bay_1 + Vec3::new(9.0, 2.2, 0.0)), world(bay_1 + Vec3::new(0.0, 3.4, 0.0))),
     ]
