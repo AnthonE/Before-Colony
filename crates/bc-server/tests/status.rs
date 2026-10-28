@@ -165,3 +165,43 @@ async fn the_store_reads_who_is_on() -> anyhow::Result<()> {
     server.shutdown();
     Ok(())
 }
+
+/// `/floor.json`: the Exchange floor for the store's trade terminal. Open under survival, where the
+/// colony is: its room, nobody in it yet, and the colony's desks on the boards, answered to the
+/// store's origin. Arcade has no colony, so no floor.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_store_reads_the_exchange_floor() -> anyhow::Result<()> {
+    let survival = Config {
+        mode: Mode::Game,
+        rules: Ruleset::Survival,
+        wt_port: 0,
+        http_addr: "127.0.0.1:0".parse()?,
+        drones: 0,
+        colony: true,
+        ..Config::default()
+    };
+    let server = bc_server::start(survival).await?;
+    let (headers, doc) =
+        get(&format!("http://{}/floor.json", server.http_addr), Some("https://elopros.com")).await?;
+    assert_eq!(headers["access-control-allow-origin"], "https://elopros.com");
+    assert_eq!(doc["open"], true, "{doc}");
+    assert_eq!(doc["place"], "THE EXCHANGE FLOOR");
+    assert_eq!(doc["people"], serde_json::json!([]));
+    assert!(doc["room"]["depth"].as_f64().is_some_and(|d| d > 30.0), "{doc}");
+    assert!(doc["board"].as_array().is_some_and(|b| !b.is_empty()), "{doc}");
+    server.shutdown();
+
+    let arcade = Config {
+        mode: Mode::Game,
+        rules: Ruleset::Arcade,
+        wt_port: 0,
+        http_addr: "127.0.0.1:0".parse()?,
+        drones: 0,
+        ..Config::default()
+    };
+    let server = bc_server::start(arcade).await?;
+    let (_, doc) = get(&format!("http://{}/floor.json", server.http_addr), None).await?;
+    assert_eq!(doc["open"], false, "{doc}");
+    server.shutdown();
+    Ok(())
+}

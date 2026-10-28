@@ -1,7 +1,8 @@
 //! The HTTP side: serves the built web client, `/cert-hash` for WebTransport's
 //! `serverCertificateHashes` (its `hash` is null when the certificate is CA-issued: nothing to pin),
 //! `/status` metrics, `/status.json`, the player count in the shape the Elo Pros launcher and
-//! store poll, and `/online.json`, the wallets on now for the store's playtime. The JSON routes
+//! store poll, `/online.json`, the wallets on now for the store's playtime, and `/floor.json`, who
+//! stands on the Exchange floor and what its boards show (`crate::floor`). The JSON routes
 //! answer pages on the store's origin too (CORS,
 //! `Config::cors_origins`), since the store serves the game's page from its own site.
 
@@ -31,6 +32,8 @@ pub struct HttpState {
     pub launcher_status: StatusFn,
     /// `/online.json`: the wallets on now, for the store's playtime (`crate::online`).
     pub online: StatusFn,
+    /// `/floor.json`: the Exchange floor, for the store's trade terminal (`crate::floor`).
+    pub floor: StatusFn,
     /// Origins allowed to read the JSON routes from another site.
     pub cors_origins: Arc<[String]>,
 }
@@ -43,6 +46,7 @@ pub fn router(state: HttpState) -> Router {
         .route("/status", get(status))
         .route("/status.json", get(launcher_status))
         .route("/online.json", get(online))
+        .route("/floor.json", get(floor))
         .with_state(state)
         .layer(middleware::from_fn(move |req: Request, next: Next| {
             let origins = origins.clone();
@@ -97,6 +101,10 @@ async fn launcher_status(State(s): State<HttpState>) -> Json<serde_json::Value> 
 
 async fn online(State(s): State<HttpState>) -> Json<serde_json::Value> {
     Json((s.online)())
+}
+
+async fn floor(State(s): State<HttpState>) -> Json<serde_json::Value> {
+    Json((s.floor)())
 }
 
 #[cfg(test)]

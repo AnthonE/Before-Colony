@@ -26,7 +26,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use bc_proto::presence::{BASE_DECK, MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
-use bc_sim::colony::city::{MAX_HEIGHT, Stage, arrival_seats, place_door, solid};
+use bc_sim::colony::city::{MAX_HEIGHT, Room, Stage, arrival_seats, place_door, solid};
 use bc_sim::colony::deck::{self, BASE, DeckPos};
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, STRIPS, Under, from_colony, within_caps};
 use bc_sim::colony::homes;
@@ -489,6 +489,24 @@ impl Plaza {
             return Some(DeckPos::new(BASE, x, s, h).to_colony());
         }
         Some(CityPos::new(me.strip, x, s, h).to_colony())
+    }
+
+    /// Who is standing (or sitting) in `room` now, heard from lately: their slot, name and last
+    /// pose, by slot. Nobody riding a train or driving is in a room.
+    pub fn in_room(&self, room: &Room, now: Instant) -> Vec<(u16, String, PersonPose)> {
+        let Ok(all) = self.people.lock() else { return Vec::new() };
+        let mut here: Vec<(u16, String, PersonPose)> = all
+            .iter()
+            .filter(|(_, p)| p.strip == room.strip)
+            .filter_map(|(id, p)| {
+                let pose = p.pose?;
+                let fresh = now.saturating_duration_since(p.heard).as_secs_f32() < HIDE;
+                let afoot = matches!(mode(&pose), Mode::Foot | Mode::Seated);
+                (fresh && afoot && room.holds(pose.s, pose.x, pose.h)).then(|| (*id, p.name.clone(), pose))
+            })
+            .collect();
+        here.sort_by_key(|h| h.0);
+        here
     }
 
     /// `id`'s name, as they came down.

@@ -12,6 +12,7 @@
 
 pub mod charter;
 pub mod config;
+pub mod floor;
 pub mod homes;
 pub mod http;
 pub mod market;
@@ -106,6 +107,7 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
     let launcher_game = status_view.clone();
     let max_players = cfg.max_clients;
     let online = shared.as_ref().map(|g| g.online.clone());
+    let floor_game = shared.clone().filter(|g| g.colony);
     let http_state = http::HttpState {
         // A CA-issued certificate is validated by the browser: nothing to pin.
         cert_hash_hex: pinned.then(|| hex::encode(cert_hash)),
@@ -117,6 +119,10 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         }),
         online: Arc::new(move || {
             online.as_ref().map_or_else(|| crate::online::Online::default().json(), |o| o.json())
+        }),
+        floor: Arc::new(move || match floor_game.as_ref() {
+            Some(g) => g.floor_json(),
+            None => crate::floor::json(None, None, |_| false),
         }),
         cors_origins: cfg.cors_origins.clone().into(),
     };
