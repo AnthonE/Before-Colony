@@ -188,8 +188,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let local = uv - cell * panel;
         let h = hash2(cell + vec2(seed * 0.37, seed * 0.11));
         albedo = white * (0.985 + 0.05 * (hash2(cell * 1.7 + 3.1) - 0.5));
-        // A vent: slats across the middle of its panel.
-        if (h < 0.07) {
+        // A vent: slats across the middle of its panel, unless the band runs across it.
+        let banded = (flags & F_BAND) != 0u && cell.y * panel.y < b1 && (cell.y + 1.0) * panel.y > b0;
+        if (h < 0.07 && !banded) {
             let mx = panel.x * 0.117;
             let my = panel.y * 0.2;
             let inset = band(local.x, mx, panel.x - mx, fw.x) * band(local.y, my, panel.y - my, fw.y);
