@@ -1,5 +1,5 @@
 {
- "_": "A short cut of the October 2026 overhaul (the First Colony as a ring, the Ring Deck, the Muster and Bay Row, the painted look on trial), to see it move and find what needs more work. 1280x720 to film quickly; cut by overhaul.sh. Shots far out are held still: a moving camera streaks the dust as if it were flying (ambience.rs).",
+ "_": "A short cut of the October 2026 overhaul (the First Colony as a ring, the Ring Deck, the Muster and Bay Row, the painted look on trial), to see it move and find what needs more work. 1280x720 to film quickly; cut by overhaul.sh.",
  "fps": 30,
  "size": [
   1280,
@@ -35,8 +35,15 @@
    "t": 6.0,
    "len": 3.0,
    "move": {
-    "yaw": 0.75,
-    "zoom": 0.7
+    "yaw": [
+     0.9,
+     0.6
+    ],
+    "zoom": [
+     1.0,
+     0.62
+    ],
+    "ease": "out"
    }
   },
   {
@@ -62,10 +69,25 @@
    "t": 1900,
    "len": 2.5,
    "move": {
-    "zoom": 0.85
+    "zoom": [
+     1.0,
+     0.8
+    ]
    },
    "caption": [
     "THE HUB'S FACE, BY NIGHT"
+   ]
+  },
+  {
+   "name": "o04b-launch",
+   "scene": "colony",
+   "cam": 9,
+   "t": 5.9,
+   "len": 2.5,
+   "pre": 0.3,
+   "caption": [
+    "OUT OF YOUR BAY",
+    "THROWN FROM THE HUB'S FACE"
    ]
   },
   {
@@ -158,12 +180,17 @@
    "move": {
     "pan": true,
     "pitch": [
-     -0.15,
-     0.25
+     -0.05,
+     0.12
+    ],
+    "yaw": [
+     0.05,
+     -0.05
     ]
    },
    "caption": [
-    "THE DECK RISES ROUND THE DRUM"
+    "THE DECK RISES ROUND THE DRUM",
+    "A ROAD AND PADS, MARKED OUT"
    ]
   },
   {
@@ -239,7 +266,11 @@
    "t": 1900,
    "len": 4.0,
    "move": {
-    "zoom": 0.9
+    "zoom": [
+     0.8,
+     1.05
+    ],
+    "ease": "out"
    },
    "caption": [
     "BEFORE COLONY",
