@@ -1,5 +1,5 @@
 {
- "_": "A short cut of the October 2026 overhaul (the First Colony as a ring, the Ring Deck, the Muster and Bay Row, the painted look on trial), to see it move and find what needs more work. 1280x720 to film quickly; cut by overhaul.sh.",
+ "_": "A short cut of the October 2026 overhaul (the First Colony as a ring, the Ring Deck, the Muster and Bay Row, the painted look on trial), to see it move and find what needs more work. 1280x720 to film quickly; cut by overhaul.sh. Shots far out are held still: a moving camera streaks the dust as if it were flying (ambience.rs).",
  "fps": 30,
  "size": [
   1280,
@@ -35,15 +35,8 @@
    "t": 6.0,
    "len": 3.0,
    "move": {
-    "yaw": [
-     0.9,
-     0.6
-    ],
-    "zoom": [
-     1.0,
-     0.62
-    ],
-    "ease": "out"
+    "yaw": 0.75,
+    "zoom": 0.7
    }
   },
   {
@@ -69,10 +62,7 @@
    "t": 1900,
    "len": 2.5,
    "move": {
-    "zoom": [
-     1.0,
-     0.8
-    ]
+    "zoom": 0.85
    },
    "caption": [
     "THE HUB'S FACE, BY NIGHT"
@@ -249,11 +239,7 @@
    "t": 1900,
    "len": 4.0,
    "move": {
-    "zoom": [
-     0.8,
-     1.05
-    ],
-    "ease": "out"
+    "zoom": 0.9
    },
    "caption": [
     "BEFORE COLONY",
