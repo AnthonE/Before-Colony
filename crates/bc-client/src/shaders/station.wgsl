@@ -155,7 +155,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     surface = u32(in.color.r * 255.0 + 0.5);
     paint_i = u32(in.color.g * 255.0 + 0.5);
     flags = u32(in.color.b * 255.0 + 0.5);
-    seed = in.color.a * 255.0;
+    // Rounded: a hair off from interpolating it flips a panel's hash across a vent's threshold
+    // pixel by pixel (vents broke into dashes on faces with large seeds).
+    seed = floor(in.color.a * 255.0 + 0.5);
 #endif
     var uv = vec2(0.0);
 #ifdef VERTEX_UVS_A

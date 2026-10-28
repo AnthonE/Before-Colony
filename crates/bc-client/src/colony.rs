@@ -453,10 +453,11 @@ pub fn setup_colony(
                     NotShadowCaster,
                     BayDoor(b as u8 + 1),
                 ));
-                // Its floods, out in front of the door, shining back on its mouth and what leaves it.
+                // Its floods, out in front of the door, shining back on its mouth and what leaves it:
+                // tens of thousands of lux, to read against space's exposure (the Sun's 100,000).
                 c.spawn((
                     PointLight {
-                        intensity: 9.0e7,
+                        intensity: 1.2e9,
                         range: 400.0,
                         color: Color::srgb(1.0, 0.94, 0.84),
                         shadow_maps_enabled: false,

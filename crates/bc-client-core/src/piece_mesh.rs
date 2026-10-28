@@ -36,19 +36,6 @@ pub const DADO: f32 = 1.0;
 /// deck sags it under a millimetre at the base's 400 m.
 const STRIP: f32 = 1.5;
 
-/// Every pattern the station language paints along the Muster's faces repeats in this many metres
-/// (`station::Scale::MUSTER`: panels and plates 1.5, light strips 3, arrows 4, chevrons 9, hazard
-/// stripes 0.5), so a face's UVs measured from any multiple of it paint the same.
-pub const REPEAT: f32 = 36.0;
-
-/// What to measure a face's UVs from near walker point `w`: the multiple of [`REPEAT`] nearest it
-/// across the deck and round it. The walker's frame runs a kilometre and more round the deck, too
-/// far out for the shader to keep a vent's slats in f32 (they broke into per-pixel dashes).
-pub fn uv_origin(w: Vec3) -> Vec3 {
-    let snap = |v: f32| (v / REPEAT).round() * REPEAT;
-    Vec3::new(snap(w.x), 0.0, snap(w.z))
-}
-
 /// A frame to put a deck's points in: the colony's own, moved by `-foot` and turned by `inv`.
 #[derive(Clone, Copy, Debug)]
 pub struct Frame {
@@ -161,7 +148,6 @@ pub fn site_mesh(site: &Site) -> PieceMesh {
     let (foot, turn) = site_frame(site);
     let frame = Frame { foot, inv: turn.inverse() };
     let trim = |p: u8, seed: u8| colour(Trim, p, 0, seed);
-    let origin = uv_origin(site.to_walker(Vec3::ZERO));
     for (k, p) in site.prefab.pieces.iter().enumerate() {
         let seed = ((k * 7 + 3) % 251) as u8;
         let storey = level_y(p.level);
@@ -169,7 +155,7 @@ pub fn site_mesh(site: &Site) -> PieceMesh {
         // olive in a hall's shade reads as a black slab.
         let low = matches!(p.shape, HALF_WALL | LOW_WALL);
         let base = if low { storey - DADO } else { storey };
-        let uv = move |w: Vec3, n: Vec3| walker_uv(w - origin, n, base);
+        let uv = move |w: Vec3, n: Vec3| walker_uv(w, n, base);
         for (part, b) in parts(p.shape, &p.addr(0)).as_slice() {
             let w = site.box_to_walker(b);
             let (top, under, side) = match part {
@@ -308,22 +294,6 @@ mod tests {
         assert_eq!(s.kick, DADO);
         assert_eq!(s.kick_paint, crate::station::OLIVE);
         assert!(s.band[0] > bc_sim::pieces::parts::OPENING_HEAD && s.band[1] < LEVEL_H_M);
-    }
-
-    /// The Muster's patterns along a face all repeat in [`REPEAT`], so moving its UVs by it moves
-    /// nothing painted; and a building's UVs stay near its own corner.
-    #[test]
-    fn its_uvs_stay_near_with_its_patterns() {
-        let s = crate::station::Scale::MUSTER;
-        for p in [s.panel[0], s.plate, s.arrow_every, s.chevron_every, s.strip_every, s.hazard_period] {
-            let n = REPEAT / p;
-            assert!((n - n.round()).abs() < 1e-4, "{p} m doesn't repeat in {REPEAT}");
-        }
-        for site in &SITES {
-            let m = site_mesh(site);
-            let far = m.uvs.iter().flatten().fold(0.0f32, |a, v| a.max(v.abs()));
-            assert!(far < 3.0 * REPEAT, "{}: UVs out to {far} m", site.prefab.name);
-        }
     }
 
     /// Its name goes up over its doorway outside, on the wall there, facing out, in letters the
