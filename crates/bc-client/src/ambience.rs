@@ -256,6 +256,12 @@ fn sun_unblocked(eye: Vec3, field: Option<&VisField>, suits: &[Vec3]) -> f32 {
     seen as f32 / rays.len() as f32
 }
 
+/// What the dust streaks with in place of the camera's own motion, when it's set: the showcase's
+/// cameras are a rig moved round a scene, not flown, so the dust streaks only with the suit the
+/// camera follows (`showcase`'s `dust_drift`).
+#[derive(Resource, Default)]
+pub struct DustDrift(pub Option<Vec3>);
+
 /// Feeds the dust the camera's velocity, and the flare how much of the Sun is in view.
 #[allow(clippy::too_many_arguments)]
 pub fn update_ambience(
@@ -272,17 +278,20 @@ pub fn update_ambience(
     mut flare_materials: ResMut<Assets<FlareMaterial>>,
     field: Option<Res<VisField>>,
     suits: Query<&SuitDrive>,
-    mut last: Local<Option<Vec3>>,
-    mut shade: Local<Option<f32>>,
+    drift: Option<Res<DustDrift>>,
+    // Where the camera was last frame, and how much of the Sun the flare showed.
+    mut was: Local<(Option<Vec3>, Option<f32>)>,
     mut near: Local<Vec<Vec3>>,
 ) {
     let Ok(cam) = cams.single() else { return };
     let eye = cam.translation();
+    let (last, shade) = &mut *was;
     let vel = match *last {
         Some(prev) if time.dt > 0.0 => (eye - prev) / time.dt,
         _ => Vec3::ZERO,
     };
     *last = Some(eye);
+    let vel = drift.and_then(|d| d.0).unwrap_or(vel);
     // No dust in the hangar bay.
     for mut v in &mut dust_vis {
         let want = if indoors.0 { Visibility::Hidden } else { Visibility::Inherited };

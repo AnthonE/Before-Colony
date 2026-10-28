@@ -1,8 +1,9 @@
 //! The base's buildings as meshes (`docs/RING.md`, "Buildings from pieces"): each piece's boxes
 //! (`bc_sim::pieces::parts`, the same table its solids come from) drawn as themselves and dressed in
 //! the colony's station language (`station`, "The station language"): white panels over the base's
-//! olive dado on the walls with the band in Charter blue, deck plates underfoot and light strips
-//! overhead, hazard stripes up a doorway's posts and its head lit green, gunmetal treads. Every
+//! olive dado on the walls with the band in Charter blue (a low wall, a gallery's parapet, all white
+//! panel), deck plates underfoot and light strips overhead, hazard stripes up a doorway's posts and its
+//! head lit green, treads in hull grey under deck plate. Every
 //! vertex lies on its box, so what's drawn is what's walked.
 //!
 //! Plain mesh data in the building's own frame ([`site_frame`]: upright at its foot), bent round its
@@ -12,10 +13,10 @@
 use bc_sim::colony::deck::{DeckPos, local_frame};
 use bc_sim::pieces::parts::{Aabb, Part, parts};
 use bc_sim::pieces::prefab::Site;
-use bc_sim::pieces::shape::{DOORWAY, LEVEL_H_M, level_y};
+use bc_sim::pieces::shape::{DOORWAY, HALF_WALL, LEVEL_H_M, LOW_WALL, level_y};
 use glam::{Quat, Vec3};
 
-use crate::station::{BAND, CHARTER, GARDENS, GUNMETAL, HULL, Sign, Surface, WHITE, colour};
+use crate::station::{BAND, CHARTER, GARDENS, HULL, Sign, Surface, WHITE, colour};
 
 /// A mesh: positions and normals in its frame, the station shader's vertex colours, and UVs in
 /// metres across each face.
@@ -150,7 +151,11 @@ pub fn site_mesh(site: &Site) -> PieceMesh {
     for (k, p) in site.prefab.pieces.iter().enumerate() {
         let seed = ((k * 7 + 3) % 251) as u8;
         let storey = level_y(p.level);
-        let uv = move |w: Vec3, n: Vec3| walker_uv(w, n, storey);
+        // A low wall's faces measured up from a dado below its foot: it would be all dado, and the
+        // olive in a hall's shade reads as a black slab.
+        let low = matches!(p.shape, HALF_WALL | LOW_WALL);
+        let base = if low { storey - DADO } else { storey };
+        let uv = move |w: Vec3, n: Vec3| walker_uv(w, n, base);
         for (part, b) in parts(p.shape, &p.addr(0)).as_slice() {
             let w = site.box_to_walker(b);
             let (top, under, side) = match part {
@@ -163,7 +168,8 @@ pub fn site_mesh(site: &Site) -> PieceMesh {
                     let lit = colour(Glow, GARDENS, 0, seed);
                     (lit, lit, lit)
                 }
-                Part::Tread => (colour(Floor, WHITE, 0, seed), trim(GUNMETAL, seed), trim(GUNMETAL, seed)),
+                // Hull grey under the plate: gunmetal read as one black block in the hall's shade.
+                Part::Tread => (colour(Floor, WHITE, 0, seed), trim(HULL, seed), trim(HULL, seed)),
             };
             m.cuboid(site.deck, &frame, &w, top, under, side, &uv);
         }

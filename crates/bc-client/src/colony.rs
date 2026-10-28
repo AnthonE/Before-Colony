@@ -39,8 +39,10 @@ impl Plugin for ColonyPlugin {
     fn build(&self, app: &mut App) {
         // The retired cylinder's city (`city.rs`, behind the server's `--colony`) imports it.
         embedded_asset!(app, "shaders/city_lib.wgsl");
-        app.init_resource::<ColonyDay>()
-            .add_systems(Update, ((spin, open_louvres).chain().in_set(Vis::Suits), blink_beacons));
+        app.init_resource::<ColonyDay>().add_systems(
+            Update,
+            ((spin, open_louvres).chain().in_set(Vis::Suits), blink_beacons, light_bays),
+        );
     }
 }
 
@@ -75,6 +77,11 @@ struct ColonyRoot {
     glass: Handle<StandardMaterial>,
 }
 
+/// A bay's floods, lit while its door stands open: the drum's face looks away from the sun, and a
+/// suit thrown out of it was a black shape against the ceiling's glass.
+#[derive(Component)]
+struct BayFlood(u8);
+
 /// A blinking navigation light.
 #[derive(Component)]
 struct Beacon {
@@ -101,6 +108,13 @@ const FACETS: u32 = 48;
 const CEILING_BAY: f32 = 100.0;
 /// How far a chamfer cuts the hull's corners, m.
 const CHAMFER: f32 = 24.0;
+/// The courses of slabs round the ring's sides, from and to how far out (m from the axis): in from
+/// the ceiling, the dark band, out to the chamfer.
+const SIDE_COURSES: [(f32, f32); 3] = [
+    (COLONY_INNER_RADIUS + 14.0, COLONY_INNER_RADIUS + 96.0),
+    (COLONY_INNER_RADIUS + 104.0, COLONY_INNER_RADIUS + 136.0),
+    (COLONY_INNER_RADIUS + 144.0, COLONY_RADIUS - CHAMFER - 12.0),
+];
 
 /// Where louvre `k` is and how it's turned, opened `beta`: a unit cube stretched to the plate.
 fn louvre_transform(k: u32, beta: f32) -> Transform {
@@ -230,6 +244,25 @@ fn hull_kit() -> Kit {
                 Vec3::new(2.0 * h - 2.0 * CHAMFER, 8.0, 6.0),
                 painted(paint::HULL_DARK),
             );
+        }
+    }
+    // The sides in courses of slabs, so they read as built from plates, not as one flat face: a
+    // course in from the ceiling, a dark band round the middle, and a broad course out to the
+    // chamfer, each slab a little proud of the face with a seam to the next, a few in white or in
+    // service grey in a staggered rhythm (the references' panelled faces, never one even tone).
+    for f in 0..FACETS {
+        let a = facet * (f as f32 + 0.5);
+        for (course, (r0, r1)) in SIDE_COURSES.iter().enumerate() {
+            let r = (r0 + r1) * 0.5;
+            let slot = match course {
+                1 => painted(paint::HULL_DARK),
+                _ if (f * 7 + course as u32 * 3).is_multiple_of(11) => painted(paint::WHITE),
+                _ if (f + course as u32 * 2).is_multiple_of(4) => painted(paint::HULL_DARK),
+                _ => painted(paint::HULL),
+            };
+            for side in [-1.0f32, 1.0] {
+                k.radial(a, r, side * (h + 1.5), Vec3::new(3.0, r1 - r0, r * facet - 9.0), slot);
+            }
         }
     }
     // Ribs round the sides: from the ceiling out to the chamfer, at every facet's edge.
@@ -420,6 +453,20 @@ pub fn setup_colony(
                     NotShadowCaster,
                     BayDoor(b as u8 + 1),
                 ));
+                // Its floods, out in front of the door, shining back on its mouth and what leaves it:
+                // tens of thousands of lux, to read against space's exposure (the Sun's 100,000).
+                c.spawn((
+                    PointLight {
+                        intensity: 1.2e9,
+                        range: 400.0,
+                        color: Color::srgb(1.0, 0.94, 0.84),
+                        shadow_maps_enabled: false,
+                        ..default()
+                    },
+                    Transform::from_translation(around(a, BAY_RADIUS - 30.0, BAY_DOOR_X - 45.0)),
+                    Visibility::Hidden,
+                    BayFlood(b as u8 + 1),
+                ));
                 let out = around(a, 1.0, 0.0);
                 for dr in [-13.0f32, 13.0] {
                     lamps.add(around(a, BAY_RADIUS, BAY_DOOR_X - 1.0) + out * dr, 1.6, amber, Blink::Steady);
@@ -552,6 +599,17 @@ fn open_louvres(hour: Res<ColonyDay>, mut plates: Query<(&LouvrePlate, &mut Tran
     let beta = hour.0.mirror_beta;
     for (LouvrePlate(k), mut tf) in &mut plates {
         *tf = louvre_transform(*k, beta);
+    }
+}
+
+/// Lights a bay's floods while its door is open (not drawn: `launch_shot::open_bay_doors`).
+fn light_bays(
+    doors: Query<(&BayDoor, &Visibility)>,
+    mut floods: Query<(&BayFlood, &mut Visibility), Without<BayDoor>>,
+) {
+    for (flood, mut vis) in &mut floods {
+        let open = doors.iter().any(|(d, v)| d.0 == flood.0 && *v == Visibility::Hidden);
+        vis.set_if_neq(if open { Visibility::Inherited } else { Visibility::Hidden });
     }
 }
 

@@ -1,0 +1,240 @@
+{
+ "_": "A survey of the overhaul's cameras (the ring, the Muster, the Ring Deck), plain and painted (?look=anime), to look at before cutting.",
+ "fps": 30,
+ "size": [
+  1280,
+  720
+ ],
+ "quality": "high",
+ "shots": [
+  {
+   "name": "colony-1",
+   "scene": "colony",
+   "cam": 1,
+   "t": 6
+  },
+  {
+   "name": "colony-2",
+   "scene": "colony",
+   "cam": 2,
+   "t": 6
+  },
+  {
+   "name": "colony-3",
+   "scene": "colony",
+   "cam": 3,
+   "t": 6
+  },
+  {
+   "name": "colony-4",
+   "scene": "colony",
+   "cam": 4,
+   "t": 6
+  },
+  {
+   "name": "colony-5",
+   "scene": "colony",
+   "cam": 5,
+   "t": 6
+  },
+  {
+   "name": "colony-6",
+   "scene": "colony",
+   "cam": 6,
+   "t": 6
+  },
+  {
+   "name": "colony-7",
+   "scene": "colony",
+   "cam": 7,
+   "t": 6
+  },
+  {
+   "name": "colony-8",
+   "scene": "colony",
+   "cam": 8,
+   "t": 6
+  },
+  {
+   "name": "colony-9",
+   "scene": "colony",
+   "cam": 9,
+   "t": 6.4
+  },
+  {
+   "name": "base-1",
+   "scene": "base",
+   "cam": 1,
+   "t": 6,
+   "warm": 3
+  },
+  {
+   "name": "base-2",
+   "scene": "base",
+   "cam": 2,
+   "t": 6,
+   "warm": 3
+  },
+  {
+   "name": "base-3",
+   "scene": "base",
+   "cam": 3,
+   "t": 6,
+   "warm": 3
+  },
+  {
+   "name": "base-4",
+   "scene": "base",
+   "cam": 4,
+   "t": 6,
+   "warm": 3
+  },
+  {
+   "name": "base-5",
+   "scene": "base",
+   "cam": 5,
+   "t": 6,
+   "warm": 3
+  },
+  {
+   "name": "base-6",
+   "scene": "base",
+   "cam": 6,
+   "t": 6,
+   "warm": 3
+  },
+  {
+   "name": "base-7",
+   "scene": "base",
+   "cam": 7,
+   "t": 6,
+   "warm": 3
+  },
+  {
+   "name": "ring-1",
+   "scene": "ring",
+   "cam": 1,
+   "t": 6,
+   "warm": 3
+  },
+  {
+   "name": "ring-2",
+   "scene": "ring",
+   "cam": 2,
+   "t": 6,
+   "warm": 3
+  },
+  {
+   "name": "ring-3",
+   "scene": "ring",
+   "cam": 3,
+   "t": 11,
+   "warm": 3
+  },
+  {
+   "name": "ring-4",
+   "scene": "ring",
+   "cam": 4,
+   "t": 6,
+   "warm": 3
+  },
+  {
+   "name": "hangar-4",
+   "scene": "hangar",
+   "cam": 4,
+   "t": 6,
+   "query": "frame=argo"
+  },
+  {
+   "name": "colony-1-anime",
+   "scene": "colony",
+   "cam": 1,
+   "t": 6,
+   "query": "look=anime"
+  },
+  {
+   "name": "colony-3-anime",
+   "scene": "colony",
+   "cam": 3,
+   "t": 6,
+   "query": "look=anime"
+  },
+  {
+   "name": "colony-4-anime",
+   "scene": "colony",
+   "cam": 4,
+   "t": 6,
+   "query": "look=anime"
+  },
+  {
+   "name": "colony-7-anime",
+   "scene": "colony",
+   "cam": 7,
+   "t": 6,
+   "query": "look=anime"
+  },
+  {
+   "name": "base-1-anime",
+   "scene": "base",
+   "cam": 1,
+   "t": 6,
+   "warm": 3,
+   "query": "look=anime"
+  },
+  {
+   "name": "base-4-anime",
+   "scene": "base",
+   "cam": 4,
+   "t": 6,
+   "warm": 3,
+   "query": "look=anime"
+  },
+  {
+   "name": "base-5-anime",
+   "scene": "base",
+   "cam": 5,
+   "t": 6,
+   "warm": 3,
+   "query": "look=anime"
+  },
+  {
+   "name": "base-7-anime",
+   "scene": "base",
+   "cam": 7,
+   "t": 6,
+   "warm": 3,
+   "query": "look=anime"
+  },
+  {
+   "name": "ring-1-anime",
+   "scene": "ring",
+   "cam": 1,
+   "t": 6,
+   "warm": 3,
+   "query": "look=anime"
+  },
+  {
+   "name": "ring-2-anime",
+   "scene": "ring",
+   "cam": 2,
+   "t": 6,
+   "warm": 3,
+   "query": "look=anime"
+  },
+  {
+   "name": "ring-3-anime",
+   "scene": "ring",
+   "cam": 3,
+   "t": 11,
+   "warm": 3,
+   "query": "look=anime"
+  },
+  {
+   "name": "hangar-4-anime",
+   "scene": "hangar",
+   "cam": 4,
+   "t": 6,
+   "query": "frame=argo&look=anime"
+  }
+ ]
+}

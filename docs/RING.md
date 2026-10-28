@@ -31,7 +31,7 @@ this one wins.
 | R2: Gates' building pieces in `bc_sim::pieces`; the decks; a walkable test building | built: `pieces` (lattice, sock, shape, support, check, parts, prefab), `colony::deck` and `foot::DeckGround`, `content::base`'s test hall walked in at its door and up its stairs (`tests/pieces.rs`, `PIECES_GOLDEN`), drawn by `bc_client_core::piece_mesh` and `bc-client`'s `base.rs` in the drum's inside with its own light (`?showcase=base`); walking it in the game comes with R3 |
 | R1.5, R1.6: the cylinder's inside cleared (homes refunded) | to do |
 | R3: the base opens: the bay's airlock onto Bay Row, the desks in its rooms | Bay Row open (protocol 41): E at the bay's airlock steps out onto the base's deck, walked on `foot::DeckGround`, seen by the others out there (the plaza's floor 3), the test hall across the row by bay 1's airlock, and back in by your own door (`tests/base.rs`, `scripts/e2e.sh base`); with `--colony` the airlock still rides the cap lift. The desks in the base's rooms, and the objectives, come with its buildings (R4) |
-| R4 on: the base's buildings, one at a time; then the ring's town | to do; Bay Row and the test hall are dressed in the station language (`muster`, `piece_mesh`), which each building takes up as it's built |
+| R4 on: the base's buildings, one at a time; then the ring's town | to do; Bay Row and the test hall are dressed in the station language (`muster`, `piece_mesh`), which each building takes up as it's built; the deck between them is marked out in paint (`muster::deck_floor`: deck plates, a road round it with a lane each way, pads bordered in hazard stripes) until there are buildings to fill it |
 
 ## The owner's decisions
 

@@ -8,6 +8,9 @@
 #   scripts/trailer/make.sh frames 16,40.5  # trailer frames as JPEGs in build/frames, to check a cut
 #   scripts/trailer/make.sh preview         # every 4th frame at 720p, quick to check a cut
 #
+# overhaul.sh is a quicker cut for seeing new work move (shots/overhaul.json: the ring, the Ring Deck,
+# the Muster), captioned and cross-faded over the title theme; shots/survey.json stills every camera.
+#
 # Footage: film.mjs plays each shot's showcase scene (`?showcase=`, offline, on a fixed clock) in
 # headless Chromium and steps its clock a frame at a time through the client's film hook
 # (`window.__bcFilm`), so SwiftShader's pace never shows. trailer.html draws every frame of the
