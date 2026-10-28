@@ -1,0 +1,264 @@
+{
+ "_": "A short cut of the October 2026 overhaul (the First Colony as a ring, the Ring Deck, the Muster and Bay Row, the painted look on trial), to see it move and find what needs more work. 1280x720 to film quickly; cut by overhaul.sh.",
+ "fps": 30,
+ "size": [
+  1280,
+  720
+ ],
+ "quality": "high",
+ "shots": [
+  {
+   "name": "o01-hull",
+   "scene": "colony",
+   "cam": 2,
+   "t": 5.0,
+   "len": 3.0,
+   "move": {
+    "yaw": [
+     0.15,
+     -0.1
+    ],
+    "zoom": [
+     1.0,
+     0.85
+    ]
+   },
+   "caption": [
+    "THE FIRST COLONY",
+    "A RING A KILOMETRE ACROSS"
+   ]
+  },
+  {
+   "name": "o02-ring",
+   "scene": "colony",
+   "cam": 1,
+   "t": 6.0,
+   "len": 3.0,
+   "move": {
+    "yaw": [
+     0.9,
+     0.6
+    ],
+    "zoom": [
+     1.0,
+     0.62
+    ],
+    "ease": "out"
+   }
+  },
+  {
+   "name": "o03-rim",
+   "scene": "colony",
+   "cam": 4,
+   "t": 6.0,
+   "len": 2.5,
+   "move": {
+    "yaw": [
+     0.08,
+     -0.08
+    ]
+   },
+   "caption": [
+    "SLAB PANELS, RULED IN LIGHTS"
+   ]
+  },
+  {
+   "name": "o04-hub-night",
+   "scene": "colony",
+   "cam": 7,
+   "t": 1900,
+   "len": 2.5,
+   "move": {
+    "zoom": [
+     1.0,
+     0.8
+    ]
+   },
+   "caption": [
+    "THE HUB'S FACE, BY NIGHT"
+   ]
+  },
+  {
+   "name": "o05-earthrise",
+   "scene": "ring",
+   "cam": 3,
+   "t": 9.0,
+   "len": 3.5,
+   "warm": 3,
+   "caption": [
+    "THE RING DECK",
+    "EARTH UNDER THE RIM"
+   ]
+  },
+  {
+   "name": "o06-deck",
+   "scene": "ring",
+   "cam": 1,
+   "t": 4.0,
+   "len": 3.0,
+   "warm": 3,
+   "move": {
+    "fwd": [
+     0,
+     10
+    ]
+   }
+  },
+  {
+   "name": "o07-bay07",
+   "scene": "ring",
+   "cam": 2,
+   "t": 6.0,
+   "len": 2.5,
+   "warm": 3,
+   "move": {
+    "pan": true,
+    "yaw": [
+     -0.12,
+     0.08
+    ]
+   },
+   "caption": [
+    "THE STATION LANGUAGE",
+    "AT A SUIT'S SCALE"
+   ]
+  },
+  {
+   "name": "o08-airlock",
+   "scene": "base",
+   "cam": 7,
+   "t": 6.0,
+   "len": 2.5,
+   "warm": 3,
+   "move": {
+    "fwd": [
+     0,
+     3
+    ]
+   },
+   "caption": [
+    "THE MUSTER",
+    "OUT OF YOUR BAY'S AIRLOCK"
+   ]
+  },
+  {
+   "name": "o09-bayrow",
+   "scene": "base",
+   "cam": 5,
+   "t": 6.0,
+   "len": 3.0,
+   "warm": 3,
+   "move": {
+    "fwd": [
+     0,
+     8
+    ]
+   },
+   "caption": [
+    "BAY ROW"
+   ]
+  },
+  {
+   "name": "o10-rising",
+   "scene": "base",
+   "cam": 4,
+   "t": 6.0,
+   "len": 3.0,
+   "warm": 3,
+   "move": {
+    "pan": true,
+    "pitch": [
+     -0.15,
+     0.25
+    ]
+   },
+   "caption": [
+    "THE DECK RISES ROUND THE DRUM"
+   ]
+  },
+  {
+   "name": "o11-hall",
+   "scene": "base",
+   "cam": 1,
+   "t": 6.0,
+   "len": 2.5,
+   "warm": 3,
+   "move": {
+    "fwd": [
+     0,
+     5
+    ]
+   },
+   "caption": [
+    "THE TEST HALL",
+    "BUILT FROM GATES' PIECES"
+   ]
+  },
+  {
+   "name": "o12-inside",
+   "scene": "base",
+   "cam": 2,
+   "t": 6.0,
+   "len": 2.5,
+   "warm": 3,
+   "move": {
+    "pan": true,
+    "yaw": [
+     0.1,
+     -0.1
+    ]
+   }
+  },
+  {
+   "name": "o13-anime-deck",
+   "scene": "ring",
+   "cam": 1,
+   "t": 7.0,
+   "len": 2.5,
+   "warm": 3,
+   "query": "look=anime",
+   "move": {
+    "fwd": [
+     0,
+     8
+    ]
+   },
+   "caption": [
+    "THE PAINTED LOOK",
+    "ON TRIAL: ?look=anime"
+   ]
+  },
+  {
+   "name": "o14-anime-face",
+   "scene": "colony",
+   "cam": 7,
+   "t": 6.0,
+   "len": 2.5,
+   "query": "look=anime",
+   "move": {
+    "zoom": [
+     0.9,
+     0.75
+    ]
+   }
+  },
+  {
+   "name": "o15-end",
+   "scene": "colony",
+   "cam": 6,
+   "t": 1900,
+   "len": 4.0,
+   "move": {
+    "zoom": [
+     0.8,
+     1.05
+    ],
+    "ease": "out"
+   },
+   "caption": [
+    "BEFORE COLONY",
+    "THE RING \u00b7 WORK IN PROGRESS"
+   ]
+  }
+ ]
+}
