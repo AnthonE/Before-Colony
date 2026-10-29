@@ -27,7 +27,7 @@ if [ "${variants[*]}" != page ]; then
 fi
 
 mkdir -p web/dist
-cp web/index.html web/config.js web/boot.js web/loader.js web/ui.js web/gallery.js web/style.css web/favicon.svg web/dist/
+cp web/index.html web/config.js web/boot.js web/loader.js web/ui.js web/floor.js web/gallery.js web/style.css web/favicon.svg web/dist/
 mkdir -p web/dist/fonts && cp web/fonts/* web/dist/fonts/
 # The page's gallery (`?gallery`): every screen with made-up data (bc_client_core::gallery).
 cargo run -q -p bc-client-core --example page_gallery > web/dist/gallery.json

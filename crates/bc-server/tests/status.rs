@@ -205,3 +205,49 @@ async fn the_store_reads_the_exchange_floor() -> anyhow::Result<()> {
     server.shutdown();
     Ok(())
 }
+
+/// The store's traders: the server reads the store's list (here a stub of it) and they stand on the
+/// Exchange floor, in `/floor.json` as visitors, by the names the store gave.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_stores_traders_stand_on_the_floor() -> anyhow::Result<()> {
+    let store = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let list = format!("http://{}/visitors", store.local_addr()?);
+    let app = axum::Router::new().route(
+        "/visitors",
+        axum::routing::get(|| async {
+            axum::Json(serde_json::json!({ "at": 1, "visitors": [
+                { "key": "a1", "name": "Vega" },
+                { "key": "b2", "name": "Ledger" },
+            ]}))
+        }),
+    );
+    tokio::spawn(async move { axum::serve(store, app).await });
+    let cfg = Config {
+        mode: Mode::Game,
+        rules: Ruleset::Survival,
+        wt_port: 0,
+        http_addr: "127.0.0.1:0".parse()?,
+        drones: 0,
+        colony: true,
+        floor_visitors: Some(list),
+        ..Config::default()
+    };
+    let server = bc_server::start(cfg).await?;
+    let url = format!("http://{}/floor.json", server.http_addr);
+    let mut doc = serde_json::Value::Null;
+    for _ in 0..40 {
+        doc = get(&url, None).await?.1;
+        if doc["people"].as_array().is_some_and(|p| p.len() == 2) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let people = doc["people"].as_array().expect("people");
+    let mut names: Vec<&str> = people.iter().filter_map(|p| p["name"].as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["Ledger", "Vega"], "{doc}");
+    assert!(people.iter().all(|p| p["visitor"] == true && p["agent"] == false), "{doc}");
+    assert_eq!(doc["here"], 2);
+    server.shutdown();
+    Ok(())
+}

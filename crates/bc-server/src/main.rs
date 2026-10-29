@@ -60,6 +60,11 @@ struct Args {
     /// Admit signed-in pilots only (agents excepted).
     #[arg(long)]
     require_auth: bool,
+    /// Where the store lists the traders on its trade page, who stand on the Exchange floor
+    /// (`none`: nobody). Default: the store's list, when wallets sign in to elopros.com
+    /// (--siwe-domain); else nobody.
+    #[arg(long)]
+    floor_visitors: Option<String>,
     /// `survival`: pilots build and keep their suits, and trade on the exchange; `arcade`: any
     /// frame, free respawns.
     #[arg(long, value_enum, default_value_t = Ruleset::Survival)]
@@ -90,6 +95,19 @@ struct Args {
     /// Connections taken from one address (loopback excepted).
     #[arg(long, default_value_t = bc_server::net::admit::Limits::default().per_address)]
     per_address: u32,
+}
+
+/// The store's list of traders to stand on the Exchange floor: `--floor-visitors` as given (`none`:
+/// nobody), else the store's own when wallets sign in to it (a deployment serving the store's page).
+fn floor_visitors(flag: Option<&str>, siwe_domains: &[String]) -> Option<String> {
+    match flag {
+        Some("none" | "") => None,
+        Some(url) => Some(url.to_string()),
+        None => siwe_domains
+            .iter()
+            .any(|d| d == "elopros.com")
+            .then(|| bc_server::config::STORE_VISITORS.to_string()),
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -123,6 +141,10 @@ fn main() -> anyhow::Result<()> {
         craft_speed: args.craft_speed.max(0.01),
         data_dir: args.data_dir,
         colony: args.rules == Ruleset::Survival && args.colony,
+        floor_visitors: floor_visitors(
+            args.floor_visitors.as_deref(),
+            &bc_server::config::split_list(&args.siwe_domain),
+        ),
         limits: bc_server::net::admit::Limits {
             connections: args.max_connections.max(1),
             per_address: args.per_address.max(1),
@@ -157,6 +179,18 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_stores_traders_come_with_the_stores_sign_in() {
+        let store = ["game.elopros.com".to_string(), "elopros.com".to_string()];
+        assert_eq!(floor_visitors(None, &store).as_deref(), Some(bc_server::config::STORE_VISITORS));
+        assert_eq!(floor_visitors(None, &["127.0.0.1:8080".to_string()]), None);
+        assert_eq!(floor_visitors(Some("none"), &store), None);
+        assert_eq!(
+            floor_visitors(Some("http://127.0.0.1:3600/floor/x/visitors"), &[]).as_deref(),
+            Some("http://127.0.0.1:3600/floor/x/visitors")
+        );
+    }
 
     #[test]
     fn siwe_domains_take_commas_or_repeats() {

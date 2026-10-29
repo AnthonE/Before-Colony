@@ -8,9 +8,9 @@
 //! looking in), `v` metres in from the front face, towards the counter and the boards on its back
 //! wall. A heading is radians in that frame: 0 faces the boards, τ/4 faces +u.
 //!
-//! Only people are listed, never the colony's crowd (nobody of it walks in here): everyone on it is
-//! a pilot on foot, by the callsign other pilots already see over their head, and whether an agent
-//! flies them. No wallet, no key.
+//! Only people are listed, never the colony's crowd (nobody of it walks in here): a pilot on foot,
+//! by the callsign other pilots already see over their head, and whether an agent flies them; or a
+//! trader on the store's trade page standing here (`visitor`, `crate::visitors`). No wallet, no key.
 
 use std::time::Instant;
 
@@ -33,21 +33,6 @@ pub fn exchange_room() -> Option<Room> {
     PLACES.iter().position(|p| p.kind == PlaceKind::Exchange).and_then(room)
 }
 
-/// A point of the room's strip, `(s, x)`, in the room's own frame: `(u, v)`.
-pub fn local(room: &Room, s: f32, x: f32) -> (f32, f32) {
-    let f = &room.front;
-    if f.along_s { (s - f.middle, (x - f.face) * f.sign) } else { (x - f.middle, (s - f.face) * f.sign) }
-}
-
-/// A walker's yaw (0 faces −s, τ/4 faces +x) as a heading in the room's frame (0 faces the boards,
-/// τ/4 faces +u).
-pub fn heading(room: &Room, yaw: f32) -> f32 {
-    let (ds, dx) = (-yaw.cos(), yaw.sin());
-    let f = &room.front;
-    let (du, dv) = if f.along_s { (ds, dx * f.sign) } else { (dx, ds * f.sign) };
-    du.atan2(dv)
-}
-
 /// Rounded to the centimetre (or the hundredth of a radian): the page needs no more.
 fn r2(v: f32) -> f64 {
     (f64::from(v) * 100.0).round() / 100.0
@@ -68,14 +53,21 @@ pub fn room_json(room: &Room) -> serde_json::Value {
 }
 
 /// One person on the floor.
-pub fn person_json(room: &Room, name: &str, agent: bool, pose: &PersonPose) -> serde_json::Value {
-    let (u, v) = local(room, pose.s, pose.x);
+pub fn person_json(
+    room: &Room,
+    name: &str,
+    agent: bool,
+    visitor: bool,
+    pose: &PersonPose,
+) -> serde_json::Value {
+    let (u, v) = room.local(pose.s, pose.x);
     serde_json::json!({
         "name": name,
         "agent": agent,
+        "visitor": visitor,
         "u": r2(u),
         "v": r2(v),
-        "heading": r2(heading(room, pose.yaw)),
+        "heading": r2(room.heading(pose.yaw)),
         "moving": pose.speed > 0.3,
         "seated": pose.seated(),
     })
@@ -118,7 +110,7 @@ pub fn json(
     let mut people: Vec<serde_json::Value> = plaza
         .in_room(&room, Instant::now())
         .into_iter()
-        .map(|(slot, name, pose)| person_json(&room, &name, agent(slot), &pose))
+        .map(|(slot, name, pose, visitor)| person_json(&room, &name, !visitor && agent(slot), visitor, &pose))
         .collect();
     let listed = people.len();
     people.truncate(MAX_LISTED);
@@ -143,16 +135,20 @@ mod tests {
     fn the_room_frame_puts_the_door_at_zero_and_the_counter_at_the_back() {
         let room = exchange_room().expect("the Exchange floor has a room");
         let (outside, _) = room.threshold();
-        let (u, v) = local(&room, outside.0, outside.1);
+        let (u, v) = room.local(outside.0, outside.1);
         assert!(u.abs() < 0.01, "the threshold is the door's middle: {u}");
         assert!((v - -2.0).abs() < 0.01, "and 2 m out in front of its face: {v}");
         let ((s, x), (ds, dx)) = room.counter_spot();
-        let (u, v) = local(&room, s, x);
+        let (u, v) = room.local(s, x);
         let want = room.depth() - COUNTER_GAP - COUNTER_DEPTH - COUNTER_STAND;
         assert!(u.abs() < 0.01 && (v - want).abs() < 0.01, "the counter spot: ({u}, {v})");
         // Facing the counter is heading 0, whichever way the hall's front runs.
         let yaw = dx.atan2(-ds);
-        assert!(heading(&room, yaw).abs() < 1e-4, "{}", heading(&room, yaw));
+        assert!(room.heading(yaw).abs() < 1e-4, "{}", room.heading(yaw));
+        // And back: a heading as a yaw and a heading again.
+        for h in [-3.0_f32, -1.2, 0.0, 0.7, 2.9] {
+            assert!((room.heading(room.yaw(h)) - h).abs() < 1e-4, "{h}");
+        }
     }
 
     #[test]

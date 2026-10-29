@@ -27,6 +27,7 @@ pub mod course;
 pub mod dock;
 pub mod doubletap;
 pub mod figure;
+pub mod floor;
 pub mod gait;
 pub mod gallery;
 pub mod hangar;

@@ -18,27 +18,37 @@ door is the way into the rest of the game ("that's the colony: launch the game t
 ## Steps
 
 1. **Look in (built).** `/floor.json` on the game server (`bc-server/src/floor.rs`): who is on
-   the floor now, where in the room (its own frame: `u` along the front from the door's middle,
-   `v` in from the front face towards the boards) and which way they face, whether an agent flies
-   them, and what the boards show (the busiest items: bid, ask, last, volume, in credits). The
-   room's shape is in the document, so the page needs no copy of the city. Only people are
-   listed (the colony's crowd never walks in here), by the callsign other pilots already see; no
-   wallet or key. Answered to the store's origin (`--cors-origin`). The store reads it through
-   its own API and draws the room from above in the trade terminal's floor pane
-   (`AnthonE/scry-forge`, `watchtower/js/floor.js`).
-2. **Walk in.** The store's page signs in with the wallet the game already accepts (SIWE, both
-   hosts on `--siwe-domain`) and sends poses like any pilot on foot. The plaza takes a lighter
-   client's first pose just inside the door, and refuses any pose of it outside the room
-   (`Why::Room`, beside `Why::Locked`). Measure whether the page can carry the game's wasm
-   (`web/dist`'s size) or draws the room itself; the server does not care which.
-3. **Talk.** Trade chat as bubbles over each person (the store's trade chat, keyed on the same
-   wallet); proximity voice as a LiveKit room per floor, each voice's gain set on the listener's
-   side by distance in the room's frame (the store's voice box, `docs/ops/VOICE.md` there). A
-   guild's tag over its members (the store's guilds, keyed on the wallet, which `/floor.json`
-   then carries for signed-in pilots).
-4. **Agents on the floor.** An agent trader is a `bc-bot` that signs in, walks to the counter and
+   the floor now, where in the room (its own frame, `Room::local`: `u` along the front from the
+   door's middle, `v` in from the front face towards the boards) and which way they face, whether
+   an agent flies them, whether they're one of the store's traders (`visitor`), and what the boards
+   show (the busiest items: bid, ask, last, volume, in credits). Only people are listed (the
+   colony's crowd never walks in here), by the name other players already see; no wallet or key.
+   Answered to the store's origin (`--cors-origin`).
+2. **The store's traders stand in it (built).** Everyone signed in on the store's trade page
+   stands on the floor, by the account's public name (`bc-server/src/visitors.rs`). The server
+   reads the store's list (`--floor-visitors`; by default the store's own when `--siwe-domain`
+   names elopros.com) every 10 s, and the plaza stands each trader on a spot of their own between
+   the door and the counter, facing the boards (`Plaza::set_visitors`, slots from `VISITOR_BASE`
+   up, above every session's). They don't move yet, and they never go stale between reads; a
+   trader the list drops goes, and a list not read for a minute empties the room. Pilots walking
+   in see them like anyone on foot; they aren't pilots, so `/status` doesn't count them.
+3. **The game's own view of it, on the store (built).** `?showcase=floor` is the room drawn by the
+   game (`showcase::Scene::Floor`): the city's Exchange floor, lit and furnished as in play, the
+   street's life through the door, and everyone `/floor.json` lists standing where they are
+   (`bc_client_core::floor`; `web/floor.js` reads the document every 2 s into
+   `window.__bcFloor`). The store's trade terminal frames it (the store's `js/floor.js`).
+   Cameras: in from the door (1), from the counter's end back to the door (2), high over the
+   door (3).
+4. **Walk in.** The trade page sends poses as a pilot on foot, confined to the room by the
+   plaza (`Why::Room`, beside `Why::Locked`). The door is the way into the rest of the game.
+5. **Talk.** Trade chat as bubbles over each person; proximity voice as a LiveKit room per floor,
+   each voice's gain set on the listener's side by distance in the room's frame (the store's voice
+   box); a guild's tag over its members.
+6. **Avatars.** Each trader in their own look (anime, the game's), set on the store and carried
+   with their name.
+7. **Agents on the floor.** An agent trader is a `bc-bot` that signs in, walks to the counter and
    places orders; its body stands there while it works.
-5. **The terminal in the game.** The counter's terminal grows the panels a trader expects:
+8. **The terminal in the game.** The counter's terminal grows the panels a trader expects:
    candles from the exchange's tape, a depth ladder, time and sales.
 
 ## Scale
@@ -51,6 +61,7 @@ the rest less often. `/floor.json` lists at most `floor::MAX_LISTED`, and report
 
 ## What the floor never does
 
-It never shows anyone who isn't there. The room's energy is the people in it; the colony's crowd
-stays on the street, and a page that drew a fuller room than the server reports would be inventing
-an audience.
+It never shows anyone who isn't there. The room's energy is the people in it: pilots, and the
+store's traders, each a real person signed in on its trade page now. The colony's crowd stays on
+the street, and a view that drew a fuller room than the server reports would be inventing an
+audience.
