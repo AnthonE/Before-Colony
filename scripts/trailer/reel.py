@@ -47,6 +47,8 @@ def main(shots_path, clips, build, out):
     subprocess.run([sys.executable, str(here / "mix.py"), str(build), str(cues), str(build / "reel.wav")], check=True)
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-framerate", str(fps), "-i", str(seq / "%05d.jpg"),
                     "-i", str(build / "reel.wav"), "-map", "0:v", "-map", "1:a",
+                    # x264's 4:2:0 wants even sides (the trailer's 1440x603 isn't).
+                    "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2",
                     "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-ar", "48000",
                     "-c:v", "libx264", "-preset", "slow", "-crf", "19", "-pix_fmt", "yuv420p",
                     "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-shortest", out], check=True)
