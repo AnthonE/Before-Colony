@@ -38,7 +38,7 @@ door is the way into the rest of the game ("that's the colony: launch the game t
    (`bc_client_core::floor`; `web/floor.js` reads the document every 2 s into
    `window.__bcFloor`). The store's trade terminal frames it (the store's `js/floor.js`).
    Cameras: in from the door (1), from the counter's end back to the door (2), high over the
-   door (3).
+   door (3), among the traders at eye height (4, the one the store opens on).
 4. **Walk in.** The trade page sends poses as a pilot on foot, confined to the room by the
    plaza (`Why::Room`, beside `Why::Locked`). The door is the way into the rest of the game.
 5. **Talk.** Trade chat as bubbles over each person; proximity voice as a LiveKit room per floor,

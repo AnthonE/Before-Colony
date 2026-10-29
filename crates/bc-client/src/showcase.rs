@@ -101,7 +101,8 @@ pub enum Scene {
     /// people the game server says stand in it now, pilots and the store's traders, read by the
     /// page (`web/floor.js`, `window.__bcFloor`) and drawn where they are
     /// (`bc_client_core::floor`). Cameras: in from the door, across to the counter and the boards
-    /// (1), from the counter's end back to the door and the street (2), from high over the door (3).
+    /// (1), from the counter's end back to the door and the street (2), from high over the door (3),
+    /// among the traders at eye height (4, the store's).
     Floor,
 }
 
@@ -1363,7 +1364,8 @@ fn floor_at(u: f32, v: f32, h: f32) -> Vec3 {
 }
 
 /// The floor scene's cameras: in from the door ([`exchange_floor_cam`]), from the counter's end
-/// back across the floor to the door and the street, and from high over the door.
+/// back across the floor to the door and the street, from high over the door, and among the
+/// traders.
 fn floor_cams() -> Vec<Orbit> {
     let Some(room) = bc_client_core::floor::exchange_room() else { return vec![exchange_floor_cam()] };
     let (w, d) = (room.width() * 0.5, room.depth());
@@ -1372,6 +1374,8 @@ fn floor_cams() -> Vec<Orbit> {
         exchange_floor_cam(),
         toward(floor_at(-w + 3.0, d - 7.0, 2.6), floor_at(4.0, 3.0, 1.2)),
         toward(floor_at(w - 4.0, 3.0, room.ceiling - 2.0), floor_at(-4.0, d * 0.62, 0.0)),
+        // Among the traders at eye height, across them to the boards and the screens over them.
+        toward(floor_at(-14.0, 6.5, 1.7), floor_at(5.0, d - 6.0, 4.2)),
     ]
 }
 
