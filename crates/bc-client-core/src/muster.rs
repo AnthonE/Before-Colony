@@ -23,7 +23,7 @@ use glam::Vec3;
 
 use crate::piece_mesh::{Frame, PieceMesh, walker_uv};
 use crate::station::{
-    ARROWS, BACK, BAND, CHARTER, CHEVRONS, DARK, GARDENS, HULL, LANES, Sign, Surface, WHITE, YELLOW, colour,
+    ARROWS, BACK, BAND, CHEVRONS, DARK, GARDENS, HULL, LANES, Sign, Surface, WHITE, YELLOW, colour,
 };
 
 /// How high the back end's wall is drawn in the station language over the walkway, m: up to where
@@ -92,11 +92,11 @@ pub fn bay_row() -> PieceMesh {
             Vec3::new(x0, 0.0, -s0),
             len,
             Vec3::Y * WALL_H,
-            colour(Wall, CHARTER, BAND | arrows, 7),
+            colour(Wall, YELLOW, BAND | arrows, 7),
             &flat,
         );
         let across = |w: Vec3, _: Vec3| [w.z, w.x - x0];
-        let floor = colour(Floor, CHARTER, LANES, 11);
+        let floor = colour(Floor, YELLOW, LANES, 11);
         m.rect(BASE, &f, Vec3::new(x0, 0.02, -s0), Vec3::X * BAY_ROW_WIDTH, len, floor, &across);
         let edge = colour(Hazard, WHITE, 0, 3);
         m.rect(BASE, &f, Vec3::new(x0 + BAY_ROW_WIDTH, 0.025, -s0), Vec3::X * EDGE, len, edge, &across);
@@ -201,7 +201,7 @@ pub fn deck_floor() -> PieceMesh {
     for (from, to, c) in [
         (start, road - EDGE, plates),
         (road - EDGE, road, edge),
-        (road, road + ROAD_W, colour(Floor, CHARTER, LANES, 13)),
+        (road, road + ROAD_W, colour(Floor, YELLOW, LANES, 13)),
         (road + ROAD_W, road + ROAD_W + EDGE, edge),
         (road + ROAD_W + EDGE, d.x1, plates),
     ] {

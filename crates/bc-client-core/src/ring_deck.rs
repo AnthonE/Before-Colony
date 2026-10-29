@@ -146,26 +146,24 @@ impl Layout {
         let walls = BAND | ARROWS;
         let mut b = vec![
             // The deck, out to the rim; the ceiling.
-            Block::new([RIM_X, -t, -l], [w, 0.0, l], Floor).flags(LANES),
+            Block::new([RIM_X, -t, -l], [w, 0.0, l], Floor).paint(YELLOW).flags(LANES),
             Block::new([-w, h, -l], [w, h + t, l], Ceiling),
             // The rim's wall, over the glass; under the deck's edge, the trough's inner side.
-            Block::new([-w - t, 0.0, -l], [-w, h, l], Wall).paint(CHARTER).flags(walls),
+            Block::new([-w - t, 0.0, -l], [-w, h, l], Wall).paint(YELLOW).flags(walls),
             Block::new([RIM_X, TROUGH - t, -l], [RIM_X + t, -t, l], Wall),
             // The rim's hazard line, along the deck's edge.
             Block::new([RIM_X, 0.0, -l], [RIM_X + 1.2, 0.02, l], Hazard),
             // The launch tunnels' end: its wall, the blast door, the hazard frame round it.
-            Block::new([-w - t, TROUGH - t, -l - t], [w + t, h + t, -l], Wall).paint(CHARTER).flags(BAND),
+            Block::new([-w - t, TROUGH - t, -l - t], [w + t, h + t, -l], Wall).paint(YELLOW).flags(BAND),
             Block::new([-8.0, 0.0, -l], [20.0, 24.0, -l + 0.4], Door).flags(CHEVRONS).centred(),
             Block::new([-9.2, 0.0, -l], [-8.0, 25.2, -l + 0.3], Hazard),
             Block::new([20.0, 0.0, -l], [21.2, 25.2, -l + 0.3], Hazard),
             Block::new([-8.0, 24.0, -l], [20.0, 25.2, -l + 0.3], Hazard),
             // The lifts' end: its wall round the opening into the passage, a hazard frame and line.
-            Block::new([-w - t, TROUGH - t, l], [OPENING_X[0], h + t, l + t], Wall)
-                .paint(CHARTER)
-                .flags(BAND),
-            Block::new([OPENING_X[1], TROUGH - t, l], [w + t, h + t, l + t], Wall).paint(CHARTER).flags(BAND),
+            Block::new([-w - t, TROUGH - t, l], [OPENING_X[0], h + t, l + t], Wall).paint(YELLOW).flags(BAND),
+            Block::new([OPENING_X[1], TROUGH - t, l], [w + t, h + t, l + t], Wall).paint(YELLOW).flags(BAND),
             Block::new([OPENING_X[0], OPENING_HEIGHT, l], [OPENING_X[1], h + t, l + t], Wall)
-                .paint(CHARTER)
+                .paint(YELLOW)
                 .flags(BAND),
             Block::new([OPENING_X[0] - 1.2, 0.0, l - 0.3], [OPENING_X[0], OPENING_HEIGHT, l], Hazard),
             Block::new([OPENING_X[1], 0.0, l - 0.3], [OPENING_X[1] + 1.2, OPENING_HEIGHT, l], Hazard),
@@ -177,8 +175,8 @@ impl Layout {
         let mut z0 = -l;
         for zc in DOOR_Z {
             let (d0, d1) = (zc - DOOR_HALF_WIDTH, zc + DOOR_HALF_WIDTH);
-            b.push(Block::new([w, 0.0, z0], [w + t, h, d0], Wall).paint(CHARTER).flags(walls));
-            b.push(Block::new([w, DOOR_HEIGHT, d0], [w + t, h, d1], Wall).paint(CHARTER).flags(walls));
+            b.push(Block::new([w, 0.0, z0], [w + t, h, d0], Wall).paint(YELLOW).flags(walls));
+            b.push(Block::new([w, DOOR_HEIGHT, d0], [w + t, h, d1], Wall).paint(YELLOW).flags(walls));
             b.push(
                 Block::new([w + t, 0.0, d0], [w + t + 1.0, DOOR_HEIGHT, d1], Door).flags(CHEVRONS).centred(),
             );
@@ -189,13 +187,13 @@ impl Layout {
             b.push(Block::new([w - 1.6, 0.0, d0], [w, 0.02, d1], Hazard));
             z0 = d1;
         }
-        b.push(Block::new([w, 0.0, z0], [w + t, h, l], Wall).paint(CHARTER).flags(walls));
+        b.push(Block::new([w, 0.0, z0], [w + t, h, l], Wall).paint(YELLOW).flags(walls));
 
         // The pillars by the bays' wall, and the beams across the ceiling over them.
         for z in PILLAR_Z {
             b.push(
                 Block::new([PILLAR_X[0], 0.0, z - 1.2], [PILLAR_X[1], h, z + 1.2], Pillar)
-                    .paint(CHARTER)
+                    .paint(YELLOW)
                     .flags(CHEVRONS),
             );
             b.push(Block::new([-w, h - 2.5, z - 0.9], [w, h, z + 0.9], Pillar).paint(DARK));
@@ -377,7 +375,7 @@ fn signs() -> Vec<Sign> {
         ink,
     };
     let mut s = vec![
-        sign("RING DECK 2", [-w, 21.5, -20.0], Vec3::X, Vec3::Y, 5.5, CHARTER),
+        sign("RING DECK 2", [-w, 21.5, -20.0], Vec3::X, Vec3::Y, 5.5, YELLOW),
         sign("SECTION 14", [-w, 17.4, -20.0], Vec3::X, Vec3::Y, 2.0, DARK),
         sign("LAUNCH TUNNELS", [6.0, band, -l], Vec3::Z, Vec3::Y, 2.4, WHITE),
         sign("SPOKE LIFTS", [6.0, band, l], Vec3::NEG_Z, Vec3::Y, 2.4, WHITE),

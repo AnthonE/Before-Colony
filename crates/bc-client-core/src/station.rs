@@ -51,12 +51,12 @@ pub const HULL: u8 = 10;
 /// How many there are.
 pub const PAINTS: usize = 11;
 
-/// The palette, linear: white panels; the lines' own colours (as the town's are painted,
-/// `city_facade.wgsl`'s `f_line`: Charter blue, Canal teal, Gardens green); safety yellow, black,
-/// safety orange, alarm red; and the base's own (`bc_model::paint`'s, made linear): military olive,
-/// gunmetal, hull grey.
+/// The palette, linear: the panels' light blue-grey (not a stark white); the lines' own colours (as
+/// the town's are painted, `city_facade.wgsl`'s `f_line`: Charter blue, Canal teal, Gardens green);
+/// safety yellow, black, safety orange, alarm red; and the base's own (`bc_model::paint`'s, made
+/// linear): military olive, gunmetal, hull grey.
 pub const PAINT: [[f32; 3]; PAINTS] = [
-    [0.8, 0.81, 0.82],
+    [0.52, 0.57, 0.65],
     [0.12, 0.32, 0.72],
     [0.05, 0.5, 0.52],
     [0.2, 0.55, 0.22],
