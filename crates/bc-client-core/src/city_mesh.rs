@@ -739,7 +739,38 @@ fn hall_with_room(m: &mut Builder, b: &Building, room: &Room, seed: f32, tall: f
     m.level(&room.rect, KERB + 0.005, false, [Surface::Floor as u8 as f32 / 255.0, kind, 1.0, tall]);
     let counter = CityBox { rect: room.counter, h0: KERB, h1: KERB + bc_sim::colony::city::COUNTER_HEIGHT };
     m.city_box(&counter, Surface::Counter, Surface::Counter, kind, tall, true);
+    // The Exchange's screens, hung over the floor well above anyone's head (nothing to walk into):
+    // two either side of the way in, one over the middle further in, their charts towards the
+    // door and their backs towards the boards (`Display`, seeds 5 and 6).
+    if PLACES[usize::from(room.place)].kind == PlaceKind::Exchange {
+        let screen = col(Surface::Display, EXCHANGE_SCREEN, KERB);
+        let back = col(Surface::Display, EXCHANGE_SCREEN_BACK, KERB);
+        // Each its own UVs, metres from its own end, so its frame falls on its edges.
+        let (h0, h1) = EXCHANGE_SCREEN_HEIGHT;
+        for (v, (ua, ub)) in EXCHANGE_SCREENS {
+            for (dv, inward, colour) in [(0.0, false, &screen), (0.2, true, &back)] {
+                let at = f.face + f.sign * (v + dv);
+                let n = if inward { f.sign } else { -f.sign };
+                let (a, b) = (f.middle + ua, f.middle + ub);
+                if f.along_s {
+                    m.wall_x(at, a, b, h0, h1, n, a, colour);
+                } else {
+                    m.wall_s(at, a, b, h0, h1, n, a, colour);
+                }
+            }
+        }
+    }
 }
+
+/// The Exchange's hanging screens, in its room's frame: how far in from the front face (m), and
+/// where along it (m from the door's middle). Each 12 m wide: `city.wgsl` frames a screen 12 m on.
+pub const EXCHANGE_SCREENS: [(f32, (f32, f32)); 3] =
+    [(13.0, (-19.0, -7.0)), (13.0, (7.0, 19.0)), (23.0, (-6.0, 6.0))];
+/// Their bottom and top, m up from the street: a tall trader's head is under 2 m.
+pub const EXCHANGE_SCREEN_HEIGHT: (f32, f32) = (6.4, 9.6);
+/// What `city.wgsl` paints on a `Display` face with this seed: a screen's chart, and its back.
+const EXCHANGE_SCREEN: f32 = 5.0 / 255.0;
+const EXCHANGE_SCREEN_BACK: f32 = 6.0 / 255.0;
 
 /// A face of a home building in its own frame (`Plan`): square to the way in at `v` from its front's
 /// face (`v` from the front's outside), `ua..ub` along it, facing in (`inward`) or out toward the
@@ -2148,6 +2179,27 @@ mod tests {
     use bc_sim::colony::city::{CANAL_ROW, CITY, HUB_GATE, SITE};
     use bc_sim::colony::frame::{Under, from_colony};
     use bc_sim::content::city::SPECIAL;
+
+    #[test]
+    fn the_exchanges_screens_hang_over_its_floor_out_of_reach() {
+        use bc_sim::colony::city::{COUNTER_DEPTH, COUNTER_GAP, place, room};
+        let room = place("exchange_floor").and_then(|(i, _)| room(i)).unwrap();
+        let (h0, h1) = EXCHANGE_SCREEN_HEIGHT;
+        assert!(h0 > KERB + 4.0 && h1 < room.ceiling - 1.0, "over everyone's head, under the ceiling");
+        for (v, (ua, ub)) in EXCHANGE_SCREENS {
+            assert!((ub - ua - 12.0).abs() < 1e-3, "12 m wide, as city.wgsl frames them");
+            assert!(ua > -room.width() * 0.5 && ub < room.width() * 0.5, "inside its walls");
+            assert!(
+                v > 2.0 && v + 0.2 < room.depth() - COUNTER_GAP - COUNTER_DEPTH,
+                "between the door and the counter"
+            );
+        }
+        // The shader paints a screen between the same heights.
+        let shader = include_str!("../../bc-client/src/shaders/city.wgsl");
+        assert!(
+            shader.contains(&format!("let lo = {h0:.1};")) && shader.contains(&format!("let hi = {h1:.1};"))
+        );
+    }
 
     /// Where a chunk's vertex is in city coordinates.
     fn back(key: ChunkKey, p: [f32; 3]) -> CityPos {

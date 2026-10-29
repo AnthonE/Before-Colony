@@ -598,11 +598,8 @@ impl Plaza {
     }
 }
 
-/// The most traders from the store standing on the Exchange floor at once.
-pub const VISITORS: u16 = 32;
-/// Their slots: the top of the plaza's slot range, above every session's (`Config::max_clients`
-/// must stay under it).
-pub const VISITOR_BASE: u16 = (1 << bc_proto::SLOT_BITS) - VISITORS;
+/// The store's traders' slots (`Config::max_clients` must stay under `VISITOR_BASE`).
+pub use bc_proto::presence::{VISITOR_BASE, VISITORS};
 
 /// FNV-1a: a spot from a key, the same on every run.
 fn fnv(bytes: &[u8]) -> u32 {

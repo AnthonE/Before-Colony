@@ -44,12 +44,29 @@ door is the way into the rest of the game ("that's the colony: launch the game t
 5. **Talk.** Trade chat as bubbles over each person; proximity voice as a LiveKit room per floor,
    each voice's gain set on the listener's side by distance in the room's frame (the store's voice
    box); a guild's tag over its members.
-6. **Avatars.** Each trader in their own look (anime, the game's), set on the store and carried
-   with their name.
+6. **Avatars (built: assigned; choosing one is to come).** The store's traders wear avatars where pilots wear
+   flight suits (`bc_client_core::avatar`, drawn by `people.rs`): five anime looks from VRoid's CC0
+   sample models and Quaternius's CC0 android, picked by the trader's name so every screen dresses
+   them alike, each loaded only once someone wearing it is in view (`web/assets/avatars/`, made
+   small by `scripts/avatars/prep.py`: ~2 MB a look from ~15, the facial blend shapes and the
+   shading maps dropped, the arms baked down out of the T-pose; sources and licences in
+   `web/assets/avatars/LICENSE.md`). They stand about with a slow sway of their own; the android
+   plays its idle. Next: a look chosen on the store and carried with the name.
 7. **Agents on the floor.** An agent trader is a `bc-bot` that signs in, walks to the counter and
    places orders; its body stands there while it works.
 8. **The terminal in the game.** The counter's terminal grows the panels a trader expects:
    candles from the exchange's tape, a depth ladder, time and sales.
+
+## The room's look
+
+An anime trading floor in the colony's own style (`city.wgsl`'s Exchange branches, kind 2; its
+hanging screens, `city_mesh::EXCHANGE_SCREENS`, kinds 5 and 6): a dark hall lit by what's in it.
+Lacquered wall panels between pilasters lit up their middles; a ticker crawling round the hall at
+4.2 to 5 m, prices up in green and down in red; pink neon along the skirting, round the ticker and
+under the ceiling; dark glass floor tiles with cyan lanes lit through them every 8 m; light strips
+across a dark ceiling; on the back wall, framed charts and boards of prices under a marquee; and
+three 12 m screens hung over the floor above everyone's head, charts towards the door. Nothing of
+it stands where anyone walks, so the room's solids (and `CITY_VERSION`) are unchanged.
 
 ## Scale
 

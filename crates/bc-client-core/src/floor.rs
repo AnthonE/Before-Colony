@@ -7,7 +7,7 @@
 //! middle, `v` in from its face; a heading 0 faces the counter), so the page's copy and the game's
 //! never disagree about where the room is.
 
-use bc_proto::presence::PersonPose;
+use bc_proto::presence::{PersonPose, VISITOR_BASE, VISITORS};
 use bc_sim::colony::city::{KERB, Room, place, room};
 use serde::Deserialize;
 
@@ -60,8 +60,9 @@ pub fn pose(room: &Room, p: &Person) -> PersonPose {
 }
 
 /// The people to draw from a `/floor.json` document (or the store's copy of it): slot, name and
-/// pose, in the document's order, inside the room's walls. A document that isn't one, or a closed
-/// floor, draws nobody.
+/// pose, in the document's order, inside the room's walls. The store's traders take the slots the
+/// game gives them (from `VISITOR_BASE` up), so they're drawn as they are in play, in an avatar;
+/// pilots take slots from 1. A document that isn't one, or a closed floor, draws nobody.
 pub fn crowd(json: &str) -> Vec<(u16, String, PersonPose)> {
     let Some(room) = exchange_room() else { return Vec::new() };
     let Ok(doc) = serde_json::from_str::<Doc>(json) else { return Vec::new() };
@@ -74,8 +75,16 @@ pub fn crowd(json: &str) -> Vec<(u16, String, PersonPose)> {
         .filter(|p| p.u.is_finite() && p.v.is_finite() && p.heading.is_finite())
         .filter(|p| p.u.abs() <= w && p.v >= 1.4 && p.v <= d - 0.4)
         .take(MAX_DRAWN)
-        .enumerate()
-        .map(|(i, p)| (i as u16 + 1, p.name.chars().take(24).collect(), pose(&room, p)))
+        .scan((1u16, 0u16), |(pilot, trader), p| {
+            let id = if p.visitor && *trader < VISITORS {
+                *trader += 1;
+                VISITOR_BASE + *trader - 1
+            } else {
+                *pilot += 1;
+                *pilot - 1
+            };
+            Some((id, p.name.chars().take(24).collect(), pose(&room, p)))
+        })
         .collect()
 }
 
@@ -102,7 +111,8 @@ mod tests {
             assert!(room.holds(pose.s, pose.x, pose.h), "{name} is in the room");
         }
         assert_eq!(people[1].2.speed, 1.4, "one walking shows walking");
-        assert_eq!(people[0].0, 1);
+        // Pilots from 1; the store's trader in the slots the game gives them.
+        assert_eq!([people[0].0, people[1].0, people[2].0], [1, 2, VISITOR_BASE]);
     }
 
     #[test]
