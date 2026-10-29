@@ -33,10 +33,12 @@ Sources: [Steam store pages](https://store.steampowered.com) of each; [The Gemsb
    HUD draw it alike (`--ticks` in `style.css`, `ui_panel.wgsl`), from the same numbers (a test holds them).
 2. **Colour is meaning, and little of it.** Cyan is what is; amber is what to do (one amber thing on a screen:
    the button to press, the key, the money); red is what's wrong; green what was gained; pink the Orrery.
-   Everything else is the label blue and white. Two gauges never differ by colour alone: each is labelled
-   (Armored Core VI's fault).
+   Everything else is the label blue and white. On the page the numbers read off a screen (a time, an
+   amount held, a stat's bar, a count) are yellow (`--yellow`), apart from the amber of what to do. Two
+   gauges never differ by colour alone: each is labelled (Armored Core VI's fault).
 3. **Chosen is inverted.** The choice the pointer is on, in a list of them (the menu, a filter), is a light
-   plate with dark text (Armored Core VI's garage, Titanic Scion's hangar). The open tab is underlined.
+   plate (on the page a bluish light grey, `--plate`, not a glare of white) with dark text (Armored Core
+   VI's garage, Titanic Scion's hangar). The open tab is underlined.
 4. **Small labels, large numbers.** A label is 10–11 px, spaced wide, in the label blue; the number it names
    is plain, larger and in the readout font.
 5. **A heading starts with a short bar** (MechWarrior's objective) and runs out into a hairline.

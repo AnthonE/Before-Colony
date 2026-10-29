@@ -78,6 +78,10 @@ canvas#bc {
   --ink: #040a12;
   --white: #eef4fb;
   --label: #9fc6e6;
+  /* The page's own: the inverted plate a choice shows (a bluish light grey, not a glare of white),
+     and the numbers read off a screen (yellow, apart from the amber of what to do). */
+  --plate: #b7c5d5;
+  --yellow: #ffdc4a;
   --panel: color-mix(in srgb, var(--ink) 82%, transparent);
   --edge: color-mix(in srgb, var(--label) 33%, transparent);
   --hair: color-mix(in srgb, var(--label) 14%, transparent);
@@ -362,7 +366,7 @@ kbd {
 .server-dot { grid-area: dot; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
 .server-name { grid-area: name; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--label-font); font-weight: 600; font-size: var(--t-body); letter-spacing: 0.14em; }
 .server-line { grid-area: line; font-size: var(--t-small); color: var(--label); letter-spacing: 0.04em; overflow-wrap: anywhere; }
-.server-count { grid-area: count; white-space: pre; text-align: right; line-height: 1.5; font-size: var(--t-small); color: var(--cyan); letter-spacing: 0.08em; }
+.server-count { grid-area: count; white-space: pre; text-align: right; line-height: 1.5; font-size: var(--t-small); color: var(--yellow); letter-spacing: 0.08em; }
 .server.down { box-shadow: inset 2px 0 0 var(--red); background: var(--scan), color-mix(in srgb, var(--red) 7%, var(--glass)); }
 .server.down .server-dot { background: var(--red); box-shadow: 0 0 8px var(--red); }
 
@@ -400,7 +404,7 @@ kbd {
   --tick-len: 8px;
   box-shadow: inset 2px 0 0 var(--cyan), 0 0 22px -8px var(--cyan);
 }
-.frame.chosen::after { opacity: 0.9; color: var(--cyan); }
+.frame.chosen::after { opacity: 0.9; color: var(--yellow); }
 .frame-kit { margin-top: var(--s2); font-size: var(--t-small); line-height: 1.5; min-height: 3em; }
 .frame-kit .kit { opacity: 0.75; }
 .frame-kit .special { color: var(--amber); }
@@ -449,7 +453,7 @@ button.launch.filling, button.launch.filling:disabled {
 .colony-board .head { font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: var(--track); color: var(--label); margin-bottom: var(--s1); }
 .colony-board span:nth-child(1) { opacity: 0.5; width: 1.4em; flex: none; }
 .colony-board span:nth-child(2) { flex: 1; }
-.colony-board span:nth-child(3) { color: var(--cyan); }
+.colony-board span:nth-child(3) { color: var(--yellow); }
 .colony-board .none { font-size: var(--t-small); opacity: 0.55; }
 #front-controls:empty::before { content: "The controls come with the game: a moment."; font-size: var(--t-small); opacity: 0.6; }
 
@@ -498,7 +502,7 @@ html.front-up #boot { display: none; }
 #wallet-pick::backdrop { background: rgba(0, 0, 0, 0.6); }
 #wallet-list { display: flex; flex-direction: column; gap: var(--s1); margin-bottom: var(--s3); }
 #wallet-list button { display: flex; align-items: center; gap: var(--s3); width: 100%; text-align: left; }
-#wallet-list button:hover, #wallet-list button:focus-visible { color: var(--ink); background: var(--white); }
+#wallet-list button:hover, #wallet-list button:focus-visible { color: var(--ink); background: var(--plate); }
 #wallet-list img, #wallet-list .ph { width: 24px; height: 24px; flex: none; }
 #wallet-list .ph { background: var(--edge); }
 #wallet-list small { display: block; font-size: var(--t-small); letter-spacing: 0.04em; opacity: 0.6; }
@@ -537,7 +541,7 @@ html.front-up #boot { display: none; }
 /* The choice the pointer is on: inverted, light with dark text. */
 .card.menu button:hover, .card.menu button:focus-visible {
   color: var(--ink);
-  background: linear-gradient(90deg, var(--white) 55%, color-mix(in srgb, var(--white) 0%, transparent));
+  background: linear-gradient(90deg, var(--plate) 55%, color-mix(in srgb, var(--plate) 0%, transparent));
   box-shadow: none;
   padding-left: calc(var(--s4) + 4px);
 }
@@ -880,7 +884,7 @@ html.front-up #boot { display: none; }
 .term-body select { font: inherit; font-size: 12px; padding: 3px 2px; max-width: 200px; color: var(--white); background: transparent; border: none; border-bottom: 1px solid var(--edge); }
 .term-body select option { background: var(--ink); }
 .term-body section.work.done { opacity: 0.7; }
-.term-body .have { color: var(--cyan); }
+.term-body .have { color: var(--yellow); }
 .term-body .short { color: var(--red); }
 .term-body .dim { opacity: 0.5; }
 .term-body .lodestar { color: var(--amber); }
@@ -897,8 +901,8 @@ html.front-up #boot { display: none; }
 .term-body tr.pick:hover td { background: color-mix(in srgb, var(--cyan) 7%, transparent); }
 .term-body tr.chosen td { background: color-mix(in srgb, var(--cyan) 12%, transparent); }
 .term-body tr.chosen td:first-child { box-shadow: inset 2px 0 0 var(--cyan); padding-left: var(--s2); }
-.term-body .bar { display: inline-block; width: 70px; height: 3px; background: color-mix(in srgb, var(--cyan) 14%, transparent); vertical-align: middle; margin-right: 6px; }
-.term-body .bar > i { display: block; height: 100%; background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+.term-body .bar { display: inline-block; width: 70px; height: 3px; background: color-mix(in srgb, var(--yellow) 14%, transparent); vertical-align: middle; margin-right: 6px; }
+.term-body .bar > i { display: block; height: 100%; background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
 .term-body .bar.worn > i { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
 .term-body .bar.bad > i { background: var(--red); box-shadow: 0 0 6px var(--red); }
 .term-body .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--s2); }
@@ -980,7 +984,7 @@ html.front-up #boot { display: none; }
 .refit .rc:hover { background: var(--ticks), color-mix(in srgb, var(--label) 10%, transparent); }
 .refit .rc.chosen { --tick: var(--cyan); background: var(--ticks), color-mix(in srgb, var(--cyan) 7%, transparent); }
 .refit .rc-head { display: flex; align-items: center; gap: var(--s2); margin: 0 calc(-1 * var(--s3)) var(--s1); padding: var(--s1) var(--s3); }
-.refit .rc.chosen .rc-head { background: var(--white); }
+.refit .rc.chosen .rc-head { background: var(--plate); }
 .refit .rc.chosen .rc-title { color: var(--ink); }
 .refit .rc-title { font-family: var(--label-font); font-weight: 600; font-size: var(--t-body); letter-spacing: 0.12em; color: var(--white); }
 .refit .rc-sub { font-size: var(--t-small); color: color-mix(in srgb, var(--white) 60%, transparent); margin-bottom: var(--s2); display: flex; gap: var(--s1); flex-wrap: wrap; align-items: center; }
@@ -991,8 +995,8 @@ html.front-up #boot { display: none; }
 .refit .rc.chosen .rc-head .plate { color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 .refit .sl { display: grid; grid-template-columns: 8.5em minmax(32px, 1fr) 5.8em 4.6em; align-items: center; gap: var(--s2); font-size: 12px; line-height: 1.75; }
 .refit .sl-k { font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: 0.18em; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.refit .sl-bar { position: relative; height: 3px; background: color-mix(in srgb, var(--cyan) 14%, transparent); }
-.refit .sl-bar > i { display: block; height: 100%; background: var(--cyan); }
+.refit .sl-bar { position: relative; height: 3px; background: color-mix(in srgb, var(--yellow) 14%, transparent); }
+.refit .sl-bar > i { display: block; height: 100%; background: var(--yellow); }
 .refit .sl-bar.worn > i, .refit .sl-bar.load > i { background: color-mix(in srgb, var(--white) 70%, transparent); }
 .refit .sl-bar.worn > i { background: var(--amber); }
 .refit .sl-bar.bad > i { background: var(--red); }
@@ -1030,14 +1034,14 @@ html.front-up #boot { display: none; }
 .refit .callout .what { font-family: var(--mono); font-weight: 400; font-size: 12px; letter-spacing: 0.06em; color: var(--white); }
 .refit .callout .what .bad { color: var(--red); font-style: normal; }
 .refit .callout:hover { background: var(--ticks), color-mix(in srgb, var(--ink) 60%, var(--label) 20%); }
-.refit .callout.active { background: var(--white); }
+.refit .callout.active { background: var(--plate); }
 .refit .callout.active .lbl, .refit .callout.active .what { color: var(--ink); }
 .refit .pad-hint { position: absolute; left: 0; right: 0; bottom: var(--s2); display: flex; justify-content: center; gap: var(--s5); font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: 0.24em; color: color-mix(in srgb, var(--label) 80%, transparent); text-shadow: 0 0 6px var(--ink); pointer-events: none; }
 
 /* The chosen card, in full. */
 .refit-detail h3 { margin-top: var(--s4); }
 .refit .rd-plate { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); }
-.refit .rd-plate .plate { margin-left: 0; color: var(--ink); background: var(--white); box-shadow: none; }
+.refit .rd-plate .plate { margin-left: 0; color: var(--ink); background: var(--plate); box-shadow: none; }
 .refit .rd-plate .plate.bad { background: var(--red); }
 .refit .rd-plate .plate.warn { background: var(--amber); }
 .refit .rd-plate .plate.dim { background: var(--label); }
@@ -1086,7 +1090,7 @@ html.front-up #boot { display: none; }
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--cyan);
+  color: var(--yellow);
   background: var(--ticks);
   --tick: var(--cyan);
   --tick-len: 6px;
