@@ -2053,7 +2053,7 @@ fn objectives_list(state: &ObjectiveState, done: u32, downed: u32, survival: boo
     use bc_client_core::objectives::Objective;
     let input = state.input();
     let open: Vec<Objective> =
-        Objective::order(survival).iter().copied().filter(|o| o.available(input)).collect();
+        Objective::order(survival, input.colony).iter().copied().filter(|o| o.available(input)).collect();
     // The one shown counts as to do, though done (the Charter Board's desk, while the Board holds
     // something for the pilot there).
     let todo = |o: &&Objective| done & o.bit() == 0 || state.current == Some(**o);

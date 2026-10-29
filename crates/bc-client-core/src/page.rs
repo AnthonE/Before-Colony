@@ -144,6 +144,8 @@ pub struct FrameCard {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ControlGroup {
     pub title: &'static str,
+    /// Only in the colony's city (hidden while its inside is closed).
+    pub inside: bool,
     pub rows: Vec<(&'static str, &'static str)>,
 }
 
@@ -253,6 +255,7 @@ pub fn control_groups() -> Vec<ControlGroup> {
         .iter()
         .map(|&g| ControlGroup {
             title: g.title(),
+            inside: g.inside(),
             rows: BINDINGS.iter().filter(|b| b.group == g).map(|b| (b.keys, b.action)).collect(),
         })
         .collect()

@@ -244,6 +244,7 @@ pub fn update_hints(
         colony,
         in_city: onfoot.city.is_some(),
         inside,
+        on_deck: onfoot.deck.is_some(),
         went_down: used && onfoot.focus == Some(bc_client_core::bay::Spot::Airlock),
         near_hub,
         trainer: inside && trainer,

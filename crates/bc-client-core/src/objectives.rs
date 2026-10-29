@@ -100,13 +100,14 @@ pub enum Realm {
     Afoot,
 }
 
-/// Where the pilot is, for the objectives: flying (or not yet anywhere), on foot in their bay, or
-/// on foot on strip `n` of the city.
+/// Where the pilot is, for the objectives: flying (or not yet anywhere), on foot in their bay, out
+/// on Bay Row (the base's deck, the colony closed), or on foot on strip `n` of the city.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Here {
     #[default]
     Space,
     Bay,
+    Deck,
     City(u8),
 }
 
@@ -176,6 +177,32 @@ impl Objective {
         Objective::TryPrototype,
         Objective::Siderium,
     ];
+    /// Survival's with the colony closed (`docs/RING.md`): the Board's rifle for a flight
+    /// certificate is the city's, so a new Arrival can't arm the suit until they've the credits.
+    /// Standing at the bay's terminals, then out to mine, bring the ore home and sell it, and arm
+    /// the suit with what it fetched; then the drones and their aces. The city's come last (they
+    /// don't show while it's closed).
+    const SURVIVAL_CLOSED: [Objective; 19] = [
+        Objective::Standing,
+        Objective::LandStation,
+        Objective::Hide,
+        Objective::Mine,
+        Objective::Deliver,
+        Objective::Sell,
+        Objective::Arm,
+        Objective::Bounty,
+        Objective::Hermit,
+        Objective::FiveDrones,
+        Objective::AlmagestAce,
+        Objective::Siderium,
+        Objective::RideDown,
+        Objective::ProvingGround,
+        Objective::Certify,
+        Objective::ExchangeFloor,
+        Objective::CharterDesk,
+        Objective::MostWanted,
+        Objective::TryPrototype,
+    ];
     /// Arcade's: a pilot launches by the field, in whatever suit they like, among the drones (and
     /// the colony is closed: what's the colony's or the bay's doesn't show).
     const ARCADE: [Objective; 19] = [
@@ -205,8 +232,13 @@ impl Objective {
     }
 
     /// In the order the rules show them.
-    pub fn order(survival: bool) -> &'static [Objective; 19] {
-        if survival { &Self::SURVIVAL } else { &Self::ARCADE }
+    /// The order for the rules, the colony open or not.
+    pub fn order(survival: bool, colony: bool) -> &'static [Objective; 19] {
+        match (survival, colony) {
+            (true, true) => &Self::SURVIVAL,
+            (true, false) => &Self::SURVIVAL_CLOSED,
+            (false, _) => &Self::ARCADE,
+        }
     }
 
     /// Whether the sector has what it needs (a landmark, rocks, the colony open, a hangar).
@@ -218,12 +250,16 @@ impl Objective {
             Objective::RideDown
             | Objective::ProvingGround
             | Objective::ExchangeFloor
-            | Objective::Sell
             | Objective::Certify
             | Objective::CharterDesk
             | Objective::MostWanted
             | Objective::TryPrototype => i.colony,
-            Objective::Standing | Objective::Arm | Objective::AlmagestAce | Objective::Siderium => i.survival,
+            // The bay's terminals have the Exchange's tab, the colony open or not.
+            Objective::Sell
+            | Objective::Standing
+            | Objective::Arm
+            | Objective::AlmagestAce
+            | Objective::Siderium => i.survival,
             Objective::Deliver | Objective::Bounty | Objective::FiveDrones => true,
         }
     }
@@ -317,6 +353,10 @@ impl Objective {
                 "From Hub Gate, along the avenue: M shows the city, ◆ marks the Exchange's door. Its floor is where an order at your own price waits on the book."
                     .into()
             }
+            Objective::Sell if !colony => {
+                "At your bay's terminals, the EXCHANGE tab: sell what you brought home to the colony's desk or to another pilot."
+                    .into()
+            }
             Objective::Sell => {
                 "At any terminal's EXCHANGE tab, your bay's or the Exchange floor's: sell what you brought home to the colony's desk or to another pilot."
                     .into()
@@ -335,6 +375,10 @@ impl Objective {
             }
             // What the works still need is the board's to say: the colony's needs are met in time,
             // and once the charter's signed its works are done.
+            Objective::Standing if !colony => {
+                "At your bay's terminals, the CHARTER BOARD tab: deliver to a contract or a great work (while one is short of steel, the 200 kg you came with will do). Paid over its value, and in standing."
+                    .into()
+            }
             Objective::Standing => {
                 "Deliver to one of the colony's contracts or a great work, at the Charter Board's desk or its tab on your bay's terminals: the board lists what each still needs, and while a great work is short of steel the 200 kg you came with will do. Paid over its value, and in standing."
                     .into()
@@ -407,6 +451,11 @@ impl Objective {
             (Realm::Space, Here::City(_)) => {
                 "Back up to your bay (E at Hub Gate's lift), and launch from its cockpit. "
             }
+            (Realm::Bay | Realm::Afoot, Here::Deck) => "Back into your bay first: E at its airlock's door. ",
+            (Realm::Space, Here::Deck) => {
+                "Back into your bay (E at its airlock's door), and launch from its cockpit. "
+            }
+            (Realm::City, Here::Deck) => "Back into your bay, and E at its airlock rides the cap lift down. ",
             (Realm::City | Realm::Bay | Realm::Afoot, Here::Space) => "Home first: dock at the ◆. ",
         };
         format!("{first}{}", self.how(survival, colony))
@@ -616,7 +665,7 @@ impl Objectives {
     /// its line says it's paid out there, and its `◆` is on the hall's door, not the way home to a
     /// console with no rifle in the stores yet.
     pub fn current(done: u32, i: &ObjectiveInput) -> Option<Objective> {
-        let order = Objective::order(i.survival);
+        let order = Objective::order(i.survival, i.colony);
         let open = |o: &Objective| done & o.bit() == 0 && o.available(i);
         let space = |o: &Objective| o.realm() == Realm::Space;
         match i.here {
@@ -625,7 +674,7 @@ impl Objectives {
                 .copied()
                 .find(|o| open(o) && space(o))
                 .or_else(|| order.iter().copied().find(open)),
-            Here::Bay | Here::City(_) => {
+            Here::Bay | Here::Deck | Here::City(_) => {
                 let due = |o: &Objective| *o == Objective::CharterDesk && i.waiting && o.available(i);
                 let flown_past =
                     |k: usize| order[k + 1..].iter().any(|later| space(later) && done & later.bit() != 0);
@@ -760,8 +809,8 @@ mod tests {
             assert_eq!(o.bit(), 1 << (11 + k), "{o:?}");
         }
         assert_eq!(Objective::Siderium.bit(), 1 << 18);
-        for survival in [true, false] {
-            let order = Objective::order(survival);
+        for (survival, colony) in [(true, true), (true, false), (false, false)] {
+            let order = Objective::order(survival, colony);
             assert_eq!(bits(order), all);
             for o in order {
                 assert!(!o.title(survival).is_empty() && !o.how(survival, true).is_empty());
@@ -887,7 +936,7 @@ mod tests {
     fn a_pilot_flying_first_is_never_pulled_home_while_a_space_objective_is_open() {
         let (mut o, mut done, mut downed) = (Objectives::default(), 0u32, 0u32);
         assert_eq!(o.step(&mut done, &mut downed, &open()), Some(Objective::LandStation));
-        for space in Objective::order(true).iter().filter(|o| o.realm() == Realm::Space) {
+        for space in Objective::order(true, true).iter().filter(|o| o.realm() == Realm::Space) {
             assert_eq!(Objectives::current(done, &open()), Some(*space));
             done |= space.bit();
         }
@@ -959,7 +1008,7 @@ mod tests {
             assert!(!o.available(&arcade), "{o:?}");
         }
         assert_eq!(Objectives::current(0, &arcade), Some(Objective::Bounty));
-        assert_eq!(Objective::order(false)[0], Objective::Bounty);
+        assert_eq!(Objective::order(false, false)[0], Objective::Bounty);
     }
 
     /// Survival with the colony closed: what's the colony's doesn't show; the bay's and the
@@ -971,9 +1020,20 @@ mod tests {
         {
             assert!(!o.available(&closed), "{o:?}");
         }
-        for o in [Objective::Standing, Objective::Arm, Objective::AlmagestAce, Objective::Siderium] {
+        for o in [
+            Objective::Sell,
+            Objective::Standing,
+            Objective::Arm,
+            Objective::AlmagestAce,
+            Objective::Siderium,
+        ] {
             assert!(o.available(&closed), "{o:?}");
         }
+        // Delivered and sold at the bay's own terminals: no desk or floor to walk to.
+        let standing = Objective::Standing.how(true, false);
+        assert!(standing.contains("CHARTER BOARD tab") && !standing.contains("desk"), "{standing}");
+        let sell = Objective::Sell.how(true, false);
+        assert!(sell.contains("your bay's terminals") && !sell.contains("floor"), "{sell}");
         assert_eq!(Objectives::current(0, &in_bay(closed)), Some(Objective::Standing));
         // Flying, home done: the drones.
         let home = bits(&[Objective::LandStation, Objective::Hide, Objective::Mine, Objective::Deliver]);
@@ -982,6 +1042,18 @@ mod tests {
         let arm = Objective::Arm.how(true, false);
         assert!(!arm.contains("Charter Board") && arm.contains("bought on the Exchange"), "{arm}");
         assert!(Objective::Arm.how(true, true).contains("the Charter Board's for a flight certificate"));
+        // On foot, standing earned: out to mine before arming (the rifle wants the credits the ore
+        // fetches), and armed once it's sold.
+        let standing = Objective::Standing.bit();
+        assert_eq!(Objectives::current(standing, &in_bay(closed)), Some(Objective::LandStation));
+        let sold = home | standing | Objective::Sell.bit();
+        assert_eq!(Objectives::current(home | standing, &in_bay(closed)), Some(Objective::Sell));
+        assert_eq!(Objectives::current(sold, &in_bay(closed)), Some(Objective::Arm));
+        // Out on Bay Row, the way back in comes first.
+        let deck = ObjectiveInput { here: Here::Deck, ..in_bay(closed) };
+        assert_eq!(Objectives::current(sold, &deck), Some(Objective::Arm));
+        assert!(Objective::Arm.how_from(true, false, Here::Deck).starts_with("Back into your bay first"));
+        assert!(Objective::LandStation.how_from(true, false, Here::Deck).starts_with("Back into your bay ("));
         // Whatever the Board holds is collected anywhere with the colony shut: no desk to go to.
         let waiting = ObjectiveInput { waiting: true, ..in_bay(closed) };
         assert_eq!(Objectives::current(0, &waiting), Some(Objective::Standing));
