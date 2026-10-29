@@ -1375,7 +1375,7 @@ fn floor_cams() -> Vec<Orbit> {
         toward(floor_at(-w + 3.0, d - 7.0, 2.6), floor_at(4.0, 3.0, 1.2)),
         toward(floor_at(w - 4.0, 3.0, room.ceiling - 2.0), floor_at(-4.0, d * 0.62, 0.0)),
         // Among the traders at eye height, across them to the boards and the screens over them.
-        toward(floor_at(-14.0, 6.5, 1.7), floor_at(5.0, d - 6.0, 4.2)),
+        toward(floor_at(6.0, 8.5, 1.65), floor_at(-4.0, d - 13.0, 2.6)),
     ]
 }
 
