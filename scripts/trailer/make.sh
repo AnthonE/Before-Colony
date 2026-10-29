@@ -7,6 +7,7 @@
 #   scripts/trailer/make.sh shoot [names]   # just film the trailer's footage (shots/trailer.json)
 #   scripts/trailer/make.sh frames 16,40.5  # trailer frames as JPEGs in build/frames, to check a cut
 #   scripts/trailer/make.sh preview         # every 4th frame at 720p, quick to check a cut
+#   scripts/trailer/make.sh battle [names]  # the fight reel (shots/battle.json) → out/before-colony-battle.mp4
 #
 # overhaul.sh is a quicker cut for seeing new work move (shots/overhaul.json: the ring, the Ring Deck,
 # the Muster), captioned and cross-faded over the title theme; shots/survey.json stills every camera.
@@ -35,6 +36,7 @@ MODE=video; ARG=""
 case "${1:-}" in
   "") ;;
   stills|preview) MODE="$1" ;;
+  battle) MODE=battle; ARG="${2:-}" ;;
   shoot) MODE=shoot; ARG="${2:-}" ;;
   frames) MODE=frames; ARG="${2:?frames t1,t2,…}" ;;
   *) fail "unknown option $1" ;;
@@ -59,6 +61,13 @@ sleep 0.5
 if [ "$MODE" = stills ]; then
   node "$B/film.mjs" shots/stills.json "$HERE/out/stills"
   ls -la "$HERE/out/stills"; exit 0
+fi
+if [ "$MODE" = battle ]; then
+  # The fight reel: the battle showcase's skirmish and more, cut end to end and scored (reel.py).
+  node "$B/film.mjs" shots/battle.json "$B/battle" $ARG
+  [ -s "$B/snd/music_combat.wav" ] || cargo run -q -p bc-sound --release --example bank -- "$B/snd"
+  python3 reel.py shots/battle.json "$B/battle" "$B" "$HERE/out/before-colony-battle.mp4"
+  exit 0
 fi
 node "$B/film.mjs" shots/trailer.json "$B/clips" $ARG
 [ "$MODE" = shoot ] && exit 0
