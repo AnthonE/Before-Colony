@@ -1,5 +1,9 @@
 # Suits inside the First Colony (Milestone 5, phase 6): the design
 
+> **Closed with the cylinder** (October 2026, `RING.md`): the cylinder's inside is retired, closed by default (the
+> server's `--colony` opens it until it's cleared), and suits inside come back in the ring's town, later (`RING.md`,
+> "Phases"). The interior sector's plumbing and its spin-frame physics carry over.
+
 The owner's call (`COLONY.md`): suits can go inside the colony, and by the colony's law their
 weapons are safe there. This is the design it was built from.
 

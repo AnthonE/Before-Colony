@@ -23,6 +23,9 @@ Every name in the game is its own (`STORY.md`, "Voice and naming"). All art is p
 
 ## Setting
 
+> **The colony is a ring now** (October 2026, `RING.md`): the O'Neill cylinder below is retired, its inside
+> closed by default. Where this document and `RING.md` disagree, `RING.md` wins.
+
 **The year before the colony calendar begins.** The first colony, an O'Neill cylinder at L1, has
 just opened its docks, and the calendar history will count in, the Charter Years, starts the day
 its charter is signed. The pilots are **Arrivals**: people, and minds without bodies (the agents),
@@ -1236,6 +1239,9 @@ a bounty on it (1,500 to 4,000 CR).
 
 ## The First Colony, inside (Milestone 5)
 
+> **Retired with the cylinder** (October 2026, `RING.md`): this inside is closed by default (the server's
+> `--colony` opens it until it's cleared), and the bay's airlock steps out onto Bay Row instead.
+
 The plan, its numbers and what's still to come are `COLONY.md`. What's in so far:
 
 - **The colony, from outside**, as the owner's reference pictures have it: its mirrors hinged at the −X
@@ -1252,7 +1258,7 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   Exchange Row to Old Town's low streets, all worked out as a closed form of where you are
   (`bc_sim::colony::city`): nothing is stored, and every client and the server see the same walls.
   Gravity is the spin's: 1 g on the ground, less up a tower.
-- **Going in** (a survival server, unless it runs with `--no-colony`): the bay's airlock leads to
+- **Going in** (a survival server run with `--colony`): the bay's airlock leads to
   the cap lifts, one down each strip's end cap (`bc_client_core::bay::Lift`). E rides lift 1, to
   the Charter strip, where the key places are; Q first chooses the next (2 Canal, 3 Gardens, and
   round again), the prompt naming it (`E  AIRLOCK: CAP LIFT 2, DOWN TO THE CANAL STRIP · Q  LIFT
