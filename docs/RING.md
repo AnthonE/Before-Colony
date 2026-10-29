@@ -146,7 +146,7 @@ Gates' runtime store, claim, upkeep and decay are not taken until players build.
   through `check`, holds it supported, and walks a walker to every counter and up and down every flight.
 - **Drawn as itself.** `bc-client-core`'s `piece_mesh` builds each piece from the same parts table the solids come
   from, then dresses it inside its own volume, as Gates' `piece_dress` does. The dress is the station language
-  (below) at a person's scale: white panels over the base's military olive dado with the band in Charter blue,
+  (below) at a person's scale: light blue-grey panels over the base's military olive dado with the band in yellow,
   deck plates underfoot, light strips overhead, hazard stripes up a doorway's posts and its head lit green, gunmetal
   treads, and the building's name stencilled over its doorway outside. Props (consoles, lockers, racks, bunks,
   gantries) come from a kit in `bc-model`.
@@ -170,10 +170,11 @@ suit deck 48 × 34 × 192 m in the hub's drum, between its bays, the launch tunn
 
 What it keeps to:
 
-- **White panels with fine joints.** A vent or an access hatch here and there, and a dark kick
-  plate at the foot of each wall. Nothing is worn: this layer is the colony's order.
-- **The lines' colours for wayfinding.** They are the town's lines' (`f_line`, checked by a test):
-  Charter blue for the band, the pillars' collars and the suits' lanes, Canal teal for the lifts.
+- **Light blue-grey panels with fine joints** (not a stark white). A vent or an access hatch here and
+  there, and a dark kick plate at the foot of each wall. Nothing is worn: this layer is the colony's order.
+- **Yellow for the deck's own markings, the lines' colours for wayfinding.** Yellow for the band, the
+  pillars' collars, the suits' lanes and the deck's name and numbers (the control room's readouts amber);
+  the town's lines' (`f_line`, checked by a test) where a sign or a door leads to one: Canal teal for the lifts.
   - A band runs round the walls, with arrows in it pointing the way to the lifts.
   - Chevrons in the lanes show which way each lane runs.
   - A door you can go through has a frame lit in the line's colour.

@@ -16,7 +16,7 @@ use bc_sim::pieces::prefab::Site;
 use bc_sim::pieces::shape::{DOORWAY, HALF_WALL, LEVEL_H_M, LOW_WALL, level_y};
 use glam::{Quat, Vec3};
 
-use crate::station::{BAND, CHARTER, GARDENS, HULL, Sign, Surface, WHITE, colour};
+use crate::station::{BAND, GARDENS, HULL, Sign, Surface, WHITE, YELLOW, colour};
 
 /// A mesh: positions and normals in its frame, the station shader's vertex colours, and UVs in
 /// metres across each face.
@@ -162,7 +162,7 @@ pub fn site_mesh(site: &Site) -> PieceMesh {
                 Part::Slab => {
                     (colour(Floor, WHITE, 0, seed), colour(Ceiling, WHITE, 0, seed), trim(HULL, seed))
                 }
-                Part::Wall => (trim(HULL, seed), trim(HULL, seed), colour(Wall, CHARTER, BAND, seed)),
+                Part::Wall => (trim(HULL, seed), trim(HULL, seed), colour(Wall, YELLOW, BAND, seed)),
                 Part::Post => (trim(HULL, seed), trim(HULL, seed), colour(Hazard, WHITE, 0, seed)),
                 Part::Lintel => {
                     let lit = colour(Glow, GARDENS, 0, seed);

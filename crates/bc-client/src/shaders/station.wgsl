@@ -6,8 +6,8 @@
 // person's halls), in the uniform; the surfaces, flags and safety paints are `station`'s (its tests
 // read them here).
 //
-// White panels with fine joints, a vent or an access hatch here and there; the lines' colours for
-// wayfinding; safety yellow and black only where there's a hazard; light in strips.
+// Light blue-grey panels with fine joints, a vent or an access hatch here and there; yellow for the
+// deck's bands, lanes and numbers, and with black where there's a hazard; light in strips.
 
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
@@ -298,7 +298,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         }
         albedo = mix(albedo, dark, band(abs(uv.x), -1.0, joint * 1.33, fw.x));
     } else if (surface == WINDOW) {
-        // Dark glass; screens lit behind it.
+        // Dark glass; screens lit behind it, their readouts amber.
         albedo = vec3(0.012, 0.016, 0.02);
         rough = 0.06;
         let size = vec2(panel.x * 0.533, panel.y * 0.5);
@@ -308,7 +308,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let screen = band(local.x, size.x * 0.094, size.x * 0.906, fw.x) * band(local.y, size.y * 0.18, size.y * 0.82, fw.y) * step(0.35, h);
         let line = size.y * 0.1;
         let lines = 0.55 + 0.45 * pulse(local.y / line, 0.0, 0.5, fw.y / line);
-        let tint = select(vec3(0.25, 0.85, 1.0), vec3(1.0, 0.7, 0.25), h > 0.9);
+        let tint = select(vec3(1.0, 0.82, 0.2), vec3(1.0, 0.6, 0.15), h > 0.9);
         glow = tint * 1.6 * screen * lines;
     } else if (surface == HAZARD) {
         albedo = mix(dark, yellow, stripes(uv, fw));
