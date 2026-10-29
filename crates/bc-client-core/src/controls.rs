@@ -35,6 +35,11 @@ impl Group {
         Group::System,
     ];
 
+    /// Only inside the colony's city: the sheet hides it while the inside is closed.
+    pub fn inside(self) -> bool {
+        matches!(self, Group::Colony | Group::Driving)
+    }
+
     pub fn title(self) -> &'static str {
         match self {
             Group::OnFoot => "IN THE HANGAR",
@@ -78,8 +83,9 @@ pub const BINDINGS: &[Binding] = &[
     b(
         Group::OnFoot,
         "E",
-        "Use: the fabricator, the stores, the exchange, the suit's console, the cockpit, the airlock (the cap lift down into the colony, when it's open: the Charter strip's, unless Q chose another)",
+        "Use: the fabricator, the stores, the exchange, the suit's console, the cockpit, the airlock (out onto Bay Row, the base's deck; with the colony open, the cap lift down into it: the Charter strip's, unless Q chose another)",
     ),
+    b(Group::OnFoot, "E (on Bay Row)", "At your own airlock's door: back into your bay"),
     b(Group::Colony, "W / A / S / D", "Walk the streets (Shift runs, Space jumps, as in the bay)"),
     b(
         Group::Colony,

@@ -276,6 +276,11 @@ pub struct HintInput {
     pub hungry: bool,
 }
 
+/// Not a hint: the seen set's top bit, set once the pilot has boarded at the hatch (their first
+/// launch), which a hint seen out of patience doesn't stand for.
+pub const LAUNCHED: u32 = 1 << 31;
+const _: () = assert!(Hint::ALL.len() < 31, "the hints' bits stay clear of LAUNCHED");
+
 /// Seconds between one hint and the next.
 const GAP: f64 = 2.0;
 /// How long an action must go on to count (a tap on W isn't having learnt to fly).
@@ -298,7 +303,7 @@ impl Hints {
     pub fn step(&mut self, seen: &mut u32, now: f64, dt: f64, i: &HintInput) -> Option<Hint> {
         // Done, whether or not its hint was up: the cockpit boarded, the cap lift taken.
         if i.boarding {
-            *seen |= Hint::Launch.bit();
+            *seen |= Hint::Launch.bit() | LAUNCHED;
         }
         if i.went_down {
             *seen |= Hint::Airlock.bit();
@@ -382,8 +387,9 @@ impl Hints {
             return None;
         }
         // With the colony closed, Bay Row has nothing yet to keep a new pilot from their first
-        // sortie: its airlock's hint waits until they've launched once.
-        let waits = |h: Hint| h == Hint::Airlock && !i.colony && *seen & Hint::Launch.bit() == 0;
+        // sortie: its airlock's hint waits until they've launched once (not merely seen the
+        // launch's hint: that one goes by itself after a while).
+        let waits = |h: Hint| h == Hint::Airlock && !i.colony && *seen & LAUNCHED == 0;
         let h = Hint::ALL
             .into_iter()
             .find(|&h| *seen & h.bit() == 0 && h.on_foot() == i.walking && h.due(i) && !waits(h))?;
@@ -470,7 +476,7 @@ mod tests {
         // With the colony closed the airlock leads onto Bay Row, and says so; out there, none of
         // the bay's.
         let (mut h2, mut seen2, mut t2) =
-            (Hints::default(), Hint::Walk.bit() | Hint::Use.bit() | Hint::Launch.bit(), 0.0);
+            (Hints::default(), Hint::Walk.bit() | Hint::Use.bit() | Hint::Launch.bit() | LAUNCHED, 0.0);
         let closed = HintInput { colony: false, ..bay };
         assert_eq!(run(&mut h2, &mut seen2, &mut t2, 0.1, closed), Some(Hint::Airlock));
         assert!(Hint::Airlock.text(false, false).contains("Bay Row"));
@@ -481,7 +487,13 @@ mod tests {
         let (mut h5, mut seen5, mut t5) = (Hints::default(), Hint::Walk.bit() | Hint::Use.bit(), 0.0);
         let arcade = HintInput { survival: false, ..closed };
         assert_ne!(run(&mut h5, &mut seen5, &mut t5, 0.1, arcade), Some(Hint::Airlock));
-        // Before the first launch, the launch's hint comes first; Bay Row's after it.
+        // Before the first launch, the launch's hint comes first; Bay Row's after it, and not
+        // before a launch however long the launch's hint stays up unheeded.
+        let (mut h7, mut seen7, mut t7) = (Hints::default(), Hint::Walk.bit() | Hint::Use.bit(), 0.0);
+        assert_eq!(run(&mut h7, &mut seen7, &mut t7, 0.1, closed), Some(Hint::Launch));
+        run(&mut h7, &mut seen7, &mut t7, 31.0, closed);
+        assert!(seen7 & Hint::Launch.bit() != 0);
+        assert_eq!(run(&mut h7, &mut seen7, &mut t7, GAP + 0.2, closed), None);
         let (mut h6, mut seen6, mut t6) = (Hints::default(), Hint::Walk.bit() | Hint::Use.bit(), 0.0);
         assert_eq!(run(&mut h6, &mut seen6, &mut t6, 0.1, closed), Some(Hint::Launch));
         run(&mut h6, &mut seen6, &mut t6, 0.1, HintInput { boarding: true, ..closed });

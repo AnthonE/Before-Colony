@@ -1267,7 +1267,9 @@ pub fn drive_onfoot(
     for d in g.core.hangar.debriefs.drain(..) {
         ui.debrief(&d);
         let lines: Vec<String> = d.lines.iter().map(|l| format!("{} {:+} CR", l.what, l.cr)).collect();
-        log.push(format!("DEBRIEF · {} · NET {:+} CR", lines.join(" · "), d.net()), d.net() >= 0);
+        // A sortie that earned nothing says so, not an empty list.
+        let paid = if lines.is_empty() { "NOTHING EARNED".into() } else { lines.join(" · ") };
+        log.push(format!("DEBRIEF · {paid} · NET {:+} CR", d.net()), d.net() >= 0);
     }
     for text in g.core.hangar.news.drain(..) {
         ui.news(text.clone(), false);

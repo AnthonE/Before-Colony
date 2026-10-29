@@ -95,10 +95,19 @@
         table.append(tr);
       }
       section.append(h, table);
+      if (g.inside) section.dataset.inside = "1";
       box.append(section);
     }
     // The front screen's CONTROLS: the same sheet.
     $("front-controls").replaceChildren(...[...box.children].map((n) => n.cloneNode(true)));
+    showInsideControls();
+  }
+
+  // The city's controls (its streets, driving) only while the colony's inside is open.
+  function showInsideControls() {
+    for (const s of document.querySelectorAll("#controls-list [data-inside], #front-controls [data-inside]")) {
+      show(s, statusColony);
+    }
   }
 
   // --- The wallet: the same calls as Gates' page and the platform's own (has, accounts, connect,
@@ -530,6 +539,7 @@
     if (st) {
       survival = (game?.rules ?? st.rules) === "survival";
       statusColony = !survival || game?.colony !== false;
+      showInsideControls();
       show($("frames-field"), !survival);
       show($("survival-field"), survival);
       showTabs();
@@ -578,6 +588,9 @@
     }
     const board = $("colony-board");
     board.textContent = "";
+    // The Proving Ground is the city's: with the inside closed there's no board to show.
+    show($("colony-board-head"), statusColony);
+    show(board, statusColony);
     const proving = game?.proving;
     for (const [title, list] of [["THE RING COURSE", proving?.course], ["THE DRILL", proving?.drill]]) {
       const col = document.createElement("div");
@@ -2003,7 +2016,8 @@
   function renderMenu() {
     const body = hangar?.body;
     const credits = hangar?.view?.credits ?? 0;
-    let out = `<h3>THE ARRIVAL · THE KITCHEN</h3>`;
+    // The Arrival's kitchen serves the bay's terminals too; with the inside closed, it isn't named.
+    let out = `<h3>${colonyOpen() ? "THE ARRIVAL · " : ""}THE KITCHEN</h3>`;
     out += body
       ? `<div class="status${body.fed === "hungry" || body.fed === "starving" ? " warn" : ""}"><b>${fedTag(body.fed)}</b> · ${body.food_s > 0 ? `${secs(body.food_s)} OF FOOD IN YOU` : "NOTHING IN YOU"}${body.well_fed_s > 0 ? ` · WELL FED ${secs(body.well_fed_s)}` : ""}</div>`
       : `<div class="note">Waiting for word of how fed you are…</div>`;

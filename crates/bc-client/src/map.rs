@@ -239,6 +239,8 @@ pub fn update_objectives(
         Here::Space
     } else if core.hangar.in_city() {
         Here::City(onfoot.city.as_ref().map_or(core.hangar.strip.unwrap_or(0), |c| c.strip))
+    } else if onfoot.deck.is_some() {
+        Here::Deck
     } else {
         Here::Bay
     };
@@ -343,7 +345,7 @@ pub fn update_objectives(
             }
         }
     } else if let Some(o) = current {
-        let order = Objective::order(survival);
+        let order = Objective::order(survival, input.colony);
         let count = order.iter().filter(|o| o.available(&input)).count();
         // Those done but this one (the Charter Board's desk is shown again, done, while the Board
         // holds something there).
