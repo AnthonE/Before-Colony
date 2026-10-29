@@ -736,7 +736,12 @@ fn hall_with_room(m: &mut Builder, b: &Building, room: &Room, seed: f32, tall: f
     vface(m, d, (-w, w), (KERB, c), false, &display);
     // Its ceiling, its floor (just over the kerb's top, which is the street's pavement), its counter.
     m.level(&room.rect, c, true, [Surface::Ceiling as u8 as f32 / 255.0, kind, 1.0, tall]);
-    m.level(&room.rect, KERB + ROOM_FLOOR_LIFT, false, [Surface::Floor as u8 as f32 / 255.0, kind, 1.0, tall]);
+    m.level(
+        &room.rect,
+        KERB + ROOM_FLOOR_LIFT,
+        false,
+        [Surface::Floor as u8 as f32 / 255.0, kind, 1.0, tall],
+    );
     let counter = CityBox { rect: room.counter, h0: KERB, h1: KERB + bc_sim::colony::city::COUNTER_HEIGHT };
     m.city_box(&counter, Surface::Counter, Surface::Counter, kind, tall, true);
     // The Exchange's screens, hung over the floor well above anyone's head (nothing to walk into):
@@ -2192,7 +2197,7 @@ mod tests {
         // The most a chord of `CUT` stands off the arc: the sagitta.
         let sag = CUT * CUT / (8.0 * RADIUS);
         assert!(ROOM_FLOOR_LIFT > sag, "{ROOM_FLOOR_LIFT} m over a {sag} m bow");
-        assert!(ROOM_FLOOR_LIFT < 0.05, "and feet on the kerb's top still look to stand on it");
+        const { assert!(ROOM_FLOOR_LIFT < 0.05, "and feet on the kerb's top still look to stand on it") };
     }
 
     #[test]
