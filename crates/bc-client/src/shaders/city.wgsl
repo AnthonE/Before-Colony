@@ -133,6 +133,28 @@ fn long_shade(p: vec3<f32>, n: vec3<f32>, l: vec3<f32>, strip: i32) -> f32 {
 
 // The scene's sun (Bevy's one directional light) on a surface, as `apply_pbr_lighting` adds it
 // before exposure, without its shadow: what a long shadow takes away.
+fn scene_sun(pbr: PbrInput) -> vec3<f32> {
+    let N = pbr.N;
+    let V = pbr.V;
+    let NdotV = max(dot(N, V), 0.0001);
+    let rough = pbr.material.perceptual_roughness;
+    var li: lighting::LightingInput;
+    li.layers[lighting::LAYER_BASE].NdotV = NdotV;
+    li.layers[lighting::LAYER_BASE].N = N;
+    li.layers[lighting::LAYER_BASE].R = reflect(-V, N);
+    li.layers[lighting::LAYER_BASE].perceptual_roughness = rough;
+    li.layers[lighting::LAYER_BASE].roughness = lighting::perceptualRoughnessToRoughness(rough);
+    li.P = pbr.world_position.xyz;
+    li.V = V;
+    li.diffuse_color = calculate_diffuse_color(pbr.material.base_color.rgb, pbr.material.metallic, 0.0, 0.0);
+    li.metallic = pbr.material.metallic;
+    li.F0_dielectric = calculate_F0_dielectric(pbr.material.reflectance);
+    li.F0_metallic = pbr.material.base_color.rgb;
+    li.F_ab = lighting::F_AB(rough, NdotV);
+    return lighting::directional_light(0u, &li, true);
+}
+#endif
+
 // The Exchange floor's look (`docs/FLOOR.md`): a dark hall lit by its screens, anime-style neon.
 const EX_CYAN: vec3<f32> = vec3(0.3, 0.88, 1.0);
 const EX_PINK: vec3<f32> = vec3(1.0, 0.32, 0.82);
@@ -168,28 +190,6 @@ fn ex_rows(x: f32, y: f32, t: f32) -> vec3<f32> {
     let tint = mix(EX_UP, vec3(1.0, 0.68, 0.2), step(0.62, hash13(cell + vec3(0.0, 0.0, 5.0))));
     return tint * lit * band * 650.0;
 }
-
-fn scene_sun(pbr: PbrInput) -> vec3<f32> {
-    let N = pbr.N;
-    let V = pbr.V;
-    let NdotV = max(dot(N, V), 0.0001);
-    let rough = pbr.material.perceptual_roughness;
-    var li: lighting::LightingInput;
-    li.layers[lighting::LAYER_BASE].NdotV = NdotV;
-    li.layers[lighting::LAYER_BASE].N = N;
-    li.layers[lighting::LAYER_BASE].R = reflect(-V, N);
-    li.layers[lighting::LAYER_BASE].perceptual_roughness = rough;
-    li.layers[lighting::LAYER_BASE].roughness = lighting::perceptualRoughnessToRoughness(rough);
-    li.P = pbr.world_position.xyz;
-    li.V = V;
-    li.diffuse_color = calculate_diffuse_color(pbr.material.base_color.rgb, pbr.material.metallic, 0.0, 0.0);
-    li.metallic = pbr.material.metallic;
-    li.F0_dielectric = calculate_F0_dielectric(pbr.material.reflectance);
-    li.F0_metallic = pbr.material.base_color.rgb;
-    li.F_ab = lighting::F_AB(rough, NdotV);
-    return lighting::directional_light(0u, &li, true);
-}
-#endif
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
