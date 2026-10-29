@@ -110,11 +110,14 @@ fn fragment(in: Out) -> @location(0) vec4<f32> {
         let lit = in.color.rgb * (1.14 * wrap * light.sun.w + light.ambient.rgb);
         return vec4(glow_out(lit) * a, a);
     }
-    // A glow: a hot core inside a soft halo. Fire billows.
+    // A glow: a hot core inside a soft halo. Fire billows, and burns away from its edge in
+    // tongues as it ages.
     var halo = (1.0 - r2) * (1.0 - r2);
     if (kind > 1.5 && detail > 0.0) {
         let n = fbm(vec3(in.uv * 2.1 + seed * 29.0, seed * 7.0 + age * 2.0), 3);
-        halo *= mix(1.0, 0.55 + 0.9 * n, detail);
+        let edge = 0.3 + 0.4 * age;
+        let burn = smoothstep(edge, edge + 0.3, n + 0.3 * (1.0 - r2));
+        halo *= mix(1.0, 1.3 * burn, detail);
     }
     let core = exp(-r2 * 18.0) * in.shape.w;
     let a = in.color.a * (halo + core);

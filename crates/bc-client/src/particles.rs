@@ -144,7 +144,7 @@ impl Ramp {
                 } else {
                     mix(Vec3::new(14.0, 6.5, 1.6), Vec3::new(0.6, 0.12, 0.04), (t - 0.25) / 0.75)
                 };
-                (c, (1.0 - t).powf(1.5))
+                (c, (1.0 - t).powi(2))
             }
             Ramp::Flash => (Vec3::new(40.0, 36.0, 30.0), (1.0 - t).powi(3)),
             // Puffs' colours are what they reflect; the shader lights them.
@@ -415,16 +415,29 @@ impl Particles {
     /// A suit's reactor going up, as it would in vacuum: a flash, a fireball that expands and cools
     /// in a sphere, sparks and embers flying straight out, and a puff of vapour.
     pub fn explosion(&mut self, cap: usize, at: At, scale: f32) {
-        let flash = Particle::new(at.pos, at.vel, 0.2, (25.0 * scale, 60.0 * scale), 0.0, 1.0, Ramp::Flash);
+        let flash = Particle::new(at.pos, at.vel, 0.18, (14.0 * scale, 38.0 * scale), 0.0, 1.0, Ramp::Flash);
         self.spawn(cap, flash);
+        // The fireball: a slow, dense heart, and tongues of fire thrown out of it that burn out
+        // sooner, so it breaks up as it grows rather than swelling into one soft ball.
+        self.shower(
+            cap,
+            14,
+            at,
+            None,
+            (4.0 * scale, 22.0 * scale),
+            (0.6, 1.1),
+            (6.0 * scale, 18.0 * scale),
+            0.0,
+            Ramp::Fire,
+        );
         self.shower(
             cap,
             22,
             at,
             None,
-            (10.0 * scale, 55.0 * scale),
-            (0.8, 1.6),
-            (6.0 * scale, 24.0 * scale),
+            (25.0 * scale, 75.0 * scale),
+            (0.35, 0.9),
+            (2.5 * scale, 9.0 * scale),
             0.0,
             Ramp::Fire,
         );
@@ -445,10 +458,10 @@ impl Particles {
         // with the wreck and takes seconds to thin out.
         self.shower(
             cap,
-            9,
+            14,
             at,
             None,
-            (2.0 * scale, 12.0 * scale),
+            (2.0 * scale, 14.0 * scale),
             (4.0, 8.0),
             (10.0 * scale, 34.0 * scale),
             0.0,

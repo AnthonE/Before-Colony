@@ -25,6 +25,13 @@ const scenes: Array<[string, number, number, number]> = [
   ["duel", 2, 1.85, 12],
   // Beam sabers clashing.
   ["duel", 3, 4.4, 12],
+  // The skirmish: the whole of it; the sabers locked, side on; the cut, from under it; the Corvus
+  // going up; Altair's heavy beam rifle shot, from past the Argo it is aimed at.
+  ["battle", 1, 5.8, 30],
+  ["battle", 2, 2.4, 18],
+  ["battle", 3, 7.85, 18],
+  ["battle", 5, 5.9, 30],
+  ["battle", 6, 9.85, 12],
   ["colony", 1, 6, 12],
   ["colony", 2, 6, 12],
   // The dock's ring of lights, off the docking hub.

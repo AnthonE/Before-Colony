@@ -38,6 +38,14 @@ pub enum Scene {
     Lineup,
     /// Altair and an Argo circling and trading fire; a Corvus is shot down on a loop.
     Duel,
+    /// A skirmish at knife range on a 16 s loop (`battle_pos`): Altair and an Almagest Argo close
+    /// and lock sabers (2.4-3.2 s), break, close again (7.2 s) and Altair's next cut takes the
+    /// Argo's arm (8 s); its heavy beam rifle finishes it (10 s), and it bursts at 12.4 s. Off to
+    /// the side a Colonies Argo trades rifle fire with two Corvus, shooting one down at 6 s.
+    /// Cameras: the whole fight with Earth behind (1), the duel side on (2) and from under it (3),
+    /// over a Corvus's shoulder at the Argo (4), the Corvus's end (5), Altair's shot from past the
+    /// Argo it's aimed at (6).
+    Battle,
     /// A Corvus squad skimming the colony hull; an Argo riding bay 1's catapult cradle in its door on
     /// the bay ring, thrown out at 5.5 s (preset 9: the launch shot's view of it, at 6.4 s).
     Colony,
@@ -111,6 +119,7 @@ impl Scene {
         match s.to_ascii_lowercase().as_str() {
             "lineup" => Some(Self::Lineup),
             "duel" => Some(Self::Duel),
+            "battle" | "skirmish" => Some(Self::Battle),
             "colony" => Some(Self::Colony),
             "field" => Some(Self::Field),
             "salvage" => Some(Self::Salvage),
@@ -134,6 +143,7 @@ impl Scene {
         match self {
             Self::Lineup => "lineup",
             Self::Duel => "duel",
+            Self::Battle => "battle",
             Self::Colony => "colony",
             Self::Field => "field",
             Self::Sky => "sky",
@@ -238,6 +248,7 @@ impl Scene {
                 orbit(pair_pos(0) + Vec3::new(0.0, 3.0, 0.0), -2.6, 0.2, 36.0),
             ],
             Self::Duel => DUEL_CAMS.to_vec(),
+            Self::Battle => battle_cams(),
             Self::Colony => {
                 let mut cams = COLONY_CAMS.to_vec();
                 cams.push(launch_cam());
@@ -558,6 +569,7 @@ fn weathering(scene: Scene, i: usize) -> u8 {
     match scene {
         Scene::Lineup => [0, 7, 4, 2, 1, 3, 0].get(i).copied().unwrap_or(0),
         Scene::Duel | Scene::Chase => [0, 5, 2].get(i).copied().unwrap_or(0),
+        Scene::Battle => [1, 4, 6, 3, 5].get(i).copied().unwrap_or(0),
         Scene::Salvage | Scene::Mining | Scene::Surface | Scene::Field => 4,
         _ => 0,
     }
@@ -578,6 +590,13 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Duel => {
             vec![(Altair, Faction::Colonies), (Argo, Faction::Almagest), (Corvus, Faction::Almagest)]
         }
+        Scene::Battle => vec![
+            (Altair, Faction::Colonies),
+            (Argo, Faction::Colonies),
+            (Argo, Faction::Almagest),
+            (Corvus, Faction::Almagest),
+            (Corvus, Faction::Almagest),
+        ],
         Scene::Colony => vec![
             (Corvus, Faction::Almagest),
             (Corvus, Faction::Almagest),
@@ -1726,6 +1745,226 @@ fn duel_shots(t: f64) -> impl Iterator<Item = Shot> {
         .filter(move |s| t - s.t < 1.5)
 }
 
+/// Where the battle is fought: in the open above the field, Earth behind it from the first camera.
+const BATTLE: Vec3 = Vec3::new(-350.0, 1_250.0, 250.0);
+/// The battle's loop (s).
+const BATTLE_CYCLE: f64 = 16.0;
+/// Where the gunfight is, off the duel's shoulder.
+const BATTLE_GUNS: Vec3 = Vec3::new(-390.0, 1_215.0, 360.0);
+/// When the Corvus (3) and the Almagest Argo (2) are destroyed, in the loop.
+const BATTLE_CORVUS_DIES: f64 = 6.0;
+const BATTLE_ARGO_DIES: f64 = 12.4;
+/// When the Argo's left arm is cut off, and when Altair's heavy beam rifle shot finishes it.
+const BATTLE_CUT: f64 = 8.0;
+const BATTLE_BEAM: f64 = 10.0;
+
+/// Altair's path through the duel (time in the loop, place off [`BATTLE`]): in, the sabers locked
+/// (2.4-3.2 s), apart, in again (7.2 s), the cut (8 s), and back to take its shot (10 s).
+const ALTAIR_PATH: [(f64, Vec3); 17] = [
+    (0.0, Vec3::new(-75.0, 6.0, -12.0)),
+    (1.4, Vec3::new(-48.0, 3.0, -5.0)),
+    (2.4, Vec3::new(-9.0, 0.0, 0.0)),
+    (2.8, Vec3::new(-9.5, 0.5, 0.3)),
+    (3.2, Vec3::new(-9.0, 0.8, 0.0)),
+    (4.3, Vec3::new(-40.0, 10.0, 18.0)),
+    (5.5, Vec3::new(-55.0, 18.0, 28.0)),
+    (6.6, Vec3::new(-35.0, 10.0, 10.0)),
+    (7.2, Vec3::new(-10.0, 2.0, 2.0)),
+    (7.5, Vec3::new(-10.5, 2.0, 1.0)),
+    (8.0, Vec3::new(-7.0, 1.0, -2.0)),
+    (9.0, Vec3::new(-22.0, 6.0, -10.0)),
+    (10.0, Vec3::new(-32.0, 8.0, -16.0)),
+    (11.5, Vec3::new(-45.0, 5.0, -20.0)),
+    (13.0, Vec3::new(-60.0, 4.0, -16.0)),
+    (14.5, Vec3::new(-70.0, 5.0, -13.0)),
+    (16.0, Vec3::new(-75.0, 6.0, -12.0)),
+];
+/// The Almagest Argo's: Altair's mirror until the cut throws it off, tumbling, to die at 12.4 s.
+const RIVAL_PATH: [(f64, Vec3); 16] = [
+    (0.0, Vec3::new(75.0, -6.0, 12.0)),
+    (1.4, Vec3::new(48.0, -3.0, 5.0)),
+    (2.4, Vec3::new(9.0, 0.0, 0.0)),
+    (2.8, Vec3::new(9.5, -0.5, -0.3)),
+    (3.2, Vec3::new(9.0, -0.8, 0.0)),
+    (4.3, Vec3::new(40.0, -6.0, -14.0)),
+    (5.5, Vec3::new(55.0, -10.0, -25.0)),
+    (6.6, Vec3::new(35.0, -6.0, -8.0)),
+    (7.2, Vec3::new(10.0, -1.0, -1.0)),
+    (7.5, Vec3::new(10.5, -1.0, 0.0)),
+    (8.0, Vec3::new(8.5, 0.0, 2.0)),
+    (9.0, Vec3::new(30.0, -8.0, 10.0)),
+    (10.0, Vec3::new(42.0, -12.0, 15.0)),
+    (11.5, Vec3::new(52.0, -16.0, 19.0)),
+    (12.4, Vec3::new(56.0, -18.0, 21.0)),
+    (16.0, Vec3::new(75.0, -6.0, 12.0)),
+];
+
+/// A place along a looped path of `(time, place)` keys (the last the first again, a loop later),
+/// smooth through each: a cubic Hermite with Catmull-Rom tangents.
+fn keyed(keys: &[(f64, Vec3)], cycle: f64, u: f64) -> Vec3 {
+    let n = keys.len();
+    let u = u.rem_euclid(cycle);
+    let i = keys.iter().rposition(|k| k.0 <= u).unwrap_or(0).min(n - 2);
+    let key = |j: isize| {
+        if j < 0 {
+            let (t, p) = keys[n - 2];
+            (t - cycle, p)
+        } else if j as usize >= n {
+            let (t, p) = keys[1];
+            (t + cycle, p)
+        } else {
+            keys[j as usize]
+        }
+    };
+    let tangent = |j: isize| {
+        let (ta, a) = key(j - 1);
+        let (tb, b) = key(j + 1);
+        (b - a) / (tb - ta) as f32
+    };
+    let ((t0, p0), (t1, p1)) = (keys[i], keys[i + 1]);
+    let h = (t1 - t0) as f32;
+    let s = ((u - t0) / (t1 - t0)) as f32;
+    let (s2, s3) = (s * s, s * s * s);
+    p0 * (2.0 * s3 - 3.0 * s2 + 1.0)
+        + tangent(i as isize) * h * (s3 - 2.0 * s2 + s)
+        + p1 * (-2.0 * s3 + 3.0 * s2)
+        + tangent(i as isize + 1) * h * (s3 - s2)
+}
+
+/// Where each of the battle's suits is at `t`: the duellists on their paths (a wreck drifting on
+/// from where it died), the gunfighters weaving where they hold.
+fn battle_pos(i: usize, t: f64) -> Vec3 {
+    let u = t.rem_euclid(BATTLE_CYCLE);
+    let w = (TAU as f64 / 8.0 * u) as f32;
+    // A wreck goes on at most of the speed it died at.
+    let drift = |died: f64| {
+        let at = battle_pos(i, t - u + died);
+        let vel = (at - battle_pos(i, t - u + died - 0.1)) * 10.0;
+        at + vel * 0.6 * (u - died) as f32
+    };
+    match i {
+        0 => BATTLE + keyed(&ALTAIR_PATH, BATTLE_CYCLE, u),
+        2 if u > BATTLE_ARGO_DIES => drift(BATTLE_ARGO_DIES),
+        2 => BATTLE + keyed(&RIVAL_PATH, BATTLE_CYCLE, u),
+        1 => BATTLE_GUNS + Vec3::new(-65.0 + 12.0 * w.sin(), 8.0 * (0.5 * w).cos(), 10.0 * (0.5 * w).sin()),
+        3 if u > BATTLE_CORVUS_DIES => drift(BATTLE_CORVUS_DIES),
+        3 => BATTLE_GUNS + Vec3::new(60.0 + 10.0 * w.cos(), 10.0 + 6.0 * w.sin(), -20.0),
+        _ => BATTLE_GUNS + Vec3::new(75.0 + 8.0 * (w + 1.0).sin(), -15.0 + 4.0 * (0.5 * w).cos(), 30.0),
+    }
+}
+
+/// A shot in the battle: when in the loop, who at whom, with what, and how far it goes wide (m,
+/// 0 for a hit) or which part it strikes.
+struct BattleShot {
+    at: f64,
+    from: usize,
+    to: usize,
+    weapon: WeaponKind,
+    wide: f32,
+    part: Part,
+}
+
+const fn bshot(at: f64, from: usize, to: usize, wide: f32, part: Part) -> BattleShot {
+    BattleShot { at, from, to, weapon: WeaponKind::BeamRifle, wide, part }
+}
+
+/// The battle's shots: the gunfight's rifles (the Colonies Argo at the Corvus pair, they at it),
+/// the Almagest Argo's two at Altair as they circle, and Altair's heavy beam rifle shot that ends
+/// it.
+const BATTLE_SHOTS: [BattleShot; 28] = [
+    bshot(1.0, 1, 3, 9.0, Part::Torso),
+    bshot(2.2, 1, 3, -7.0, Part::Torso),
+    bshot(3.4, 1, 3, 0.0, Part::ArmR),
+    bshot(4.6, 1, 3, 0.0, Part::Legs),
+    bshot(5.95, 1, 3, 0.0, Part::Torso),
+    bshot(7.4, 1, 4, 8.0, Part::Torso),
+    bshot(8.7, 1, 4, 0.0, Part::ArmL),
+    bshot(10.1, 1, 4, -10.0, Part::Torso),
+    bshot(11.6, 1, 4, 0.0, Part::Head),
+    bshot(13.0, 1, 4, 7.0, Part::Torso),
+    bshot(0.6, 3, 1, -8.0, Part::Torso),
+    bshot(1.8, 3, 1, 0.0, Part::ArmL),
+    bshot(3.0, 3, 1, 10.0, Part::Torso),
+    bshot(4.2, 3, 1, -6.0, Part::Torso),
+    bshot(5.3, 3, 1, 7.0, Part::Torso),
+    bshot(1.3, 4, 1, 12.0, Part::Torso),
+    bshot(2.7, 4, 1, -9.0, Part::Torso),
+    bshot(4.0, 4, 1, 0.0, Part::Legs),
+    bshot(5.6, 4, 1, 8.0, Part::Torso),
+    bshot(6.9, 4, 1, -11.0, Part::Torso),
+    bshot(8.1, 4, 1, 0.0, Part::Torso),
+    bshot(9.4, 4, 1, 9.0, Part::Torso),
+    bshot(10.7, 4, 1, -7.0, Part::Torso),
+    bshot(12.1, 4, 1, 0.0, Part::Head),
+    bshot(13.5, 4, 1, 10.0, Part::Torso),
+    bshot(4.9, 2, 0, 6.0, Part::Torso),
+    bshot(5.7, 2, 0, -5.0, Part::Torso),
+    BattleShot {
+        at: BATTLE_BEAM,
+        from: 0,
+        to: 2,
+        weapon: WeaponKind::HeavyBeamRifle,
+        wide: 0.0,
+        part: Part::Torso,
+    },
+];
+
+/// Where a battle shot leaves the gun, which way it goes, and how far it flies (to its target, or
+/// on past it 450 m when it goes wide).
+fn battle_shot_line(s: &BattleShot, start: f64) -> (Vec3, Vec3, f32) {
+    let t = start + s.at;
+    let (from, to) = (battle_pos(s.from, t), battle_pos(s.to, t));
+    let spec = frame(cast(Scene::Battle)[s.from].0);
+    let muzzle = from + facing(to - from) * spec.loadout[0].map_or(Vec3::ZERO, |m| m.arm.muzzle());
+    let side = (to - muzzle).cross(Vec3::Y).normalize_or(Vec3::X);
+    let aim = to + side * s.wide + Vec3::Y * s.wide * 0.3;
+    let dir = (aim - muzzle).normalize_or(Vec3::Z);
+    let reach = if s.wide == 0.0 { muzzle.distance(to) - 2.5 } else { muzzle.distance(aim) + 450.0 };
+    (muzzle, dir, reach)
+}
+
+/// How each of the battle's suits is armoured `u` s into the loop: two eighths off a part for each
+/// shot landed on it so far, the Argo's arm off at the cut and its torso holed by the beam.
+fn battle_parts(i: usize, u: f64) -> [u8; Part::COUNT] {
+    let mut parts = [7u8; Part::COUNT];
+    for s in BATTLE_SHOTS.iter().filter(|s| s.to == i && s.wide == 0.0 && s.at < u) {
+        let p = &mut parts[s.part as usize];
+        *p = p.saturating_sub(if s.weapon == WeaponKind::HeavyBeamRifle { 6 } else { 2 });
+    }
+    if i == 2 && u >= BATTLE_CUT {
+        parts[Part::ArmL as usize] = 0;
+    }
+    parts
+}
+
+/// Where the duellists' blades meet at `t` (between them, a little up).
+fn battle_clash_at(t: f64) -> Vec3 {
+    (battle_pos(0, t) + battle_pos(2, t)) * 0.5 + Vec3::Y * 3.0
+}
+
+/// The battle's cameras (see [`Scene::Battle`]).
+fn battle_cams() -> Vec<Orbit> {
+    use crate::sky::EARTH_DIR;
+    let away = -EARTH_DIR;
+    let shot = |i: usize, t: f64| battle_pos(i, t);
+    // The Sun is off +X, behind the Almagest side: looking from their side, Altair and the
+    // Colonies Argo are lit.
+    let over = |from: Vec3, to: Vec3, back: f32, side: f32, up: f32| {
+        let away = (from - to).normalize();
+        look(from + away * back + away.cross(Vec3::Y).normalize() * side + Vec3::Y * up, to - from)
+    };
+    vec![
+        orbit_from(BATTLE + Vec3::new(0.0, -12.0, 55.0), away + Vec3::Y * 0.1, 175.0),
+        orbit_from(BATTLE + Vec3::Y * 2.0, away, 46.0),
+        orbit_from(BATTLE + Vec3::Y * 2.0, Vec3::new(0.35, -0.5, -0.8), 48.0),
+        // Over a Corvus's shoulder, the Colonies Argo across the way.
+        over(shot(3, 3.0), shot(1, 3.0), 24.0, 9.0, 6.0),
+        orbit_from(shot(3, BATTLE_CORVUS_DIES), Vec3::new(0.2, 0.25, -1.0), 70.0),
+        // Past the Almagest Argo at Altair as it fires.
+        over(shot(2, BATTLE_BEAM), shot(0, BATTLE_BEAM), 30.0, 12.0, 4.0),
+    ]
+}
+
 #[allow(clippy::too_many_arguments)]
 fn script(
     show: Res<Show>,
@@ -1869,6 +2108,118 @@ fn script(
             // Blades crossing, for the effect (the duellists stay far apart).
             if crossed((t / 10.0).floor() * 10.0 + 4.5) {
                 events.0.push(FxEvent::Clash { pos: DUEL + Vec3::new(0.0, 30.0, 0.0), vel: Vec3::ZERO });
+            }
+        }
+        Scene::Battle => {
+            let u = t.rem_euclid(BATTLE_CYCLE);
+            let start = t - u;
+            let between = |a: f64, b: f64| (a..b).contains(&u);
+            for i in 0..5 {
+                let p = battle_pos(i, t);
+                let vel = (battle_pos(i, t + 0.05) - battle_pos(i, t - 0.05)) * 10.0;
+                let acc = (battle_pos(i, t + 0.05) + battle_pos(i, t - 0.05) - p * 2.0) * 400.0;
+                let foe = battle_pos([2, 3, 0, 1, 1][i], t);
+                // The Colonies Argo turns its gun on the second Corvus once the first is down.
+                let foe = if i == 1 && u >= BATTLE_CORVUS_DIES { battle_pos(4, t) } else { foe };
+                let dead = (i == 3 && u > BATTLE_CORVUS_DIES) || (i == 2 && u > BATTLE_ARGO_DIES);
+                let staggered = i == 2 && between(BATTLE_CUT, BATTLE_CUT + 0.9);
+                let mut flags = 0;
+                match i {
+                    // Both sabers out as they close, held while locked; Altair's cut; its
+                    // shoulder cannon as they circle; its heavy beam rifle charging.
+                    0 | 2 if between(2.2, 3.3) || between(6.95, 7.6) => flags |= ent_flags::SABER,
+                    0 if between(7.75, 8.35) => flags |= ent_flags::SABER,
+                    0 if between(4.6, 5.4) => flags |= ent_flags::FIRING_SECONDARY,
+                    0 if between(BATTLE_BEAM - 0.8, BATTLE_BEAM) => flags |= ent_flags::CHARGING,
+                    1 if between(9.0, 9.8) => flags |= ent_flags::FIRING_SECONDARY,
+                    _ => {}
+                }
+                let firing = BATTLE_SHOTS.iter().any(|s| {
+                    s.from == i && s.weapon == WeaponKind::BeamRifle && (s.at..s.at + 0.15).contains(&u)
+                });
+                if firing {
+                    flags |= ent_flags::FIRING_PRIMARY;
+                }
+                if acc.length() > 25.0 || vel.length() > 30.0 {
+                    flags |= ent_flags::BOOST;
+                }
+                set(i, &mut |d| {
+                    d.pos = p;
+                    d.vel = vel;
+                    d.aim = (foe - p).normalize_or(Vec3::Z);
+                    d.rot = facing(foe - p);
+                    d.thrust = (d.rot.inverse() * acc / 40.0).clamp_length_max(1.0);
+                    d.parts = battle_parts(i, u);
+                    d.flags = if dead { ent_flags::WRECK } else { flags };
+                    d.staggered = staggered;
+                    d.doomed = i == 2 && between(BATTLE_BEAM + 0.05, BATTLE_ARGO_DIES);
+                    if staggered {
+                        // Thrown off by the cut, its attitude jets fighting it.
+                        let k = (u - BATTLE_CUT) as f32;
+                        d.rot *= Quat::from_rotation_z(1.2 * k * (1.0 - k)) * Quat::from_rotation_x(-0.8 * k);
+                    }
+                    if dead {
+                        let died = if i == 3 { BATTLE_CORVUS_DIES } else { BATTLE_ARGO_DIES };
+                        let k = (u - died) as f32;
+                        d.rot *= Quat::from_rotation_x(k * 0.9) * Quat::from_rotation_z(k * 0.37);
+                        d.thrust = Vec3::ZERO;
+                    }
+                });
+            }
+            for s in &BATTLE_SHOTS {
+                let (muzzle, dir, reach) = battle_shot_line(s, start);
+                let speed = bc_sim::content::weapon(s.weapon).speed;
+                let age = (t - (start + s.at)) as f32;
+                if (0.0..=reach / speed).contains(&age) {
+                    let head = muzzle + dir * speed * age;
+                    beams.0.push(BeamView { head, dir, travelled: head.distance(muzzle), weapon: s.weapon });
+                }
+                if crossed(start + s.at) {
+                    events.0.push(FxEvent::Muzzle {
+                        pos: muzzle,
+                        dir,
+                        vel: Vec3::ZERO,
+                        weapon: s.weapon,
+                        shooter: Some(s.from as u16),
+                    });
+                }
+                if crossed(start + s.at + f64::from(reach / speed)) {
+                    let end = muzzle + dir * reach;
+                    events.0.push(FxEvent::BeamTrace { from: muzzle, to: end, weapon: s.weapon });
+                    if s.wide == 0.0 {
+                        events.0.push(FxEvent::Hit {
+                            pos: end,
+                            weapon: s.weapon,
+                            normal: Some(-dir),
+                            target: Some((s.to as u16, s.part)),
+                        });
+                    }
+                }
+            }
+            // The blades meeting, and grinding while they're locked.
+            for at in [2.45, 2.7, 2.95, 3.2, 7.2] {
+                if crossed(start + at) {
+                    events.0.push(FxEvent::Clash { pos: battle_clash_at(t), vel: Vec3::ZERO });
+                }
+            }
+            // The cut through the Argo's arm.
+            if crossed(start + BATTLE_CUT) {
+                let pos = battle_pos(2, t) + Vec3::Y * 2.0;
+                let vel = (battle_pos(2, t + 0.05) - battle_pos(2, t - 0.05)) * 10.0;
+                events.0.push(FxEvent::Hit {
+                    pos,
+                    weapon: WeaponKind::BeamSaber,
+                    normal: None,
+                    target: Some((2, Part::ArmL)),
+                });
+                events.0.push(FxEvent::Stagger { pos, vel, own: false });
+            }
+            for (i, died) in [(3, BATTLE_CORVUS_DIES), (2, BATTLE_ARGO_DIES)] {
+                if crossed(start + died) {
+                    let pos = battle_pos(i, start + died);
+                    let vel = (pos - battle_pos(i, start + died - 0.1)) * 6.0;
+                    events.0.push(FxEvent::Kill { pos, vel, victim: Some(i as u16) });
+                }
             }
         }
         Scene::Colony => {
