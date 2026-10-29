@@ -97,6 +97,13 @@ pub enum Scene {
     /// over its trough, Earth rising through the glass at 10.6 s (3), towards the lifts by a pillar
     /// (4).
     Ring,
+    /// The Exchange floor as the store's trade page shows it (`docs/FLOOR.md`): the room, and the
+    /// people the game server says stand in it now, pilots and the store's traders, read by the
+    /// page (`web/floor.js`, `window.__bcFloor`) and drawn where they are
+    /// (`bc_client_core::floor`). Cameras: in from the door, across to the counter and the boards
+    /// (1), from the counter's end back to the door and the street (2), from high over the door (3),
+    /// among the traders at eye height (4, the store's).
+    Floor,
 }
 
 impl Scene {
@@ -118,6 +125,7 @@ impl Scene {
             "markab" | "stunt" | "rocket" => Some(Self::Markab),
             "base" | "muster" => Some(Self::Base),
             "ring" | "station" | "deck" => Some(Self::Ring),
+            "floor" | "exchange" => Some(Self::Floor),
             _ => None,
         }
     }
@@ -140,6 +148,7 @@ impl Scene {
             Self::Markab => "markab",
             Self::Base => "base",
             Self::Ring => "ring",
+            Self::Floor => "floor",
         }
     }
 
@@ -149,6 +158,7 @@ impl Scene {
             Self::City => city_cams(),
             Self::Markab => markab_cams(),
             Self::Base => base_cams(),
+            Self::Floor => floor_cams(),
             Self::Ring => {
                 use bc_client_core::ring_deck::{CAMS, DECK_ORIGIN};
                 CAMS.iter().map(|&(eye, at)| look(DECK_ORIGIN + eye, at - eye)).collect()
@@ -504,6 +514,11 @@ impl Plugin for ShowcasePlugin {
             app.add_systems(Startup, city_script)
                 .add_systems(Update, city_crowd.after(script).in_set(crate::view::Vis::Drive));
         }
+        if self.scene == Scene::Floor {
+            app.init_resource::<FloorFeed>()
+                .add_systems(Startup, city_script)
+                .add_systems(Update, floor_crowd.after(script).in_set(crate::view::Vis::Drive));
+        }
         if self.scene == Scene::Markab {
             app.init_resource::<StuntRun>()
                 .add_systems(Startup, city_script)
@@ -528,7 +543,7 @@ impl Plugin for ShowcasePlugin {
                     .chain()
                     .in_set(crate::view::Vis::Hud),
             );
-        } else if self.scene == Scene::City {
+        } else if matches!(self.scene, Scene::City | Scene::Floor) {
             app.add_systems(Update, place_city_camera.in_set(crate::view::Vis::Camera));
         } else if self.scene != Scene::Markab {
             app.add_systems(Update, place_camera.in_set(crate::view::Vis::Camera));
@@ -592,7 +607,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Surface => {
             vec![(Argo, Faction::Colonies), (Argo, Faction::Colonies), (Argo, Faction::Alliance)]
         }
-        Scene::City | Scene::Markab | Scene::Base => vec![],
+        Scene::City | Scene::Markab | Scene::Base | Scene::Floor => vec![],
         Scene::Ring => vec![(Argo, Faction::Colonies), (Altair, Faction::Colonies)],
     }
 }
@@ -1370,6 +1385,86 @@ fn exchange_floor_cam() -> Orbit {
     )
 }
 
+/// A place in the Exchange floor's room, drawn relative to [`city_origin`]: `u` along its front
+/// from the door's middle, `v` in from its face, `h` up from its floor.
+fn floor_at(u: f32, v: f32, h: f32) -> Vec3 {
+    use bc_sim::colony::city::KERB;
+    let Some(room) = bc_client_core::floor::exchange_room() else { return Vec3::ZERO };
+    let (s, x) = room.front.point(u, v);
+    city_at(room.strip, s, x, KERB + h)
+}
+
+/// The floor scene's cameras: in from the door ([`exchange_floor_cam`]), from the counter's end
+/// back across the floor to the door and the street, from high over the door, and among the
+/// traders.
+fn floor_cams() -> Vec<Orbit> {
+    let Some(room) = bc_client_core::floor::exchange_room() else { return vec![exchange_floor_cam()] };
+    let (w, d) = (room.width() * 0.5, room.depth());
+    let toward = |from: Vec3, to: Vec3| look(from, (to - from).normalize());
+    vec![
+        exchange_floor_cam(),
+        toward(floor_at(-w + 3.0, d - 7.0, 2.6), floor_at(4.0, 3.0, 1.2)),
+        toward(floor_at(w - 4.0, 3.0, room.ceiling - 2.0), floor_at(-4.0, d * 0.62, 0.0)),
+        // Among the traders at eye height, across them to the boards and the screens over them.
+        toward(floor_at(6.0, 8.5, 1.65), floor_at(-4.0, d - 13.0, 2.6)),
+    ]
+}
+
+/// The floor scene's people: the last document the page read, and the one before it, each person
+/// gliding from where they were to where they are over [`FLOOR_GLIDE`] s.
+#[derive(Resource, Default)]
+struct FloorFeed {
+    seen: String,
+    from: Vec<(u16, String, bc_proto::presence::PersonPose)>,
+    to: Vec<(u16, String, bc_proto::presence::PersonPose)>,
+    since: f64,
+}
+
+const FLOOR_GLIDE: f64 = 1.8;
+
+/// The page's latest `/floor.json`, as text (`web/floor.js` keeps it in `window.__bcFloor`).
+fn floor_doc() -> Option<String> {
+    let w = web_sys::window()?;
+    js_sys::Reflect::get(&w, &wasm_bindgen::JsValue::from_str("__bcFloor")).ok()?.as_string()
+}
+
+/// The floor scene: who the page last read standing on the floor, gliding between reads, and the
+/// city's life outside its door on the showcase's clock.
+fn floor_crowd(
+    vis: Res<VisTime>,
+    mut feed: ResMut<FloorFeed>,
+    mut crowd: ResMut<crate::people::Crowd>,
+    mut trams: ResMut<crate::trams::TramClock>,
+    mut dev: ResMut<DevStatus>,
+) {
+    use bc_client_core::plaza::blend;
+    let (tick, frac) = bc_client_core::showcase_city::clock(vis.now);
+    *trams = crate::trams::TramClock(tick, frac);
+    let u = ((vis.now - feed.since) / FLOOR_GLIDE).clamp(0.0, 1.0) as f32;
+    let drawn = |feed: &FloorFeed, u: f32| -> Vec<(u16, String, bc_proto::presence::PersonPose)> {
+        feed.to
+            .iter()
+            .map(|(id, name, to)| {
+                let from = feed.from.iter().find(|f| f.1 == *name).map_or(*to, |f| f.2);
+                (*id, name.clone(), if u < 1.0 { blend(&from, to, u) } else { *to })
+            })
+            .collect()
+    };
+    if let Some(doc) = floor_doc().filter(|d| *d != feed.seen) {
+        let now = drawn(&feed, u);
+        feed.from = now;
+        feed.to = bc_client_core::floor::crowd(&doc);
+        feed.seen = doc;
+        feed.since = vis.now;
+        dev.set("floor_people", feed.to.len() as u32);
+    }
+    let u = ((vis.now - feed.since) / FLOOR_GLIDE).clamp(0.0, 1.0) as f32;
+    let people = drawn(&feed, u);
+    if crowd.0 != people {
+        crowd.0 = people;
+    }
+}
+
 /// The city scene: the view inside, built whole before the first frame shows.
 fn city_script(mut view: ResMut<crate::city::CityView>, mut origin: ResMut<crate::city::RenderOrigin>) {
     *view = crate::city::CityView { active: true, sync: true };
@@ -1935,7 +2030,7 @@ fn script(
         }
         // The bay is driven by `hangar_script`; the city by `city_script`; the Markab by
         // `markab_crowd`; the base stands still.
-        Scene::Hangar | Scene::City | Scene::Markab | Scene::Base => {}
+        Scene::Hangar | Scene::City | Scene::Markab | Scene::Base | Scene::Floor => {}
         Scene::Ring => {
             use bc_client_core::ring_deck::{DECK_ORIGIN, STANDING, flyer};
             // The Argo before bay 07, facing the deck, looking about.

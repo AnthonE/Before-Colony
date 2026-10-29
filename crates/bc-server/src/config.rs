@@ -52,6 +52,8 @@ pub enum OracleKind {
 
 /// The Elo Pros store: it lists the game, serves its page and polls its `/status.json`.
 pub const STORE_ORIGIN: &str = "https://elopros.com";
+/// The store's list of the traders on its trade page (`crate::visitors`).
+pub const STORE_VISITORS: &str = "https://elopros.com/api/floor/before-colony/visitors";
 
 /// A command line's list: repeated flags and comma-separated values alike, trimmed, empties
 /// dropped (`--siwe-domain game.elopros.com,elopros.com`).
@@ -139,6 +141,9 @@ pub struct Config {
     pub colony: bool,
     /// How many connections it takes, in all and from one address (`net::admit`).
     pub limits: crate::net::admit::Limits,
+    /// Where the store lists the traders on its trade page, who stand on the Exchange floor
+    /// (`crate::visitors`). None: nobody from the store.
+    pub floor_visitors: Option<String>,
 }
 
 impl Default for Config {
@@ -169,6 +174,7 @@ impl Default for Config {
             data_dir: None,
             colony: false,
             limits: crate::net::admit::Limits::default(),
+            floor_visitors: None,
         }
     }
 }

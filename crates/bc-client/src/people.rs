@@ -2,8 +2,10 @@
 //! colour (`bc_client_core::figure`, `plaza::suit_colour`), striding as fast as they move, and
 //! their name over them when they're near; driving, their car, scooter or Markab in their colour
 //! (a Markab turned whichever way its pose has it, its fan's skirt lit while the fan runs, and its
-//! jets' plumes as they fire). Who's where is the [`Crowd`]: the plaza's people in game mode
-//! (`fill_crowd`), or a showcase's.
+//! jets' plumes as they fire). The Elo Pros store's traders on the Exchange floor wear an avatar
+//! instead (`bc_client_core::avatar`: a model loaded once someone wearing it is in view, standing
+//! about with a little sway, or playing its own idle). Who's where is the [`Crowd`]: the plaza's
+//! people in game mode (`fill_crowd`), or a showcase's.
 
 use std::collections::HashMap;
 
@@ -17,6 +19,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use bevy::world_serialization::WorldInstanceReady;
 
 use crate::camera::MainCamera;
 use crate::city::{CITY_LAYER, CityView, Placed, RenderOrigin, colony_point};
@@ -36,6 +39,7 @@ pub struct PeoplePlugin;
 impl Plugin for PeoplePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Crowd>()
+            .init_resource::<AvatarLib>()
             .add_systems(Startup, (setup_people, setup_benches))
             .add_systems(Update, draw_people.in_set(crate::view::Vis::Suits))
             .add_systems(Update, name_tags.in_set(crate::view::Vis::Hud));
@@ -195,6 +199,68 @@ struct Figure {
     markab: Entity,
     skirt: Vec<Entity>,
     plumes: [Entity; 8],
+    /// A store trader's avatar standing in for the figure (which stays hidden), its turn and scale
+    /// as it stands (`avatar::Look`), and its sway's phase.
+    avatar: Option<(Entity, Quat, f32, f32)>,
+}
+
+/// The avatars' models and idle animations, each loaded the first time someone wearing it is
+/// drawn (`bc_client_core::avatar::LOOKS`, by index).
+#[derive(Resource, Default)]
+struct AvatarLib {
+    scenes: Vec<Option<Handle<WorldAsset>>>,
+    idles: Vec<Option<(Handle<AnimationGraph>, AnimationNodeIndex)>>,
+}
+
+impl AvatarLib {
+    fn scene(
+        &mut self,
+        look: usize,
+        assets: &AssetServer,
+        graphs: &mut Assets<AnimationGraph>,
+    ) -> Handle<WorldAsset> {
+        use bc_client_core::avatar::LOOKS;
+        if self.scenes.len() < LOOKS.len() {
+            self.scenes.resize(LOOKS.len(), None);
+            self.idles.resize(LOOKS.len(), None);
+        }
+        let l = LOOKS[look];
+        if self.idles[look].is_none()
+            && let Some(i) = l.idle
+        {
+            let (graph, node) =
+                AnimationGraph::from_clip(assets.load(GltfAssetLabel::Animation(i).from_asset(l.path)));
+            self.idles[look] = Some((graphs.add(graph), node));
+        }
+        self.scenes[look]
+            .get_or_insert_with(|| assets.load(GltfAssetLabel::Scene(0).from_asset(l.path)))
+            .clone()
+    }
+}
+
+/// An avatar standing in a figure's place: which look, for its idle.
+#[derive(Component)]
+struct AvatarOf(usize);
+
+/// An avatar's model is in: every part of it on the avatar's render layer (the city's, or the
+/// world's on the base's deck), and its idle playing, if it has one.
+fn avatar_ready(
+    ready: On<WorldInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+    avatars: Query<(&AvatarOf, &RenderLayers)>,
+    mut players: Query<&mut AnimationPlayer>,
+    lib: Res<AvatarLib>,
+) {
+    let Ok((AvatarOf(look), layer)) = avatars.get(ready.entity) else { return };
+    let idle = lib.idles.get(*look).cloned().flatten();
+    for e in children.iter_descendants(ready.entity) {
+        commands.entity(e).insert(layer.clone());
+        if let (Some((graph, node)), Ok(mut player)) = (&idle, players.get_mut(e)) {
+            player.play(*node).repeat();
+            commands.entity(e).insert(AnimationGraphHandle(graph.clone()));
+        }
+    }
 }
 
 fn setup_people(
@@ -298,6 +364,7 @@ fn spawn_figure(
     font: &UiFont,
     (id, floor): (u16, u8),
     name: &str,
+    avatar: Option<(usize, Handle<WorldAsset>)>,
 ) -> Entity {
     let [r, g, b] = suit_colour(name);
     let suit = materials.add(StandardMaterial {
@@ -392,6 +459,24 @@ fn spawn_figure(
             ))
             .id()
     });
+    // A store trader: their avatar, standing where the figure would (which stays hidden).
+    let avatar = avatar.map(|(look, model)| {
+        let l = bc_client_core::avatar::LOOKS[look];
+        let turn = Quat::from_rotation_y(l.turn);
+        let e = commands
+            .spawn((
+                WorldAssetRoot(model),
+                Transform::from_rotation(turn).with_scale(Vec3::splat(l.scale)),
+                Visibility::Inherited,
+                layer.clone(),
+                AvatarOf(look),
+                ChildOf(root),
+            ))
+            .observe(avatar_ready)
+            .id();
+        commands.entity(joints[0]).insert(Visibility::Hidden);
+        (e, turn, l.scale, bc_client_core::avatar::phase(name))
+    });
     let tag = commands
         .spawn((
             Text::new(name.to_string()),
@@ -415,6 +500,7 @@ fn spawn_figure(
         markab,
         skirt,
         plumes,
+        avatar,
     });
     root
 }
@@ -431,6 +517,7 @@ fn draw_people(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut figures: Query<(Entity, &mut Figure, &mut Placed, &mut Transform)>,
     mut joints: Query<(&mut Transform, &mut Visibility), Without<Figure>>,
+    (assets, mut lib, mut graphs): (Res<AssetServer>, ResMut<AvatarLib>, ResMut<Assets<AnimationGraph>>),
 ) {
     let Some(scene) = scene else { return };
     let want: HashMap<u16, (&str, &PersonPose)> = if view.active || base.active {
@@ -490,10 +577,18 @@ fn draw_people(
         if let Ok((mut hips, mut vis)) = joints.get_mut(f.joints[0]) {
             hips.translation.y = Piece::Hips.joint().y + if on_scooter { 0.4 } else { 0.0 }
                 - if seated { figure::SEAT_DROP } else { 0.0 };
-            let want = if in_car { Visibility::Hidden } else { Visibility::Inherited };
+            let want = if in_car || f.avatar.is_some() { Visibility::Hidden } else { Visibility::Inherited };
             if *vis != want {
                 *vis = want;
             }
+        }
+        // An avatar stands about: a slow lean and a breath, its own.
+        if let Some((e, turn, scale, phase)) = f.avatar
+            && let Ok((mut tf, _)) = joints.get_mut(e)
+        {
+            let (lx, lz, breath) = bc_client_core::avatar::sway(vis.now as f32, phase);
+            tf.rotation = Quat::from_rotation_x(lx) * Quat::from_rotation_z(lz) * turn;
+            tf.scale = Vec3::new(scale, scale * breath, scale);
         }
         show(&mut joints, f.car, pose.ride == RIDE_CAR);
         show(&mut joints, f.scooter, on_scooter);
@@ -516,7 +611,9 @@ fn draw_people(
     }
     for (id, (name, pose)) in &want {
         if !have.contains(id) {
-            spawn_figure(&mut commands, &scene, &mut materials, &font, (*id, pose.strip), name);
+            let avatar = bc_client_core::avatar::look(*id, name)
+                .map(|look| (look, lib.scene(look, &assets, &mut graphs)));
+            spawn_figure(&mut commands, &scene, &mut materials, &font, (*id, pose.strip), name, avatar);
         }
     }
 }

@@ -877,9 +877,33 @@ impl Room {
         (self.front.point(0.0, v), self.inward)
     }
 
-    /// Just inside its door, and just outside it: a walk in goes from the one to the other.
+    /// Just outside its door, and just inside it: a walk in goes from the one to the other.
     pub fn threshold(&self) -> ((f32, f32), (f32, f32)) {
         (self.front.point(0.0, -2.0), self.front.point(0.0, WALL + 2.0))
+    }
+
+    /// A point of its strip, `(s, x)`, in the room's own frame: `(u, v)`, `u` along its front from
+    /// the door's middle, `v` in from its front face (towards the counter). [`Front::point`] undone.
+    pub fn local(&self, s: f32, x: f32) -> (f32, f32) {
+        let f = &self.front;
+        if f.along_s { (s - f.middle, (x - f.face) * f.sign) } else { (x - f.middle, (s - f.face) * f.sign) }
+    }
+
+    /// A walker's yaw (0 faces −s, τ/4 faces +x) as a heading in the room's frame: 0 faces the
+    /// counter (+v), τ/4 faces +u.
+    pub fn heading(&self, yaw: f32) -> f32 {
+        let (ds, dx) = (-crate::math::cos(yaw), crate::math::sin(yaw));
+        let f = &self.front;
+        let (du, dv) = if f.along_s { (ds, dx * f.sign) } else { (dx, ds * f.sign) };
+        atan2(du, dv)
+    }
+
+    /// A heading in the room's frame as a walker's yaw: [`Room::heading`] undone.
+    pub fn yaw(&self, heading: f32) -> f32 {
+        let (du, dv) = (crate::math::sin(heading), crate::math::cos(heading));
+        let f = &self.front;
+        let (ds, dx) = if f.along_s { (du, dv * f.sign) } else { (dv * f.sign, du) };
+        atan2(dx, -ds)
     }
 }
 

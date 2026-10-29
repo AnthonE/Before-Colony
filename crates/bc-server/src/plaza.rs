@@ -26,7 +26,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use bc_proto::presence::{BASE_DECK, MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
-use bc_sim::colony::city::{MAX_HEIGHT, Stage, arrival_seats, place_door, solid};
+use bc_sim::colony::city::{KERB, MAX_HEIGHT, Room, Stage, arrival_seats, place_door, solid};
 use bc_sim::colony::deck::{self, BASE, DeckPos};
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, STRIPS, Under, from_colony, within_caps};
 use bc_sim::colony::homes;
@@ -91,6 +91,9 @@ struct Person {
     refused: u32,
     /// When a refusal of theirs was last logged.
     said: Option<Instant>,
+    /// A trader from the store standing on the Exchange floor ([`Plaza::set_visitors`]): no
+    /// session moves them, and they never go stale.
+    visitor: bool,
 }
 
 /// Everyone in the city, by client slot, how many poses were refused, by why; and the register of
@@ -333,6 +336,7 @@ impl Plaza {
                     bank: 0.0,
                     refused: 0,
                     said: None,
+                    visitor: false,
                 },
             );
         }
@@ -491,6 +495,26 @@ impl Plaza {
         Some(CityPos::new(me.strip, x, s, h).to_colony())
     }
 
+    /// Who is standing (or sitting) in `room` now, heard from lately: their slot, name, last pose,
+    /// and whether they're a trader from the store ([`Plaza::set_visitors`]), by slot. Nobody riding
+    /// a train or driving is in a room.
+    pub fn in_room(&self, room: &Room, now: Instant) -> Vec<(u16, String, PersonPose, bool)> {
+        let Ok(all) = self.people.lock() else { return Vec::new() };
+        let mut here: Vec<(u16, String, PersonPose, bool)> = all
+            .iter()
+            .filter(|(_, p)| p.strip == room.strip)
+            .filter_map(|(id, p)| {
+                let pose = p.pose?;
+                let fresh = p.visitor || now.saturating_duration_since(p.heard).as_secs_f32() < HIDE;
+                let afoot = matches!(mode(&pose), Mode::Foot | Mode::Seated);
+                (fresh && afoot && room.holds(pose.s, pose.x, pose.h))
+                    .then(|| (*id, p.name.clone(), pose, p.visitor))
+            })
+            .collect();
+        here.sort_by_key(|h| h.0);
+        here
+    }
+
     /// `id`'s name, as they came down.
     pub fn name(&self, id: u16) -> Option<String> {
         self.people.lock().ok()?.get(&id).map(|p| p.name.clone())
@@ -502,20 +526,96 @@ impl Plaza {
         WHYS.iter().zip(by).map(|(w, n)| (*w, n)).collect()
     }
 
-    /// For `/status`: how many are in the city, by strip, how many poses have been refused, and how
-    /// many are out on the base's deck (no positions).
+    /// For `/status`: how many pilots are in the city, by strip, how many poses have been refused,
+    /// and how many are out on the base's deck (no positions). The store's traders standing on the
+    /// Exchange floor are not pilots, and not counted.
     pub fn counts(&self) -> (usize, [usize; 3], u32, usize) {
         let Ok(all) = self.people.lock() else { return (0, [0; 3], 0, 0) };
         let mut by_strip = [0; 3];
-        let mut base = 0;
-        for p in all.values() {
+        let (mut base, mut pilots) = (0, 0);
+        for p in all.values().filter(|p| !p.visitor) {
+            pilots += 1;
             match by_strip.get_mut(p.strip as usize) {
                 Some(n) => *n += 1,
                 None => base += 1,
             }
         }
-        (all.len() - base, by_strip, all.values().map(|p| p.refused).sum(), base)
+        (pilots - base, by_strip, all.values().map(|p| p.refused).sum(), base)
     }
+
+    /// The traders on the store's trade page now (`(key, name)`, at most [`VISITORS`]), standing in
+    /// `room` (the Exchange floor): each keeps the slot and the spot it had while it stays, a new one
+    /// takes a spot its key picks (the next free one), and one no longer listed goes.
+    pub fn set_visitors(&self, room: &Room, visitors: &[(String, String)]) {
+        let Ok(mut all) = self.people.lock() else { return };
+        let listed = |key: &str| visitors.iter().any(|(k, _)| k == key);
+        all.retain(|_, p| !p.visitor || listed(&p.key));
+        for (key, name) in visitors.iter().take(VISITORS as usize) {
+            if let Some(p) = all.values_mut().find(|p| p.visitor && p.key == *key) {
+                p.name.clone_from(name);
+                continue;
+            }
+            let start = fnv(key.as_bytes()) % u32::from(VISITORS);
+            let Some(k) = (0..u32::from(VISITORS))
+                .map(|i| ((start + i) % u32::from(VISITORS)) as u16)
+                .find(|k| !all.contains_key(&(VISITOR_BASE + k)))
+            else {
+                break;
+            };
+            let (u, v, heading) = visitor_spot(k, fnv(name.as_bytes()));
+            let (s, x) = room.front.point(u, v);
+            let pose = PersonPose {
+                strip: room.strip,
+                s,
+                x,
+                h: KERB,
+                yaw: room.yaw(heading),
+                grounded: true,
+                ..PersonPose::default()
+            };
+            all.insert(
+                VISITOR_BASE + k,
+                Person {
+                    name: name.clone(),
+                    key: key.clone(),
+                    strip: room.strip,
+                    arrival: (s, x),
+                    pose: Some(pose),
+                    seq: 0,
+                    heard: Instant::now(),
+                    bank: 0.0,
+                    refused: 0,
+                    said: None,
+                    visitor: true,
+                },
+            );
+        }
+    }
+
+    /// Whether slot `id` is one of the store's traders ([`Plaza::set_visitors`]).
+    pub fn is_visitor(&self, id: u16) -> bool {
+        self.people.lock().is_ok_and(|all| all.get(&id).is_some_and(|p| p.visitor))
+    }
+}
+
+/// The store's traders' slots (`Config::max_clients` must stay under `VISITOR_BASE`).
+pub use bc_proto::presence::{VISITOR_BASE, VISITORS};
+
+/// FNV-1a: a spot from a key, the same on every run.
+fn fnv(bytes: &[u8]) -> u32 {
+    bytes.iter().fold(0x811c_9dc5_u32, |h, b| (h ^ u32::from(*b)).wrapping_mul(0x0100_0193))
+}
+
+/// Spot `k` of the Exchange floor's [`VISITORS`], in its own frame (`u` along its front from the
+/// door's middle, `v` in from its face, a heading: 0 faces the counter): four rows of eight across
+/// the floor between the door and the counter, each a little off the grid and turned a little from
+/// the boards by `jitter`, so they read as people standing about, not a parade.
+fn visitor_spot(k: u16, jitter: u32) -> (f32, f32, f32) {
+    let (row, col) = (f32::from(k / 8), f32::from(k % 8));
+    let j = |shift: u32| ((jitter >> shift) & 0xff) as f32 / 255.0 - 0.5;
+    let u = -17.5 + 5.0 * col + 2.0 * j(0);
+    let v = 11.0 + 5.0 * row + 2.0 * j(8);
+    (u, v, 1.1 * j(16))
 }
 
 /// Into `w`, the people on strip `strip` heard from lately (but `skip`) within `range` by `dist`
@@ -537,7 +637,7 @@ fn nearest(
         .filter(|(id, p)| Some(**id) != skip && p.strip == strip)
         .filter_map(|(id, p)| {
             let pose = p.pose?;
-            let age = now.saturating_duration_since(p.heard).as_secs_f32();
+            let age = if p.visitor { 0.0 } else { now.saturating_duration_since(p.heard).as_secs_f32() };
             let (ps, px) = place(&pose, tick);
             let d = dist(ps, px, pose.h.max(0.0));
             (age < HIDE && d < range).then_some((d, *id, age, pose))

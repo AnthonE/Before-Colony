@@ -66,6 +66,11 @@ const AGE_BITS: u32 = 6;
 pub const PERSON_BITS: u32 = SLOT_BITS + AGE_BITS + POSE_BITS;
 /// The most people a plaza datagram carries.
 pub const MAX_PEOPLE: usize = 48;
+/// The most traders from the Elo Pros store standing on the Exchange floor at once (`docs/FLOOR.md`).
+pub const VISITORS: u16 = 32;
+/// Their slots: the top of the slot range, above every session's, so a client knows one of the
+/// store's traders by the slot alone (they wear an avatar, not a flight suit).
+pub const VISITOR_BASE: u16 = (1 << SLOT_BITS) - VISITORS;
 const PLAZA_HEADER_BITS: u32 = PACKET_KIND_BITS + 32 + 1 + STRIP_BITS;
 
 /// One pilot on foot in the city.

@@ -32,12 +32,12 @@ crossbeam-queue.workspace = true
 futures.workspace = true
 glam.workspace = true
 getrandom = "0.3"
+reqwest.workspace = true
 
 [dev-dependencies]
 bc-auth = { workspace = true, features = ["sign"] }
 bc-bot.workspace = true
 bc-client-core.workspace = true
-reqwest.workspace = true
 
 [lints]
 workspace = true

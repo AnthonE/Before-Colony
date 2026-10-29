@@ -9,6 +9,7 @@
 //! [`ClientCore::poll_inputs`] returns.
 
 pub mod aimpoint;
+pub mod avatar;
 pub mod base;
 pub mod baselines;
 pub mod bay;
@@ -27,6 +28,7 @@ pub mod course;
 pub mod dock;
 pub mod doubletap;
 pub mod figure;
+pub mod floor;
 pub mod gait;
 pub mod gallery;
 pub mod hangar;

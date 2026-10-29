@@ -154,6 +154,17 @@ const RESTORE_WAIT: Duration = Duration::from_secs(2);
 const LINGER: Duration = Duration::from_secs(3);
 
 impl GameShared {
+    /// `/floor.json`: who stands on the Exchange floor and what its boards show (`crate::floor`).
+    pub fn floor_json(&self) -> serde_json::Value {
+        let agents: Vec<u16> = self
+            .roster
+            .read()
+            .map(|r| r.values().filter(|e| e.pilot == PilotKind::Agent).map(|e| e.client_slot).collect())
+            .unwrap_or_default();
+        let plaza = self.colony.then_some(&*self.plaza);
+        self.market.with(|ex| crate::floor::json(plaza, Some(ex), |slot| agents.contains(&slot)))
+    }
+
     /// Survival, at boot, before anyone can connect: puts the suits pilots left in landmarks'
     /// hide spots back where they were, asleep (the newest `max_sleepers` of them). Each record
     /// then names its suit as the sleeper of this run, so its pilot wakes in it as they would

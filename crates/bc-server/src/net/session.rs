@@ -199,7 +199,9 @@ struct Session<'a> {
     /// In the city: the land strip the pilot came down to, and the people whose names they've
     /// been told.
     strip: u8,
-    named: std::collections::HashSet<u16>,
+    /// The name each slot was last given to this client: a slot named again only when it changes
+    /// hands (a new session in it, another trader on the Exchange floor).
+    named: std::collections::HashMap<u16, String>,
     /// Session ticks, for the bay's heartbeat.
     ticks: u32,
     /// The item whose book the pilot is looking at.
@@ -874,11 +876,14 @@ impl Session<'_> {
             NetStats::add(&self.stats.datagrams_out, 1);
             NetStats::add(&self.stats.bytes_out, n as u64);
         }
-        let new: Vec<wire::Person> = shown
-            .into_iter()
-            .filter(|id| self.named.insert(*id))
-            .filter_map(|id| Some(wire::Person { id, name: self.game.plaza.name(id)? }))
-            .collect();
+        let mut new: Vec<wire::Person> = Vec::new();
+        for id in shown {
+            let Some(name) = self.game.plaza.name(id) else { continue };
+            if self.named.get(&id) != Some(&name) {
+                self.named.insert(id, name.clone());
+                new.push(wire::Person { id, name });
+            }
+        }
         if !new.is_empty() {
             self.send(&Update::People { people: new }).await?;
         }

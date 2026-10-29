@@ -37,16 +37,22 @@ pub fn run() {
         prefs = crate::settings::view_prefs(&s.0);
     }
     let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "Before Colony".into(),
-            canvas: Some("#bc".into()),
-            fit_canvas_to_parent: true,
-            prevent_default_event_handling: true,
-            ..default()
-        }),
-        ..default()
-    }))
+    app.add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Before Colony".into(),
+                    canvas: Some("#bc".into()),
+                    fit_canvas_to_parent: true,
+                    prevent_default_event_handling: true,
+                    ..default()
+                }),
+                ..default()
+            })
+            // The few files fetched beside the page (`assets/`: the store's traders' avatars) have
+            // no `.meta` beside them: never ask for one.
+            .set(AssetPlugin { meta_check: bevy::asset::AssetMetaCheck::Never, ..default() }),
+    )
     // Every frame the browser offers, whether or not the canvas has the keyboard: the page's own
     // panels (the terminals, the menu, the radio's line) take it as part of play. Bevy's default
     // drops an unfocused canvas to its reactive mode, which on the web can stop updating altogether

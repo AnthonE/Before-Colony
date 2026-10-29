@@ -12,6 +12,7 @@
 
 pub mod charter;
 pub mod config;
+pub mod floor;
 pub mod homes;
 pub mod http;
 pub mod market;
@@ -22,6 +23,7 @@ pub mod plaza;
 pub mod proving;
 pub mod radio;
 pub mod telemetry;
+pub mod visitors;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -106,6 +108,7 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
     let launcher_game = status_view.clone();
     let max_players = cfg.max_clients;
     let online = shared.as_ref().map(|g| g.online.clone());
+    let floor_game = shared.clone().filter(|g| g.colony);
     let http_state = http::HttpState {
         // A CA-issued certificate is validated by the browser: nothing to pin.
         cert_hash_hex: pinned.then(|| hex::encode(cert_hash)),
@@ -117,6 +120,10 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         }),
         online: Arc::new(move || {
             online.as_ref().map_or_else(|| crate::online::Online::default().json(), |o| o.json())
+        }),
+        floor: Arc::new(move || match floor_game.as_ref() {
+            Some(g) => g.floor_json(),
+            None => crate::floor::json(None, None, |_| false),
         }),
         cors_origins: cfg.cors_origins.clone().into(),
     };
@@ -131,6 +138,10 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         }
     });
 
+    // The store's traders, standing on the Exchange floor.
+    if let (Some(url), Some(g)) = (cfg.floor_visitors.clone(), shared.as_ref().filter(|g| g.colony)) {
+        tokio::spawn(visitors::run(url, g.plaza.clone(), cfg.max_clients, shutdown_rx.clone()));
+    }
     let admission = net::admit::Admission::new(cfg.limits);
     tokio::spawn(net::endpoint::accept_loop(
         endpoint,

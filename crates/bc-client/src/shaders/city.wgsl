@@ -155,6 +155,42 @@ fn scene_sun(pbr: PbrInput) -> vec3<f32> {
 }
 #endif
 
+// The Exchange floor's look (`docs/FLOOR.md`): a dark hall lit by its screens, anime-style neon.
+const EX_CYAN: vec3<f32> = vec3(0.3, 0.88, 1.0);
+const EX_PINK: vec3<f32> = vec3(1.0, 0.32, 0.82);
+const EX_UP: vec3<f32> = vec3(0.3, 1.0, 0.55);
+const EX_DOWN: vec3<f32> = vec3(1.0, 0.28, 0.42);
+
+// A candlestick chart filling a panel: `fx` 0..1 across it, `y` m up, between `lo` and `hi` m;
+// chart `k` of the room's, moving on a candle every 2 s at `t` s. Its light, in nits.
+fn ex_chart(fx: f32, y: f32, lo: f32, hi: f32, k: f32, t: f32) -> vec3<f32> {
+    let n = 28.0;
+    let i = floor(fx * n) + floor(t / 2.0);
+    let mid = 0.5 * (lo + hi);
+    let amp = 0.3 * (hi - lo);
+    let at = vec2(i, i + 1.0);
+    let wave = mid + amp * (0.6 * sin(at * 0.31 + k * 2.1) + 0.3 * sin(at * 1.17 + k) + 0.1 * sin(at * 3.3));
+    let o = wave.x;
+    let c = wave.y;
+    let spread = 0.06 * (hi - lo) * (0.4 + hash13(vec3(i, k, 3.0)));
+    let cx = fract(fx * n);
+    let body = step(abs(cx - 0.5), 0.3) * step(min(o, c), y) * step(y, max(o, c) + 0.02);
+    let wick = step(abs(cx - 0.5), 0.06) * step(min(o, c) - spread, y) * step(y, max(o, c) + spread);
+    let tint = select(EX_DOWN, EX_UP, c >= o);
+    // The price's level lines, faint.
+    let rule = step(abs(fract((y - lo) / ((hi - lo) / 5.0)) - 0.5), 0.015) * 0.06;
+    return tint * max(body, wick) * 700.0 + EX_CYAN * rule * 700.0;
+}
+
+// Rows of prices on a board: lit cells in green and amber, changing every few seconds.
+fn ex_rows(x: f32, y: f32, t: f32) -> vec3<f32> {
+    let band = step(fract(y / 0.9), 0.62);
+    let cell = vec3(floor(x / 0.7), floor(y / 0.9), floor(t / 3.0));
+    let lit = step(0.3, hash13(cell)) * step(0.12, fract(x / 0.7)) * step(fract(x / 0.7), 0.88);
+    let tint = mix(EX_UP, vec3(1.0, 0.68, 0.2), step(0.62, hash13(cell + vec3(0.0, 0.0, 5.0))));
+    return tint * lit * band * 650.0;
+}
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr = pbr_input_from_standard_material(in, is_front);
@@ -353,6 +389,30 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             let band = step(6.3, uv.y) * step(uv.y, 7.5);
             albedo = mix(albedo, mix(vec3(0.04), vec3(0.95, 0.72, 0.05), chevron), band);
             rough = 0.9;
+        } else if (surface == 14u && kind == 2u) {
+            // The Exchange's walls: dark lacquered panels between pilasters every 6 m, each lit up its
+            // middle; a ticker crawling round the hall between 4.2 and 5 m, prices up in green and
+            // down in red; neon trim along the skirting, round the ticker and under the ceiling.
+            let bay = fract(uv.x / 6.0);
+            let pilaster = step(bay, 0.12);
+            let seam = step(0.99, fract(uv.y / 2.4));
+            albedo = mix(vec3(0.04, 0.045, 0.07), vec3(0.085, 0.095, 0.13), pilaster) * (1.0 - 0.35 * seam);
+            rough = 0.3;
+            metal = 0.15;
+            glow = EX_CYAN * step(abs(bay - 0.06), 0.008) * step(0.6, uv.y) * step(uv.y, 11.2) * 1100.0;
+            let band = step(4.2, uv.y) * step(uv.y, 5.0);
+            let crawl = uv.x + city.day.z * 2.5;
+            let gx = fract(crawl / 0.32);
+            let gy = (uv.y - 4.2) / 0.8;
+            let word = floor(crawl / 5.0);
+            let mark = step(0.18, gx) * step(gx, 0.82) * step(0.2, gy) * step(gy, 0.8)
+                * step(0.28, hash13(vec3(floor(crawl / 0.32), floor(gy * 3.0), 4.0))) * step(fract(crawl / 5.0), 0.78);
+            let tint = select(EX_DOWN, EX_UP, hash13(vec3(word, 1.0, 7.0)) > 0.42);
+            albedo = mix(albedo, vec3(0.01), band);
+            glow = mix(glow, tint * mark * 800.0, band);
+            let trim = step(abs(uv.y - 0.35), 0.03) + step(abs(uv.y - 11.45), 0.05)
+                + step(abs(uv.y - 4.12), 0.03) + step(abs(uv.y - 5.08), 0.03);
+            glow += EX_PINK * min(trim, 1.0) * 900.0;
         } else if (surface == 14u) {
             // Plaster over a dark dado (walls' UVs are metres along, and up from the street).
             let dado = step(uv.y, 1.3);
@@ -371,8 +431,17 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             albedo = mix(albedo, vec3(0.9, 0.7, 0.1), line * 0.85);
             rough = 0.85;
         } else if (surface == 15u) {
-            // Polished stone tiles; the bar's boards.
-            if (bar) {
+            // Polished stone tiles; the bar's boards; the Exchange's dark glass tiles, lanes lit
+            // through them every 8 m.
+            if (kind == 2u) {
+                let j = min(fract(uv.x / 2.0), fract(uv.y / 2.0));
+                let tile = hash13(vec3(floor(uv / 2.0), 8.0));
+                albedo = vec3(0.05, 0.058, 0.085) * (0.85 + 0.3 * tile) * mix(0.55, 1.0, step(0.015, j));
+                rough = 0.12;
+                metal = 0.25;
+                let g = abs(fract(uv / 8.0 + vec2(0.5)) - vec2(0.5)) * 8.0;
+                glow = EX_CYAN * step(min(g.x, g.y), 0.04) * 160.0;
+            } else if (bar) {
                 let plank = fract(uv.y / 0.25);
                 albedo = vec3(0.32, 0.2, 0.11) * (0.8 + 0.3 * hash13(vec3(floor(uv.y / 0.25), floor(uv.x / 2.4), 6.0)));
                 albedo *= mix(0.7, 1.0, step(0.06, plank));
@@ -391,6 +460,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             albedo = mix(vec3(0.25, 0.26, 0.28), vec3(0.12, 0.12, 0.13), truss);
             glow = vec3(0.95, 0.97, 1.0) * flood * 3600.0;
             metal = 0.5;
+        } else if (surface == 16u && kind == 2u) {
+            // The Exchange's ceiling: dark, long light strips across it every 4 m, pink lines along.
+            albedo = vec3(0.05, 0.055, 0.08);
+            glow = vec3(0.85, 0.95, 1.0) * step(abs(fract(uv.x / 4.0) - 0.5), 0.035) * 2400.0;
+            glow += EX_PINK * step(abs(fract(uv.y / 12.0) - 0.5), 0.008) * 900.0;
         } else if (surface == 16u) {
             // The ceiling and its lamps: panels in a grid (warm in the bar).
             let g = abs(fract(uv / 5.0) - vec2(0.5));
@@ -443,13 +517,36 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
                 let chevron = step(0.5, fract((uv.x + uv.y) / 1.6));
                 albedo = mix(albedo, mix(vec3(0.04), vec3(0.95, 0.72, 0.05), chevron), step(uv.y, 1.4));
             } else if (kind == 2u) {
-                // The Exchange's boards: rows of prices, green and amber, changing every few seconds.
-                let band = step(3.0, uv.y) * step(fract((uv.y - 3.0) / 1.1), 0.7);
-                let cell = vec3(floor(uv.x / 0.9), floor((uv.y - 3.0) / 1.1), floor(city.day.z / 3.0));
-                let lit = step(0.25, hash13(cell));
-                let tint = mix(vec3(0.25, 1.0, 0.45), vec3(1.0, 0.62, 0.15), step(0.6, hash13(cell.xyz + vec3(0.0, 0.0, 5.0))));
-                albedo = vec3(0.04, 0.045, 0.05);
-                glow = tint * lit * band * 900.0;
+                // The Exchange's boards: framed panels 12 m wide, a chart and a board of prices in
+                // turn, each in a cyan frame, under a pink header band whose blocks run like a
+                // marquee.
+                let k = floor(uv.x / 12.0);
+                let fx = fract(uv.x / 12.0);
+                let framed = step(0.035, fx) * step(fx, 0.965) * step(2.6, uv.y) * step(uv.y, 9.3);
+                let core = step(0.045, fx) * step(fx, 0.955) * step(2.7, uv.y) * step(uv.y, 9.2);
+                albedo = vec3(0.02, 0.025, 0.04);
+                glow = EX_CYAN * (framed - core) * 1100.0;
+                if (fract(k * 0.5) < 0.25) {
+                    glow += core * ex_chart((fx - 0.045) / 0.91, uv.y, 3.0, 8.8, k, city.day.z);
+                } else {
+                    glow += core * ex_rows(uv.x, uv.y - 2.7, city.day.z);
+                }
+                let header = step(9.7, uv.y) * step(uv.y, 11.0);
+                let block = step(0.35, hash13(vec3(floor((uv.x + city.day.z * 1.5) / 0.55), floor((uv.y - 9.7) / 0.43), 11.0)));
+                glow += EX_PINK * header * (0.25 + 0.75 * block) * 750.0;
+            } else if (kind == 5u) {
+                // A screen hung over the Exchange floor: a chart in a cyan frame, the uv its own
+                // metres along, and up from the street.
+                let lo = 6.4;
+                let hi = 9.6;
+                let fx = fract(uv.x / 12.0);
+                let frame = 1.0 - step(0.012, fx) * step(fx, 0.988) * step(lo + 0.12, uv.y) * step(uv.y, hi - 0.12);
+                albedo = vec3(0.015, 0.02, 0.035);
+                glow = EX_CYAN * frame * 1200.0 + (1.0 - frame) * ex_chart(fx, uv.y, lo + 0.4, hi - 0.4, floor(uv.x / 12.0) + 3.0, city.day.z);
+            } else if (kind == 6u) {
+                // Its back: dark, a pink line along its foot.
+                albedo = vec3(0.03, 0.035, 0.05);
+                glow = EX_PINK * step(uv.y, 6.5) * 600.0;
             } else if (kind == 3u) {
                 // The Charter Board: notices pinned on cork, lit by lamps over them.
                 let fx = fract(uv.x / 1.4);
