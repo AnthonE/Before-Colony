@@ -35,7 +35,8 @@ pub enum Hint {
     Lock,
     /// Locked on: the burst step.
     Step,
-    /// On foot in the bay, the colony open: the airlock's cap lift down into the city.
+    /// On foot in the bay (survival): the airlock, onto Bay Row (the colony closed) or the cap lift
+    /// down into the city (open).
     Airlock,
     /// On foot in the colony's city: its map, the trams, the cars, and the lift back up.
     City,
@@ -95,7 +96,7 @@ impl Hint {
     /// inside the colony and the dock's outside it.
     fn in_place(self, i: &HintInput) -> bool {
         match self {
-            Hint::Use | Hint::Launch | Hint::Airlock => !i.in_city,
+            Hint::Use | Hint::Launch | Hint::Airlock => !i.in_city && !i.on_deck,
             Hint::City => i.in_city,
             Hint::InnerGate => i.inside && !i.trainer,
             Hint::Hover => i.inside,
@@ -109,8 +110,8 @@ impl Hint {
     /// the bay and the city's for the city.
     fn due(self, i: &HintInput) -> bool {
         match self {
-            Hint::Use | Hint::Launch => !i.in_city,
-            Hint::Airlock => !i.in_city && i.colony,
+            Hint::Use | Hint::Launch => !i.in_city && !i.on_deck,
+            Hint::Airlock => !i.in_city && !i.on_deck && i.survival,
             Hint::City => i.in_city,
             Hint::Dock => i.survival && !i.inside,
             Hint::InnerGate => i.inside && !i.trainer,
@@ -162,8 +163,11 @@ impl Hint {
             Hint::Launch => {
                 "Up the stairs to the catwalk: at the cockpit hatch E launches the suit out of your bay's door into space."
             }
-            Hint::Airlock => {
+            Hint::Airlock if colony => {
                 "The airlock you came in by: E rides the cap lift down into the colony's city, on foot. Q chooses another strip's lift."
+            }
+            Hint::Airlock => {
+                "The airlock you came in by: E steps out onto Bay Row, the base's deck, where the other pilots' bays open too. E at your own door brings you back in."
             }
             Hint::City => {
                 "M is the city's map. Walk onto a platform to ride a tram, E at a motor pool takes a car (R a Markab: it drives up walls); E at Hub Gate's lift goes back up to your bay."
@@ -260,6 +264,8 @@ pub struct HintInput {
     pub colony: bool,
     pub in_city: bool,
     pub inside: bool,
+    /// On foot out on Bay Row, the base's deck (the colony closed).
+    pub on_deck: bool,
     /// Rode the cap lift down (or used the airlock).
     pub went_down: bool,
     /// Flying within a couple of kilometres of the docking hub's mouth, outside the colony.
@@ -375,8 +381,12 @@ impl Hints {
         if now < self.next_at {
             return None;
         }
-        let h =
-            Hint::ALL.into_iter().find(|h| *seen & h.bit() == 0 && h.on_foot() == i.walking && h.due(i))?;
+        // With the colony closed, Bay Row has nothing yet to keep a new pilot from their first
+        // sortie: its airlock's hint waits until they've launched once.
+        let waits = |h: Hint| h == Hint::Airlock && !i.colony && *seen & Hint::Launch.bit() == 0;
+        let h = Hint::ALL
+            .into_iter()
+            .find(|&h| *seen & h.bit() == 0 && h.on_foot() == i.walking && h.due(i) && !waits(h))?;
         self.current = Some((h, now));
         self.doing = 0.0;
         self.hopped = false;
@@ -457,10 +467,25 @@ mod tests {
         assert_eq!(run(&mut h, &mut seen, &mut t, 0.1, city), Some(Hint::City));
         run(&mut h, &mut seen, &mut t, 0.05, HintInput { opened_map: true, ..city });
         assert!(seen & Hint::City.bit() != 0);
-        // With the colony closed there's no airlock hint.
+        // With the colony closed the airlock leads onto Bay Row, and says so; out there, none of
+        // the bay's.
         let (mut h2, mut seen2, mut t2) =
             (Hints::default(), Hint::Walk.bit() | Hint::Use.bit() | Hint::Launch.bit(), 0.0);
-        assert_eq!(run(&mut h2, &mut seen2, &mut t2, 0.1, HintInput { colony: false, ..bay }), None);
+        let closed = HintInput { colony: false, ..bay };
+        assert_eq!(run(&mut h2, &mut seen2, &mut t2, 0.1, closed), Some(Hint::Airlock));
+        assert!(Hint::Airlock.text(false, false).contains("Bay Row"));
+        assert!(!Hint::Airlock.text(false, false).contains("cap lift"));
+        let (mut h4, mut seen4, mut t4) = (Hints::default(), Hint::Walk.bit(), 0.0);
+        assert_eq!(run(&mut h4, &mut seen4, &mut t4, 0.1, HintInput { on_deck: true, ..closed }), None);
+        // Arcade has no bay to step out of.
+        let (mut h5, mut seen5, mut t5) = (Hints::default(), Hint::Walk.bit() | Hint::Use.bit(), 0.0);
+        let arcade = HintInput { survival: false, ..closed };
+        assert_ne!(run(&mut h5, &mut seen5, &mut t5, 0.1, arcade), Some(Hint::Airlock));
+        // Before the first launch, the launch's hint comes first; Bay Row's after it.
+        let (mut h6, mut seen6, mut t6) = (Hints::default(), Hint::Walk.bit() | Hint::Use.bit(), 0.0);
+        assert_eq!(run(&mut h6, &mut seen6, &mut t6, 0.1, closed), Some(Hint::Launch));
+        run(&mut h6, &mut seen6, &mut t6, 0.1, HintInput { boarding: true, ..closed });
+        assert_eq!(run(&mut h6, &mut seen6, &mut t6, GAP + 0.2, closed), Some(Hint::Airlock));
         // Flying near the hub, the way home by landing; inside the colony, the inner gate.
         let mut flying_seen = (0..Hint::ALL.len()).fold(0u32, |a, k| a | 1 << k)
             & !(Hint::HubLanding.bit() | Hint::InnerGate.bit() | Hint::Hover.bit() | Hint::Gantry.bit());

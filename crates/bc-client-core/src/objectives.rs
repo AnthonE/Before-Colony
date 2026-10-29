@@ -218,12 +218,16 @@ impl Objective {
             Objective::RideDown
             | Objective::ProvingGround
             | Objective::ExchangeFloor
-            | Objective::Sell
             | Objective::Certify
             | Objective::CharterDesk
             | Objective::MostWanted
             | Objective::TryPrototype => i.colony,
-            Objective::Standing | Objective::Arm | Objective::AlmagestAce | Objective::Siderium => i.survival,
+            // The bay's terminals have the Exchange's tab, the colony open or not.
+            Objective::Sell
+            | Objective::Standing
+            | Objective::Arm
+            | Objective::AlmagestAce
+            | Objective::Siderium => i.survival,
             Objective::Deliver | Objective::Bounty | Objective::FiveDrones => true,
         }
     }
@@ -315,6 +319,10 @@ impl Objective {
             }
             Objective::ExchangeFloor => {
                 "From Hub Gate, along the avenue: M shows the city, ◆ marks the Exchange's door. Its floor is where an order at your own price waits on the book."
+                    .into()
+            }
+            Objective::Sell if !colony => {
+                "At your bay's terminals, the EXCHANGE tab: sell what you brought home to the colony's desk or to another pilot."
                     .into()
             }
             Objective::Sell => {
@@ -971,9 +979,18 @@ mod tests {
         {
             assert!(!o.available(&closed), "{o:?}");
         }
-        for o in [Objective::Standing, Objective::Arm, Objective::AlmagestAce, Objective::Siderium] {
+        for o in [
+            Objective::Sell,
+            Objective::Standing,
+            Objective::Arm,
+            Objective::AlmagestAce,
+            Objective::Siderium,
+        ] {
             assert!(o.available(&closed), "{o:?}");
         }
+        // Sold at the bay's own terminals: no Exchange floor to walk to.
+        let sell = Objective::Sell.how(true, false);
+        assert!(sell.contains("your bay's terminals") && !sell.contains("floor"), "{sell}");
         assert_eq!(Objectives::current(0, &in_bay(closed)), Some(Objective::Standing));
         // Flying, home done: the drones.
         let home = bits(&[Objective::LandStation, Objective::Hide, Objective::Mine, Objective::Deliver]);
