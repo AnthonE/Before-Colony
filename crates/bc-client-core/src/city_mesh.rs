@@ -736,7 +736,7 @@ fn hall_with_room(m: &mut Builder, b: &Building, room: &Room, seed: f32, tall: f
     vface(m, d, (-w, w), (KERB, c), false, &display);
     // Its ceiling, its floor (just over the kerb's top, which is the street's pavement), its counter.
     m.level(&room.rect, c, true, [Surface::Ceiling as u8 as f32 / 255.0, kind, 1.0, tall]);
-    m.level(&room.rect, KERB + 0.005, false, [Surface::Floor as u8 as f32 / 255.0, kind, 1.0, tall]);
+    m.level(&room.rect, KERB + ROOM_FLOOR_LIFT, false, [Surface::Floor as u8 as f32 / 255.0, kind, 1.0, tall]);
     let counter = CityBox { rect: room.counter, h0: KERB, h1: KERB + bc_sim::colony::city::COUNTER_HEIGHT };
     m.city_box(&counter, Surface::Counter, Surface::Counter, kind, tall, true);
     // The Exchange's screens, hung over the floor well above anyone's head (nothing to walk into):
@@ -761,6 +761,12 @@ fn hall_with_room(m: &mut Builder, b: &Building, room: &Room, seed: f32, tall: f
         }
     }
 }
+
+/// How far a room's floor lies over the kerb's top (the block's pavement, under it), m. Both are
+/// bent onto the cylinder as chords at most `CUT` long, cut at different places: a 24 m chord of
+/// the colony's 3.2 km radius stands up to 22 mm off the arc, so a floor laid any closer showed the
+/// pavement through it in bands, lit as the street is (blazing, at the room's exposure).
+pub const ROOM_FLOOR_LIFT: f32 = 0.025;
 
 /// The Exchange's hanging screens, in its room's frame: how far in from the front face (m), and
 /// where along it (m from the door's middle). Each 12 m wide: `city.wgsl` frames a screen 12 m on.
@@ -2179,6 +2185,15 @@ mod tests {
     use bc_sim::colony::city::{CANAL_ROW, CITY, HUB_GATE, SITE};
     use bc_sim::colony::frame::{Under, from_colony};
     use bc_sim::content::city::SPECIAL;
+
+    #[test]
+    fn a_rooms_floor_clears_the_pavement_under_it_wherever_either_is_cut() {
+        use bc_sim::colony::frame::RADIUS;
+        // The most a chord of `CUT` stands off the arc: the sagitta.
+        let sag = CUT * CUT / (8.0 * RADIUS);
+        assert!(ROOM_FLOOR_LIFT > sag, "{ROOM_FLOOR_LIFT} m over a {sag} m bow");
+        assert!(ROOM_FLOOR_LIFT < 0.05, "and feet on the kerb's top still look to stand on it");
+    }
 
     #[test]
     fn the_exchanges_screens_hang_over_its_floor_out_of_reach() {
