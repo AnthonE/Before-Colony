@@ -343,6 +343,10 @@ impl Objective {
             }
             // What the works still need is the board's to say: the colony's needs are met in time,
             // and once the charter's signed its works are done.
+            Objective::Standing if !colony => {
+                "At your bay's terminals, the CHARTER BOARD tab: deliver to a contract or a great work (while one is short of steel, the 200 kg you came with will do). Paid over its value, and in standing."
+                    .into()
+            }
             Objective::Standing => {
                 "Deliver to one of the colony's contracts or a great work, at the Charter Board's desk or its tab on your bay's terminals: the board lists what each still needs, and while a great work is short of steel the 200 kg you came with will do. Paid over its value, and in standing."
                     .into()
@@ -988,7 +992,9 @@ mod tests {
         ] {
             assert!(o.available(&closed), "{o:?}");
         }
-        // Sold at the bay's own terminals: no Exchange floor to walk to.
+        // Delivered and sold at the bay's own terminals: no desk or floor to walk to.
+        let standing = Objective::Standing.how(true, false);
+        assert!(standing.contains("CHARTER BOARD tab") && !standing.contains("desk"), "{standing}");
         let sell = Objective::Sell.how(true, false);
         assert!(sell.contains("your bay's terminals") && !sell.contains("floor"), "{sell}");
         assert_eq!(Objectives::current(0, &in_bay(closed)), Some(Objective::Standing));
