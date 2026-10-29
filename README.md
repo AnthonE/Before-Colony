@@ -18,31 +18,37 @@ A space mech MMO prototype.
   damaged suit coughs, leaks, scrams, jams and smokes. Fourteen equipment modules (a G-seat, an
   auxiliary tank, an ion drive, radiators, plating, damage control…) trade one stat for another,
   and three grades of propellant go further the purer they are.
-- **Survival:** you build your own suit. You start on foot in your hangar bay in the colony's
-  docking hub, with a worn-out Argo. Walk the bay in first person, fabricate parts from what you
-  mine and salvage, and trade on the **Colony Exchange** (order books, with the colony as a market
-  maker whose prices follow its stock). A Lodestar takes tonnes of exotic metals and siderium that
-  only the colony's zero-G foundry can make. Launch out of your bay's own door on the spinning bay
-  ring, and come home through the docking hub (at rest in the dock's ring of lights, or landed on
-  the hub's end face and walked in at its deck hatch); a suit destroyed out there is gone. Your
-  bay's airlock leads down the cap lifts (one to each of its three strips) into the colony's
-  city, where you walk, ride its trams and drive its cars (or the Markab, its rocket car, which
-  drives up walls and along ceilings on its fan and flies on its jets), and the Proving Ground trains you. Its
-  desks each do one thing only they do: an order that waits on the book at the Exchange floor,
-  contracts, patrols, the charter and the Charter Board's pay at its desk (a flight certificate
-  earns your worn Argo its missing beam rifle there), the Almagest's Most Wanted at The Arrival, and the
-  test range at the Proving Ground. The objectives walk a new Arrival from desk to desk, home to
-  arm, and out.
+- **Survival:** you build your own suit. You start on foot in your hangar bay in the docking hub of
+  the First Colony, a ring a kilometre across (`docs/RING.md`), with a worn-out Argo. Walk the bay in
+  first person, fabricate parts from what you mine and salvage, deliver to the Charter Board's
+  contracts and trade on the **Colony Exchange** (order books, with the colony as a market maker
+  whose prices follow its stock), both at the bay's terminals. A Lodestar takes tonnes of exotic
+  metals and siderium that only the colony's zero-G foundry can make. Launch out of your bay's own
+  door on the hub's face, and come home through the docking hub (at rest in the dock's ring of
+  lights, or landed on the hub's end face and walked in at its deck hatch); a suit destroyed out
+  there is gone. Your bay's airlock steps out onto **Bay Row**, the deck behind every pilot's bay in
+  the Muster, the base in the hub's drum, where you meet the other pilots and the test hall, its
+  first building, stands across the row. The objectives walk a new Arrival from standing at the
+  Charter Board to mining, selling and arming the suit, then out after the drones and their aces.
+- **The old city, behind `--colony`.** The retired cylinder's inside is kept until it's cleared: a
+  city at full scale you walk, ride by tram and drive (or take the Markab, its rocket car, up walls
+  and along ceilings), the Proving Ground's Blast Hall, and desks that each do one thing only they
+  do: the Exchange floor, the Charter Board's hall and The Arrival. The Exchange floor is also the
+  room the Elo Pros store's traders stand in: `/floor.json` lists who's there for the store's
+  trade page (`docs/FLOOR.md`).
 
 - **Server:** Rust. One allocation-free, lock-free simulation thread per sector at 30 Hz.
 - **Client:** Bevy 0.19 compiled to WebAssembly, in the browser (WebGL2 or WebGPU).
 - **Transport:** WebTransport, HTTP/3 over QUIC. Unreliable datagrams carry inputs and snapshots.
 
-**Status:** Milestone 5, the First Colony's inside (`docs/COLONY.md`), most of it built: its city
-at full scale, shared with other pilots, walked, ridden by tram, driven, and flown by suits; and
-the Proving Ground's course, Blast Hall and drill (`docs/TRAINING.md`); and its desks, each with
-its one thing, the objectives leading from one to the next. Alongside it (`docs/ROADMAP.md`): the
-lock-on, the Charter Board's contracts and great works (and its pay at its desk), a floor under
+**Status:** the First Colony is being rebuilt as a ring (`docs/RING.md`). Built: the ring, its hub,
+bays, spokes and louvres, in the sector and on every screen, with a first pass at its outside;
+Gates' building pieces in the simulation; and Bay Row, out of every bay's airlock, with the test
+hall across it. The painted look (`?look=anime`) waits on the owner's sign-off; next are the base's
+buildings one at a time (the briefing room, the armoury, the mess, the Proving Ground), then the
+ring's town. The cylinder's inside, Milestone 5 (`docs/COLONY.md`), is closed by default: its
+city, the Proving Ground's course, Blast Hall and drill (`docs/TRAINING.md`), and its desks.
+Alongside the colony (`docs/ROADMAP.md`): the lock-on, the Charter Board's contracts and great works (and its pay at its desk), a floor under
 loss, the colony's radio, bigger tanks, propellant grades and the ion drive, what the mech
 games teach (doom and ejecting, stagger, a debrief, a test range, aces…), and what Mecha Royale
 teaches (guns that shoot missiles down, the HUD saying why a weapon won't fire, a death report, a
@@ -63,7 +69,8 @@ Thuban, against Corvus and Cetus drones. Each Lodestar brings its kit and its si
 
 Salvage and mining, and agents via the Bot SDK, carry over from Milestone 1. The suits are
 procedural, jointed models whose armour and limbs come off. The sky, colony and asteroid field are
-drawn with custom shaders, and every sound is synthesised at boot (`bc-sound`).
+drawn with custom shaders, the colony's halls in one station language (light blue-grey panels,
+markings in yellow: `docs/RING.md`), and every sound is synthesised at boot (`bc-sound`).
 
 ## Quick start
 
@@ -81,29 +88,36 @@ Open <http://127.0.0.1:8080> in Chrome or Edge, enter a callsign and LAUNCH. You
 your bay's airlock: click the game to look around, walk with W/A/S/D, and press E at the
 fabricator, the stores' racks, the exchange terminal, the suit's console or (up the stairs, on the
 catwalk) the cockpit hatch. There E launches you into space: the catapult throws your suit out of
-your bay's own door on the spinning bay ring, at 40 m/s on top of the ring's own 125 m/s. Q
-launches it into the colony instead, out of the port by its inner gate. Out there, go home through
-the docking hub on the colony's axis: come to rest inside the dock's ring of lights off the hub's
-mouth and press Enter, or arm the grip (L), land on the hub's end face near its middle, walk onto
-the deck hatch and press Enter. Enter docks only where the HUD's marker says ENTER; anywhere else
-it opens the radio. On foot, E at the airlock rides the cap lift down to the Charter strip's Hub
-Gate (Q there first chooses the Canal or the Gardens strip's lift instead): M opens the city's map
-(M or Esc closes it), the trams stop at the platforms, E at a motor pool takes a car (R a Markab:
-F its fan, Space its lift jets, Shift its tail's, Q/E a roll in the air; `?showcase=markab` is its
-stunt in the Blast Hall), and E at
-Hub Gate's lift brings you back up. E at a desk's counter opens its terminal, with the one tab
-that desk keeps: the Exchange floor's exchange, the Charter Board's (what it holds for you is paid
-out as you walk into its hall), The Arrival's Most Wanted, the Proving Ground's board and test
-range; the bay's terminals point at them. The colony is open by default; `BC_COLONY=0 scripts/dev.sh`
-(the server's `--no-colony`) closes it. Esc opens the menu and F1 (or ?) lists the controls.
+your bay's own door on the hub's face, at 40 m/s on top of the door's own 40 m/s round the axis.
+Out there, go home through the docking hub on the colony's axis: come to rest inside the dock's
+ring of lights off the hub's mouth and press Enter, or arm the grip (L), land on the hub's end face
+near its middle, walk onto the deck hatch and press Enter. Enter docks only where the HUD's marker
+says ENTER; anywhere else it opens the radio. On foot, E at the bay's terminals opens their tabs:
+the EXCHANGE sells what you brought home, and the CHARTER BOARD takes deliveries for standing. E
+at the airlock steps out onto Bay Row, and E at your own door there brings you back in. Esc opens
+the menu and F1 (or ?) lists the controls.
+
+With the old city open (`BC_COLONY=1 scripts/dev.sh`, the server's `--colony`), E at the airlock
+rides the cap lift down to the Charter strip's Hub Gate instead (Q there first chooses the Canal
+or the Gardens strip's lift), and Q at the cockpit launches the suit into the colony, out of the
+port by its inner gate. In the city M opens its map, the trams stop at the platforms, E at a motor
+pool takes a car (R a Markab: F its fan, Space its lift jets, Shift its tail's, Q/E a roll in the
+air), and E at Hub Gate's lift brings you back up. E at a desk's counter opens its terminal, with
+the one tab that desk keeps: the Exchange floor's exchange, the Charter Board's (what it holds for
+you is paid out as you walk into its hall), The Arrival's Most Wanted, the Proving Ground's board
+and test range.
+
 `?autoplay=1` skips the title screen. Add `?autopilot=1` to watch the kit-aware drone brain fly your suit
 with the Orrery engaged (it walks to the cockpit and launches first), and, under arcade rules,
 `?frame=argo|altair|antares|algol|canopus|thuban` to pick it.
 `?quality=low|medium|high|ultra` picks a graphics tier for the visit (F10 or O cycles them; the settings
 keep the choice). Without a server,
-`?showcase=lodestars|lineup|duel|battle|colony|field|sky|chase|salvage|mining|hangar|surface|city` plays an
-offline scene (`?hz=20` runs its clock slower, to see effects at a low frame rate). `?look=0` turns off the game's
-own look (its grade, vignette, lit smoke and the bay's haze), `?tonemap=tony|agx` swaps the
+`?showcase=lodestars|lineup|duel|battle|pair|colony|field|sky|chase|salvage|mining|hangar|surface|city|markab|base|ring|floor`
+plays an offline scene (`?hz=20` runs its clock slower, to see effects at a low frame rate; 1, 2… pick its cameras):
+`battle` a skirmish, `pair` the Almagest's prototypes, `markab` the rocket car's stunt in the Blast Hall, `base` the
+Muster, `ring` the Ring Deck (the station language at a suit's scale), `floor` the Exchange floor as the store shows
+it. `?look=anime` tries the painted look on the colony, its bays and halls (`docs/RING.md`, "The look"); `?look=0`
+turns off the game's own look (its grade, vignette, lit smoke and the bay's haze), `?tonemap=tony|agx` swaps the
 tonemapper (ACES by default) and `?ssao=0` turns off the WebGPU build's ambient occlusion, for comparing.
 
 Only Chromium has been tested. Firefox and Safari 26.4+ also ship WebTransport, but the dev server's
@@ -124,15 +138,15 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | M · N | the chart, out to Earth-Moon space (set a course on it) · the auto-nav on the course (on/off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held a second |
-| Enter | survival: dock where the HUD's marker says ENTER (into your bay: at rest inside the dock's ring of lights, or standing on the hub's deck hatch; inside the colony, at rest in the inner gate's ring; in a trainer, at rest on the Blast Hall's gantry); anywhere else, the radio |
+| Enter | survival: dock where the HUD's marker says ENTER (into your bay: at rest inside the dock's ring of lights, or standing on the hub's deck hatch; inside the colony, at rest in the inner gate's ring; in a trainer, at rest on the Blast Hall's gantry: both with `--colony`); anywhere else, the radio |
 | 1–4 | survival: the rack's patch kit · coolant flush · chaff · stim |
 | 1–6 | arcade rules: respawn as Argo, Altair, Antares, Algol, Canopus or Thuban |
 | / (or Enter) | talk on the colony's radio (Enter opens it on foot, and in a suit wherever there's nothing to dock): Enter says it, Esc closes |
 | Esc · F1 or ? · F10 or O | menu · controls · graphics quality |
 
 On foot: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what you look at. With
-the colony open, Q at the cockpit launches into it, and Q at the airlock chooses the next strip's
-cap lift.
+the old city open (`--colony`), Q at the cockpit launches into the colony, and Q at the airlock
+chooses the next strip's cap lift.
 
 Frames with missiles lock on by themselves: hold the reticle on a hostile until its bracket reads
 LOCKED, then fire.
@@ -151,12 +165,12 @@ against an asteroid first (the HUD reads PARKED) and it stays put there, hidden 
 400 m. Drones leave sleepers alone. Pilots of another side can hunt them, but every human
 pilot flies for the Colonies (the server decides) and friendly fire is off, so today only an agent
 flying for the Alliance could hunt yours (where PvP lives is an open decision: `docs/ROADMAP.md`).
-Flying inside the colony nothing sleeps: DOCK & DISCONNECT, and its tugs bring the suit home to
-your bay (you're told so when you're back). On foot, in the bay or the city, nothing is out, and
-you wake in your bay.
+Flying inside the colony (with `--colony`) nothing sleeps: DOCK & DISCONNECT, and its tugs bring the suit home to
+your bay (you're told so when you're back). On foot nothing is out, and you wake in your bay.
 
-Server flags: `--rules survival|arcade` (default survival), `--no-colony` (close the colony: no cap
-lifts down into its city, no suits inside it; open by default under survival rules), `--data-dir DIR` (keep pilot records,
+Server flags: `--rules survival|arcade` (default survival), `--colony` (open the retired cylinder's
+inside under survival rules: the cap lifts down into its city, suits inside it; closed by default),
+`--data-dir DIR` (keep pilot records,
 their hangars, the exchange, the Charter Board and the Proving Ground's board in files there;
 otherwise they last one run), `--craft-speed X`
 (the fabricator works X times faster, for testing), `--drones N`, `--max-clients N`,
@@ -170,7 +184,7 @@ wallets sign in to; defaults to `--http`), `--require-auth` (no human guests), `
 and 8). Records go through a `PilotStore` trait a Redis or Mongo store can implement.
 
 `scripts/dev.sh` takes its settings from the environment: `BC_RULES`, `BC_FLIGHT` (`anime|real`),
-`BC_COLONY=0`, `BC_DATA=DIR` (the server's `--data-dir`), `BC_DRONES` (24), `BC_AGENTS` and
+`BC_COLONY=1` (the server's `--colony`), `BC_DATA=DIR` (the server's `--data-dir`), `BC_DRONES` (24), `BC_AGENTS` and
 `BC_MINERS` (1 each), `BC_ORACLE` (`local|jev`).
 
 ### The Orrery with TypeSafe Jev
@@ -245,16 +259,16 @@ crates/bc-sector       the hot loop: sector thread, lock-free queues, replicatio
 crates/bc-orrery         tactical oracles: TypeSafe Jev, worker
 crates/bc-client-core  client state machine shared by the browser and bots (and the bay's walker)
 crates/bc-econ         the economy: items, recipes, stores, suit builds, faults and overhauls, jobs, the Colony Exchange
-crates/bc-server       WebTransport server, dev HTTP (/cert-hash, /status)
+crates/bc-server       WebTransport server, HTTP (/cert-hash, /status, /status.json, /online.json, /floor.json)
 crates/bc-bot          Bot SDK, drone and miner agents, bc-swarm
 crates/bc-client       Bevy browser client (wasm32)
 crates/bc-model        the suits' procedural designs and their sockets
 crates/bc-sound        the generated sound bank, mixer, cockpit sounds and music
 crates/bc-alloc        counting allocator for the zero-allocation proofs
 crates/bc-auth         wallet sign-in (SIWE): the message both sides build, and the server's check
-docs/                  DESIGN.md · ARCHITECTURE.md · PROTOCOL.md · STORY.md (the world) · CONTROLS.md
-                       LOCK.md · PEERS.md · ROADMAP.md · COLONY.md · COLONY_LOOK.md · SUITS_INSIDE.md · TRAINING.md
-                       LIFE.md
+docs/                  DESIGN.md · ARCHITECTURE.md · PROTOCOL.md · NETCODE.md · SCALE.md · STORY.md (the world)
+                       CONTROLS.md · LOCK.md · UI.md · PEERS.md · ROADMAP.md · RING.md (the colony's plan of record)
+                       FLOOR.md · OPEN_CITY.md · TRAINING.md · LIFE.md · COLONY.md · COLONY_LOOK.md · SUITS_INSIDE.md
 web/, scripts/, e2e/   page shell, build and dev scripts, Playwright tests
 ```
 
@@ -266,6 +280,12 @@ which the script sets) and `BC_WT_PORT` its WebTransport off 4433, and `BC_GFX_Q
 suite; default high) and `BC_QUALITY` (`slice`) pick the graphics tier. `scripts/build-web.sh` builds
 with the cargo profile `BC_WEB_PROFILE` (default `wasm-release`). GitHub Actions runs the browser
 tests nightly, each suite on its own runner (`.github/workflows/e2e.yml`; also by hand).
+
+`scripts/pt` plays the game from a shell, for playtesting: `scripts/pt up` starts a world, `scripts/pt
+open` a browser on it, then `shot`, `walk`, `use`, `ui` and the rest (`.claude/skills/playtest/SKILL.md`).
+`scripts/trailer/make.sh` cuts the alpha trailer from showcase footage filmed a frame at a time
+(`make.sh stills` the store's frames, `make.sh battle` the fight reel), and `scripts/trailer/overhaul.sh`
+a quick captioned cut of the ring overhaul, for seeing new work move.
 
 ## Legal
 
