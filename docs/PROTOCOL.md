@@ -486,7 +486,7 @@ answer to the bit.
 
 ## The colony's people: pose and plaza datagrams
 
-Pilots on foot in the colony's city (survival, unless `--no-colony`) are relayed by their session tasks,
+Pilots on foot in the colony's city (survival, with `--colony`) are relayed by their session tasks,
 off the sector's tick (`bc_proto::presence`; the server's `plaza`). Positions are a strip's city
 coordinates, where the city stands still: `x` along (22 bits over ±16,384 m), `s` across from the
 strip's edge (19 bits over 0–4,096 m), `h` up (15 bits over −8–248 m), all in 7.8 mm steps; the
@@ -788,7 +788,7 @@ forgets a suit it stops hearing of). Up the lift, it ends, and the client forget
 A client takes spectator snapshots only in the city, and knows the colony's city as a body for
 them (v19: the suits standing on it ride it).
 
-The colony (the Welcome sets COLONY: a survival server, unless it runs with `--no-colony`): from the bay,
+The colony (the Welcome sets COLONY: a survival server run with `--colony`): from the bay,
 `enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and
 the market keep coming (the Exchange floor's terminal is the bay's), and `launch` is refused.
 `leave_city` answers `place: hangar`. `enter_base` answers `place: base` (out on Bay Row: poses on

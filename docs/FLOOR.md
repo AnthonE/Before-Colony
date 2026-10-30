@@ -5,6 +5,10 @@ under a 12 m ceiling, the counter and the boards on its back wall) is where Befo
 stand. This is the plan for making it the room Elo Pros' traders stand in too: like the auction house
 in a city of a big MMO, but reached from a web page as well as from the game.
 
+> **In the retired cylinder** (October 2026, `RING.md`): the floor stands in the cylinder's city, whose inside is
+> closed by default, so `/floor.json` answers `{"at", "open": false}` and nothing more unless the server runs
+> `--colony` (`floor.rs`'s `no_colony_no_floor`). `RING.md` moves the floor to the ring's town, down the spoke lift.
+
 ## The one rule: one room, two clients
 
 There is never a second copy of the floor to keep in step. The game's interior sector is the only

@@ -44,7 +44,7 @@ shut unless the server was told to open it, so the bay was a dead end; and a lau
 bay's catapult, cut to black and opened on a suit somewhere off the hub with nothing tying the two
 together. The first pass (built):
 
-- **The colony open by default** (survival): `--no-colony` closes it (`BC_COLONY=0` for
+- **The colony open by default** (survival; closed by default since `RING.md`'s R1.1, `--colony` opens it): `--no-colony` closed it (`BC_COLONY=0` for
   `dev.sh`); arcade rules have none, and the server says which at start-up. Closed, the airlock
   says the cap lifts are closed and the bay's terminal has no Proving Ground tab.
 - **Out of your own bay door.** The suit rides its bay's catapult cradle in the door on the
@@ -155,7 +155,7 @@ G walks the pilot there (`bc-client/src/signs.rs`, `onfoot.rs`).
 closed form of the door; benches drawn there), E to sit, others see you sit (the presence's
 `ride` 15 is seated: no new bits, wire v16 for the meaning; the plaza takes it only on a seat), and
 what's said on the radio over the heads of those near you. Flaneurs come and sit (`flaneur
---sit`, two of them whenever `dev.sh` opens the colony, as it does unless `BC_COLONY=0`). Tests:
+--sit`, two of them whenever `dev.sh` opens the colony, with `BC_COLONY=1`). Tests:
 the seats' geometry, the plaza's rules for sitting, and a step in the colony e2e.
 
 ## P1: what makes the chain worth walking
