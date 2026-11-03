@@ -370,17 +370,17 @@ const DUEL_CAMS: [Orbit; 3] =
     [orbit(DUEL, 0.8, 0.3, 380.0), orbit(DUEL, -1.2, 0.1, 260.0), orbit(DUEL, 2.4, -0.25, 320.0)];
 const COLONY_CAMS: [Orbit; 8] = [
     // The whole ring, three-quarters on.
-    orbit(COLONY_CENTER, 0.9, 0.35, 3_600.0),
+    orbit(COLONY_CENTER, 0.9, 0.35, 10_000.0),
     orbit(SQUAD_START, 2.2, 0.35, 190.0),
     // From the sun's side (+X), into the hole: the ceiling's lattice lit, the louvres, the spokes.
-    orbit(COLONY_CENTER, 1.4, 0.15, 3_200.0),
+    orbit(COLONY_CENTER, 1.4, 0.15, 9_000.0),
     // Along the rim from over it: the slabs and their rows of lights curving away.
-    orbit(Vec3::new(COLONY_CENTER.x, COLONY_CENTER.y + COLONY_RADIUS + 60.0, 0.0), -0.2, 0.12, 900.0),
+    orbit(Vec3::new(COLONY_CENTER.x, COLONY_CENTER.y + COLONY_RADIUS + 60.0, 0.0), -0.2, 0.12, 1_500.0),
     // The dock, off the docking hub's mouth at the −X end.
     orbit(Vec3::new(DOCK_CENTER.x + 300.0, DOCK_CENTER.y, DOCK_CENTER.z), -0.6, 0.12, 1_100.0),
     // The hub's end from out past the dock and below: the drum's face and its bays, the spine, the
     // ring beyond, outlined in lamps (`?t=1900`: at night).
-    orbit(COLONY_CENTER, -1.15, -0.18, 4_000.0),
+    orbit(COLONY_CENTER, -1.15, -0.18, 9_000.0),
     // The drum's face close to: the bays' doors and their lamps.
     orbit(
         Vec3::new(
@@ -393,7 +393,7 @@ const COLONY_CAMS: [Orbit; 8] = [
         700.0,
     ),
     // The louvres from over the sun's side, the ring beyond (`?t=2620`: opening in the early morning).
-    orbit(Vec3::new(COLONY_CENTER.x + 200.0, COLONY_CENTER.y, 0.0), 1.2, 0.5, 2_200.0),
+    orbit(Vec3::new(COLONY_CENTER.x + 600.0, COLONY_CENTER.y, 0.0), 1.2, 0.5, 2_200.0),
 ];
 const FIELD_CAMS: [Orbit; 3] = [
     orbit(FIELD, 0.3, 0.1, 400.0),

@@ -1,7 +1,8 @@
 //! The colony as the people inside it know it, in closed forms everyone evaluates alike: its day
 //! (`time`: the louvres open and close on the tick's clock), its louvres (`louvres`), the docking
 //! hub's structures (`hub`: the drum, the bays, the spine and the spokes), the decks people walk
-//! (`deck`: the ring's floor and the base's, with the buildings standing on them); and the retired
+//! (`deck`: the ring's floor and the base's, with the buildings standing on them), the ring's town
+//! (`town`: its districts, streets, blocks and buildings, `docs/FREE_ROAM.md`); and the retired
 //! cylinder's inside (`docs/RING.md`), kept until it's cleared: its frames (`frame`: the strips, and a
 //! point on the floor in city coordinates), its city (`city`: streets, blocks and buildings, worked out where they're
 //! asked for), its street furniture (`furniture`: lamps, trees, benches; solid to people, not to
@@ -27,6 +28,7 @@ pub mod interior;
 pub mod louvres;
 pub mod pools;
 pub mod time;
+pub mod town;
 pub mod traffic;
 pub mod transit;
 pub mod walkers;

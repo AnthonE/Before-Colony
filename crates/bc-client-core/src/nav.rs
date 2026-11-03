@@ -459,17 +459,20 @@ impl Course {
 struct Obstacles {
     /// Each landmark's pose, shape and reach.
     landmarks: Vec<(bc_sim::bodies::BodyPose, bc_sim::bodies::Shape, f32)>,
+    /// Whether each is the colony's (the hub's drum, the spokes): the ring's own waypoints go round it.
+    colony: Vec<bool>,
 }
 
 impl Obstacles {
     fn new(bodies: &BodySet, t: f64) -> Self {
-        let landmarks = (0..bodies.landmarks().len() as u8)
+        let (landmarks, colony) = (0..bodies.landmarks().len() as u8)
             .filter_map(|k| {
                 let b = Body::Landmark(k);
-                Some((bodies.pose_at(b, t)?, bodies.shape(b)?, bodies.landmarks()[usize::from(k)].bound))
+                let def = &bodies.landmarks()[usize::from(k)];
+                Some(((bodies.pose_at(b, t)?, bodies.shape(b)?, def.bound), def.colony))
             })
-            .collect();
-        Self { landmarks }
+            .unzip();
+        Self { landmarks, colony }
     }
 
     /// How far `p` is off landmark `k`'s surface, m.
@@ -530,7 +533,7 @@ impl Obstacles {
 
     /// The points a course may turn at: a ring round the colony at three stations along its axis
     /// (beyond the hub's mouth, over the ring's middle and beyond its far side), and fourteen round
-    /// each landmark (along its axes and its diagonals; the docking hub's among them). Past the
+    /// each landmark but the colony's (along its axes and its diagonals). Past the
     /// mouth, the dock is between the drum and the ring of points: a suit coming in to it from one
     /// overshoots away from the drum, not into it.
     fn waypoints(&self) -> Vec<Vec3> {
@@ -542,7 +545,8 @@ impl Obstacles {
                 out.push(COLONY_CENTER + Vec3::new(x, r * a.cos(), r * a.sin()));
             }
         }
-        for (pose, _, bound) in &self.landmarks {
+        // (Not round the colony's own: they're in its hole, which the ring's points go round.)
+        for ((pose, _, bound), _) in self.landmarks.iter().zip(&self.colony).filter(|(_, c)| !**c) {
             let d = bound + LANDMARK_CLEAR;
             let diag = d / 3f32.sqrt() * 1.15;
             for v in [Vec3::X, -Vec3::X, Vec3::Y, -Vec3::Y, Vec3::Z, -Vec3::Z] {
@@ -958,11 +962,11 @@ mod tests {
         let cases = [
             // Over the ring to beneath it, through its rim.
             (
-                COLONY_CENTER + Vec3::new(100.0, 2_500.0, 0.0),
-                COLONY_CENTER + Vec3::new(-100.0, -2_500.0, 200.0),
+                COLONY_CENTER + Vec3::new(100.0, COLONY_RADIUS + 1_500.0, 0.0),
+                COLONY_CENTER + Vec3::new(-100.0, -COLONY_RADIUS - 1_500.0, 200.0),
             ),
             // Along its axis, through the hub in its hole.
-            (COLONY_CENTER + Vec3::new(-3_000.0, 50.0, 0.0), COLONY_CENTER + Vec3::new(3_000.0, 0.0, 40.0)),
+            (COLONY_CENTER + Vec3::new(-3_500.0, 50.0, 0.0), COLONY_CENTER + Vec3::new(3_500.0, 0.0, 40.0)),
             // The field to the dock, round the −X end.
             (Vec3::new(-4_000.0, 800.0, -3_000.0), DOCK_CENTER),
             // Through Hermit, and through Fornax.

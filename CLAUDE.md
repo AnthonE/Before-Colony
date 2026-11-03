@@ -7,7 +7,8 @@ surveys what players of similar games expect of the controls (read it before cha
 `docs/PEERS.md` is what the nearest games teach us, with priorities (read it before adding a system players will
 compare with theirs), and `docs/ROADMAP.md` how each is built;
 `docs/STORY.md` is the world bible (setting, factions, eras, voice, and the secret it shares with Gates: read it before writing in-game text; every name is the game's own, never another franchise's: its "Voice and naming");
-`docs/RING.md` is the plan of record for the First Colony as a 1 km ring, Gundam Wing's look in our own designs (painted anime, the base in the hub, buildings from Gates' pieces): it supersedes the cylinder of `COLONY.md` and `COLONY_LOOK.md` where they disagree, so read it before touching the colony;
+`docs/FREE_ROAM.md` is the plan of record for the turn to free roam (a town at GTA's scale on a 3 km ring, a new pilot starting on foot in it, the station language's panels everywhere, and the infrastructure for crowds, traffic and the Watch: read it before touching the ring, the town, its people or its police; where it and `RING.md` disagree it wins);
+`docs/RING.md` is the plan of record for the First Colony as a ring, Gundam Wing's look in our own designs (painted anime, the base in the hub, buildings from Gates' pieces): it supersedes the cylinder of `COLONY.md` and `COLONY_LOOK.md` where they disagree, so read it before touching the colony;
 `docs/OPEN_CITY.md` is the open city (homes at real addresses, not instanced, on Rust's rules taken from Gates; then the street in the
 tick, cars you own, heat and the Watch, intrusion, raids, businesses: read it before touching homes, crime or the street);
 `docs/FLOOR.md` is the Exchange floor seen from the Elo Pros store (one room, two clients: read it before touching the floor or `/floor.json`);
@@ -45,6 +46,11 @@ travels in the command as `bc_proto::LockOn`, so prediction stays exact); the sh
   `bc_client_core::station`'s, which also hold its derivatives above its surface branch and none in `anime.wgsl`
   (`bc::anime`, the painted look the hull and station shaders share). In `city.wgsl` every derivative is taken at the top
   of `fragment()`, before the surface branch (WebGPU rejects them under it; naga doesn't catch it).
+- The ring's town (`bc_sim::colony::town`, `docs/FREE_ROAM.md`: its districts, streets, blocks, buildings, lifts'
+  feet and the canal's railings) is a closed form of where you ask too, deterministic and allocation-free
+  (`TOWN_GOLDEN`, `no_alloc`); nothing of it is stored or sent, `deck::solid` asks it for the ring's deck, and a
+  layout change bumps `content::town::TOWN_VERSION` with the protocol. `cargo run -q -p bc-sim --example
+  town_map -- [m_per_px] [t0] [t1] > town.ppm` draws its plan from above.
 - The Corona's Ward (`sim::ward`) stops hostile beams where they cross into its field: the tick keeps the fields
   standing in a fixed list (`MAX_WARDS`), and the client stops a beam at a field its SPECIAL flag shows, alike
   (`bc_sim::collide::sphere_entry`).

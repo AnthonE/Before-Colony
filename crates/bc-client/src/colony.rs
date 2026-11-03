@@ -1,5 +1,5 @@
-//! The First Colony from outside: a ring 2 km across and 600 m wide (`docs/RING.md`), turning once a
-//! minute for 1 g at its floor, drawn after the angular colonies of the 1990s anime its owner chose
+//! The First Colony from outside: a ring 6 km across and 2 km wide (`docs/FREE_ROAM.md`), turning once
+//! in 110 s for 1 g at its floor, drawn after the angular colonies of the 1990s anime its owner chose
 //! for it. Its hull is flat slabs round the rim with dark seams between them, ruled with rows of small
 //! lights; its ceiling, facing the hole, is the window lattice, glowing with the town's day. In the
 //! hole the docking hub's drum stands forward of the ring (−X), the pilots' bays round its face; the
@@ -7,15 +7,16 @@
 //! spine open with the colony's day (`bc_sim::colony::time`) to throw the sun in.
 //!
 //! It turns on the simulation's clock (`bc_sim::world::colony_spin_angle`) at the view clock's
-//! time, and its day runs on the same clock, so every client draws it at the same angle and hour.
-//! Collision stays the simulation's still ring and hub (`bc_sim::world`, the hub landmark), which
-//! don't care that the visual one spins.
+//! time, and its day runs on the same clock, so every client draws it at the same angle and hour. The
+//! drum and its bays turn faster, on their own bearing (`bc_sim::colony::hub::hub_spin_angle`).
+//! Collision stays the simulation's still ring (`bc_sim::world`) and the hub's and spokes' landmarks,
+//! which don't care that the visual ones spin.
 
 use std::f32::consts::TAU;
 
 use bc_sim::colony::hub::{
     BAY_DOOR_X, BAY_RADIUS, BAYS, DECK_HATCH_RADIUS, DRUM_RADIUS, DRUM_X, MOUTH_X, SPINE_RADIUS, SPINE_X,
-    SPOKE_RADIUS, SPOKES, spoke_angle,
+    SPOKE_RADIUS, SPOKES, hub_spin_angle, spoke_angle,
 };
 use bc_sim::colony::louvres::{LOUVRE_LENGTH, LOUVRE_THICKNESS, LOUVRE_WIDTH, LOUVRES, Louvre};
 use bc_sim::colony::time::{Day, day};
@@ -70,12 +71,16 @@ pub fn atlas_image() -> Image {
 #[derive(Component)]
 pub struct BayDoor(pub u8);
 
-/// The spinning part of the colony (everything visual), and the ceiling's glass, which glows with
-/// the town's day.
+/// The spinning part of the colony (the ring, its spokes and louvres), and the ceiling's glass,
+/// which glows with the town's day.
 #[derive(Component)]
 struct ColonyRoot {
     glass: Handle<StandardMaterial>,
 }
+
+/// The docking hub's drum and its bays, turning on their own bearing.
+#[derive(Component)]
+struct HubRoot;
 
 /// A bay's floods, lit while its door stands open: the drum's face looks away from the sun, and a
 /// suit thrown out of it was a black shape against the ceiling's glass.
@@ -103,7 +108,7 @@ impl Default for ColonyDay {
 }
 
 /// Facets round the rim: the hull's slabs, flat, with seams where they meet.
-const FACETS: u32 = 48;
+const FACETS: u32 = 96;
 /// The ceiling's frames: across the ring every this many metres of x.
 const CEILING_BAY: f32 = 100.0;
 /// How far a chamfer cuts the hull's corners, m.
@@ -313,9 +318,9 @@ fn glass_mesh() -> Mesh {
     m
 }
 
-/// The docking hub: the drum (a thick, chamfered disc, faceted), the spine, the spokes as slabs out
-/// to the ceiling, and the deck hatch in the middle of the mouth.
-fn hub_kit() -> Kit {
+/// The docking hub's drum (a thick, chamfered disc, faceted), and the deck hatch in the middle of the
+/// mouth.
+fn drum_kit() -> Kit {
     let mut k = Kit::default();
     let (x0, x1) = DRUM_X;
     let (r, c) = (DRUM_RADIUS, 30.0);
@@ -339,6 +344,12 @@ fn hub_kit() -> Kit {
             painted(if f % 3 == 0 { paint::HULL_DARK } else { paint::HULL }),
         );
     }
+    k
+}
+
+/// The spine, and the spokes as slabs out to the ceiling, turning with the ring.
+fn spokes_kit() -> Kit {
+    let mut k = Kit::default();
     // The spine, through the hole to the ring's far side.
     k.lathe(
         &[
@@ -410,36 +421,20 @@ pub fn setup_colony(
     let beacon_mesh = meshes.add(Sphere::new(5.0).mesh().ico(1).expect("icosphere"));
     let cube = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
 
-    let root = commands
-        .spawn((Transform::from_translation(COLONY_CENTER), Visibility::default()))
+    // The drum and its bays, on their own bearing.
+    commands
+        .spawn((Transform::from_translation(COLONY_CENTER), Visibility::default(), HubRoot))
         .with_children(|c| {
-            for (kit, seed) in [(hull_kit(), 1u8), (lattice_kit(), 2), (hub_kit(), 3)] {
-                c.spawn((
-                    Mesh3d(meshes.add(kit.mesh())),
-                    MeshMaterial3d(surfaces.colony.clone()),
-                    hull(paint::HULL, seed),
-                    NotShadowCaster,
-                ));
-            }
-            c.spawn((Mesh3d(meshes.add(glass_mesh())), MeshMaterial3d(glass.clone()), NotShadowCaster));
-            // The louvres, opening with the day.
-            let noon = day(0, 0.0).mirror_beta;
-            for k in 0..LOUVRES {
-                c.spawn((
-                    Mesh3d(cube.clone()),
-                    MeshMaterial3d(surfaces.mirror.clone()),
-                    HullTag::paint(paint::MIRROR, 60 + (k % 64) as u8).tag(),
-                    louvre_transform(k, noon),
-                    LouvrePlate(k),
-                    NotShadowCaster,
-                ));
-            }
+            c.spawn((
+                Mesh3d(meshes.add(drum_kit().mesh())),
+                MeshMaterial3d(surfaces.colony.clone()),
+                hull(paint::HULL, 3),
+                NotShadowCaster,
+            ));
             // The bays' doors round the mouth, each a dark slab with lamps at its corners.
             let amber = Vec3::new(1.0, 0.55, 0.12) * 3.4;
             let lamp = Vec3::new(0.75, 1.0, 0.82) * 2.4;
             let green = Vec3::new(0.35, 1.0, 0.45) * 2.6;
-            let warm = Vec3::new(1.0, 0.82, 0.55) * 2.6;
-            let red = Vec3::new(1.0, 0.12, 0.06) * 5.0;
             let mut lamps = Dots::default();
             for b in 0..BAYS {
                 let a = TAU * b as f32 / BAYS as f32;
@@ -477,6 +472,42 @@ pub fn setup_colony(
             lamps.ring(MOUTH_X - 2.0, BAY_RADIUS - 30.0, 120, 2.0, lamp);
             lamps.ring(MOUTH_X - 2.0, BAY_RADIUS - 100.0, 96, 1.8, green);
             lamps.ring(DRUM_X.1 + 2.0, DRUM_RADIUS - 40.0, 160, 2.4, lamp);
+            c.spawn((
+                Mesh3d(meshes.add(lamps.mesh())),
+                MeshMaterial3d(dot_material.clone()),
+                NoFrustumCulling,
+            ));
+        });
+
+    let root = commands
+        .spawn((Transform::from_translation(COLONY_CENTER), Visibility::default()))
+        .with_children(|c| {
+            for (kit, seed) in [(hull_kit(), 1u8), (lattice_kit(), 2), (spokes_kit(), 3)] {
+                c.spawn((
+                    Mesh3d(meshes.add(kit.mesh())),
+                    MeshMaterial3d(surfaces.colony.clone()),
+                    hull(paint::HULL, seed),
+                    NotShadowCaster,
+                ));
+            }
+            c.spawn((Mesh3d(meshes.add(glass_mesh())), MeshMaterial3d(glass.clone()), NotShadowCaster));
+            // The louvres, opening with the day.
+            let noon = day(0, 0.0).mirror_beta;
+            for k in 0..LOUVRES {
+                c.spawn((
+                    Mesh3d(cube.clone()),
+                    MeshMaterial3d(surfaces.mirror.clone()),
+                    HullTag::paint(paint::MIRROR, 60 + (k % 64) as u8).tag(),
+                    louvre_transform(k, noon),
+                    LouvrePlate(k),
+                    NotShadowCaster,
+                ));
+            }
+            let lamp = Vec3::new(0.75, 1.0, 0.82) * 2.4;
+            let green = Vec3::new(0.35, 1.0, 0.45) * 2.6;
+            let warm = Vec3::new(1.0, 0.82, 0.55) * 2.6;
+            let red = Vec3::new(1.0, 0.12, 0.06) * 5.0;
+            let mut lamps = Dots::default();
             // The spokes' edges, lamps the length of them; a red light where each meets the ceiling.
             for s in 0..SPOKES {
                 let a = spoke_angle(s);
@@ -521,15 +552,15 @@ pub fn setup_colony(
                 }
             }
             for side in [-1.0f32, 1.0] {
-                lamps.ring(side * (h - CHAMFER * 0.5), out - CHAMFER * 0.5 + 2.0, 240, 2.2, lamp);
-                lamps.ring(side * (h + 2.0), inn + 3.0, 180, 2.0, green);
+                lamps.ring(side * (h - CHAMFER * 0.5), out - CHAMFER * 0.5 + 2.0, 720, 2.2, lamp);
+                lamps.ring(side * (h + 2.0), inn + 3.0, 540, 2.0, green);
                 // Rows round the rim ruling its slabs, as the ring's lights run in the references.
                 for x in [h * 0.25, h * 0.75] {
-                    lamps.ring(side * x, out + 6.5, 480, 1.4, lamp * 0.8);
+                    lamps.ring(side * x, out + 6.5, 1_440, 1.4, lamp * 0.8);
                 }
             }
-            for i in 0..12 {
-                let a = TAU * i as f32 / 12.0;
+            for i in 0..24 {
+                let a = TAU * i as f32 / 24.0;
                 for side in [-1.0f32, 1.0] {
                     c.spawn((
                         Mesh3d(beacon_mesh.clone()),
@@ -569,18 +600,22 @@ pub fn ray_hit(origin: Vec3, dir: Vec3) -> Option<f32> {
     bc_sim::world::colony_sweep(origin, origin + dir * REACH, 0.0).map(|f| f * REACH)
 }
 
-/// Turns the colony as the simulation has it at the view clock's time, keeps its hour, and lights
-/// the ceiling's glass with the town's day.
+/// Turns the colony as the simulation has it at the view clock's time (the ring, and the drum on its
+/// bearing), keeps its hour, and lights the ceiling's glass with the town's day.
 fn spin(
     bodies: Res<DrawnBodies>,
     mut hour: ResMut<ColonyDay>,
-    mut roots: Query<(&ColonyRoot, &mut Transform)>,
+    mut roots: Query<(&ColonyRoot, &mut Transform), Without<HubRoot>>,
+    mut hubs: Query<&mut Transform, With<HubRoot>>,
     mut standard: ResMut<Assets<StandardMaterial>>,
 ) {
     let t = bodies.t.max(0.0);
     let (tick, frac) = (t.floor() as u32, (t - t.floor()) as f32);
     let angle = colony_spin_angle(tick, frac);
     hour.0 = day(tick, frac);
+    for mut tf in &mut hubs {
+        tf.rotation = Quat::from_rotation_x(hub_spin_angle(tick, frac));
+    }
     for (root, mut tf) in &mut roots {
         tf.rotation = Quat::from_rotation_x(angle);
         if let Some(mut m) = standard.get_mut(&root.glass) {

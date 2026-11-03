@@ -21,6 +21,7 @@ pub mod salvage;
 pub mod specials;
 pub mod stagger;
 pub mod systems;
+pub mod town;
 mod weapons;
 
 pub use frames::{

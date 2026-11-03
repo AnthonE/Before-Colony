@@ -1595,7 +1595,7 @@ fn hall_golden_wasm() {
 /// Hash of the base's buildings (`bc_sim::pieces`, `content::base`): every solid each one stands as
 /// on its deck, the deck's pull, and a walker going in at the test hall's door, to its counter, up
 /// its stairs and down them again, on the base's deck at 0.4 g.
-const PIECES_GOLDEN: u64 = 0x2f3d_9b7a_6297_381f;
+const PIECES_GOLDEN: u64 = 0x8573_1fd9_9ea4_9c5f;
 
 fn pieces_hash() -> u64 {
     use bc_sim::colony::deck::{BASE, DeckPos, gravity};
@@ -1662,4 +1662,64 @@ fn pieces_golden_native() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 fn pieces_golden_wasm() {
     assert_eq!(pieces_hash(), PIECES_GOLDEN);
+}
+
+/// Hash of the ring's town (`colony::town`, `docs/FREE_ROAM.md`): every box it stands as round the
+/// whole ring (blocks, lifts' feet, the canal's railings), what stands on every block, and the floor
+/// across the ring every few metres round Hub Gate.
+const TOWN_GOLDEN: u64 = 0x6276_05cb_2919_9b35;
+
+fn town_hash() -> u64 {
+    use bc_sim::colony::town::{self, BlockId, BlockUse, CELLS, COLUMNS, Ground, ROUND};
+    use bc_sim::world::COLONY_HALF_WIDTH;
+
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    town::each_box(-COLONY_HALF_WIDTH, COLONY_HALF_WIDTH, 0.0, ROUND, &mut |b| {
+        for v in [b.x0, b.x1, b.t0, b.t1, b.h0, b.h1] {
+            fnv(&mut h, v.to_bits());
+        }
+    });
+    for cell in 0..CELLS {
+        for c in 0..COLUMNS {
+            let u = match town::block_use(BlockId::new(cell, c)) {
+                BlockUse::Built => 0,
+                BlockUse::Park => 1,
+                BlockUse::Square => 2,
+                BlockUse::Place(p) => 3 + p as u32,
+                BlockUse::Frames => 9,
+            };
+            fnv(&mut h, u);
+        }
+    }
+    for j in 0..400 {
+        let t = -1_000.0 + j as f32 * 5.0;
+        for i in 0..100 {
+            let x = -COLONY_HALF_WIDTH + i as f32 * 20.0 + 3.0;
+            let g = match town::ground_at(x, t) {
+                Ground::Block(id) => u32::from(id.cell) << 8 | u32::from(id.column),
+                Ground::Road => 1 << 20,
+                Ground::Median => 2 << 20,
+                Ground::Pavement => 3 << 20,
+                Ground::Water => 4 << 20,
+                Ground::RimWalk => 5 << 20,
+                Ground::Outside => 6 << 20,
+            };
+            fnv(&mut h, g);
+        }
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn town_golden_native() {
+    let h = town_hash();
+    assert_eq!(h, town_hash(), "must be reproducible within a process");
+    assert_eq!(h, TOWN_GOLDEN, "the town's hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn town_golden_wasm() {
+    assert_eq!(town_hash(), TOWN_GOLDEN);
 }

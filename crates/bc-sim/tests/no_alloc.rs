@@ -813,3 +813,30 @@ fn the_decks_and_their_buildings_answer_without_allocating() {
     assert!(hits > 1_000, "only {hits} boxes met the hall");
     assert_eq!(n, 0, "heap operations on the decks: {n}");
 }
+
+#[test]
+fn the_town_answers_without_allocating() {
+    use bc_sim::colony::deck::{RING, solid};
+    use bc_sim::colony::town::{self, BlockId, CELLS, COLUMNS, HUB_GATE_S, ROUND};
+    use glam::Vec3;
+    let mut rng = bc_sim::math::Rng::new(13);
+    let (mut hits, mut boxes) = (0u32, 0u32);
+    let ((), n) = bc_alloc::count(|| {
+        // Walkers' boxes all round the ring (some astride Hub Gate), what the floor is, and every
+        // block's buildings.
+        for k in 0..100_000 {
+            let s = if k % 4 == 0 { HUB_GATE_S + rng.signed() * 50.0 } else { rng.next_f32() * ROUND };
+            let x = rng.signed() * 990.0;
+            let p = Vec3::new(x, rng.next_f32() * 20.0, -s);
+            hits += u32::from(solid(RING, p, p + Vec3::new(0.6, 1.8, 0.6)));
+            let _ = town::ground_at(x, town::town_t(s));
+        }
+        for cell in 0..CELLS {
+            for c in 0..COLUMNS {
+                town::each_block_box(BlockId::new(cell, c), &mut |_| boxes += 1);
+            }
+        }
+    });
+    assert!(hits > 5_000 && boxes > 3_000, "{hits} hits, {boxes} boxes");
+    assert_eq!(n, 0, "heap operations in the town: {n}");
+}

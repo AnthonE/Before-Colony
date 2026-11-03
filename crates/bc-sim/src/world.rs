@@ -1,7 +1,7 @@
 //! Static sector geometry: the sector box and the First Colony, a ring (`docs/RING.md`). Shared by
 //! the server and the client's prediction, so suits bounce off the colony identically on both.
 //!
-//! The ring spins for gravity inside, but not in the simulation: its rim moves at 99 m/s, far too
+//! The ring spins for gravity inside, but not in the simulation: its rim moves at 171 m/s, far too
 //! fast to walk on or to predict riding, so to suits and shots it is a still, solid ring: a hollow
 //! cylinder about the axis, between its ceiling ([`COLONY_INNER_RADIUS`]) and its floor
 //! ([`COLONY_RADIUS`]), [`COLONY_HALF_WIDTH`] either side of its middle. Its hub and spokes, in the
@@ -16,22 +16,23 @@ use crate::config::SECTOR_LIMIT;
 use crate::flight::FlightState;
 use crate::math::{normalize_or, sqrt};
 
-/// The First Colony's middle: on its axis (along X), below the combat zone, where the docking hub
-/// has always been.
-pub const COLONY_CENTER: Vec3 = Vec3::new(-16_250.0, -4_200.0, 0.0);
-/// The ring's floor (and its hull, outside), m from the axis.
-pub const COLONY_RADIUS: f32 = 1_000.0;
-/// The ring's ceiling, the window lattice the light falls through, m from the axis.
-pub const COLONY_INNER_RADIUS: f32 = 700.0;
+/// The First Colony's middle: on its axis (along X), below the combat zone. The docking hub stands
+/// forward of it (−X) where it has always been, at x −16,900 to −16,600 (`colony::hub`), so the ring's
+/// middle is half its width and the hub's gap further on (`docs/FREE_ROAM.md`).
+pub const COLONY_CENTER: Vec3 = Vec3::new(-15_550.0, -4_200.0, 0.0);
+/// The ring's floor (and its hull, outside), m from the axis: the town's (`docs/FREE_ROAM.md`).
+pub const COLONY_RADIUS: f32 = 3_000.0;
+/// The ring's ceiling, the window lattice the light falls through, m from the axis: 500 m up.
+pub const COLONY_INNER_RADIUS: f32 = 2_500.0;
 /// Half the ring's width along the axis, m.
-pub const COLONY_HALF_WIDTH: f32 = 300.0;
+pub const COLONY_HALF_WIDTH: f32 = 1_000.0;
 /// The farthest any of the ring is from its middle, m (its rim's corners).
-pub const COLONY_REACH: f32 = 1_044.1;
+pub const COLONY_REACH: f32 = 3_162.3;
 /// Hull clearance for suits, m.
 const HULL_MARGIN: f32 = 12.0;
-/// The colony turns once every this many ticks (63.4 s): 1 g at its floor (1.0005 g), which moves
-/// at 99 m/s.
-pub const COLONY_SPIN_PERIOD_TICKS: u32 = 1_903;
+/// The ring turns once every this many ticks (109.9 s): 1 g at its floor (0.9999 g), which moves
+/// at 171 m/s. The docking hub's drum turns faster on its own bearing (`colony::hub`).
+pub const COLONY_SPIN_PERIOD_TICKS: u32 = 3_297;
 /// How fast the colony turns about its axis, rad/s.
 pub const SPIN_RATE: f32 = TAU / (COLONY_SPIN_PERIOD_TICKS as f32 * crate::config::DT);
 
@@ -111,7 +112,7 @@ pub fn hull_contact(p: Vec3, r: f32) -> Option<(Vec3, Vec3)> {
 
 /// Up, anywhere in space: +Y, the sector's own. A fight locked on (`bc_proto::LockOn`) takes it for
 /// its ground, so the two pilots in it share one, and so does the upright view of the default
-/// controls. (The cylinder that went before had sides to stand over; a 1 km ring 16 km from the
+/// controls. (The cylinder that went before had sides to stand over; a 3 km ring 16 km from the
 /// field has none worth it: `docs/RING.md`.)
 pub fn up_at(_p: Vec3) -> Vec3 {
     Vec3::Y
@@ -219,7 +220,7 @@ mod tests {
         let w = TAU / (COLONY_SPIN_PERIOD_TICKS as f32 * DT);
         let g = w * w * COLONY_RADIUS / G0;
         assert!((g - 1.0).abs() < 1e-3, "{g} g at the floor");
-        assert!((w * COLONY_RADIUS - 99.0).abs() < 0.5, "the rim moves at {} m/s", w * COLONY_RADIUS);
+        assert!((w * COLONY_RADIUS - 171.5).abs() < 0.5, "the rim moves at {} m/s", w * COLONY_RADIUS);
         assert!((SPIN_RATE - w).abs() < 1e-7);
         // Whole ticks modulo the period: no drift, and the fraction runs on into the next tick.
         assert_eq!(colony_spin_angle(0, 0.0), 0.0);
@@ -248,7 +249,11 @@ mod tests {
         let mut inside = 0;
         for _ in 0..20_000 {
             let p = COLONY_CENTER
-                + Vec3::new(rng.signed() * 1_500.0, rng.signed() * 1_600.0, rng.signed() * 1_600.0);
+                + Vec3::new(
+                    rng.signed() * (COLONY_HALF_WIDTH + 500.0),
+                    rng.signed() * (COLONY_RADIUS + 600.0),
+                    rng.signed() * (COLONY_RADIUS + 600.0),
+                );
             let (at, n) = colony_surface(p);
             let c = colony_clearance(p);
             assert!(colony_clearance(at).abs() < 0.05, "{p}: {at} is {} off", colony_clearance(at));
@@ -270,12 +275,13 @@ mod tests {
     #[test]
     fn a_suit_is_pushed_out_through_the_nearest_face() {
         let c = COLONY_CENTER;
+        let mid = (COLONY_RADIUS + COLONY_INNER_RADIUS) * 0.5;
         // Just under the hull, the ceiling, a side: out each way.
         for (p, want) in [
             (c + Vec3::new(10.0, COLONY_RADIUS - 2.0, 0.0), Vec3::Y),
             (c + Vec3::new(10.0, 0.0, -(COLONY_INNER_RADIUS + 2.0)), Vec3::Z),
-            (c + Vec3::new(COLONY_HALF_WIDTH - 1.0, 850.0, 0.0), Vec3::X),
-            (c + Vec3::new(-COLONY_HALF_WIDTH + 1.0, -850.0, 0.0), -Vec3::X),
+            (c + Vec3::new(COLONY_HALF_WIDTH - 1.0, mid, 0.0), Vec3::X),
+            (c + Vec3::new(-COLONY_HALF_WIDTH + 1.0, -mid, 0.0), -Vec3::X),
         ] {
             let (at, n) = hull_contact(p, HULL_MARGIN).expect("in it");
             assert!(n.angle_between(want) < 1e-4, "{p}: {n}");
@@ -283,8 +289,8 @@ mod tests {
         }
         // In the hole, and well clear of it, nothing.
         assert!(hull_contact(c, HULL_MARGIN).is_none());
-        assert!(hull_contact(c + Vec3::Y * 1_200.0, HULL_MARGIN).is_none());
-        assert!(hull_contact(c + Vec3::new(400.0, 850.0, 0.0), HULL_MARGIN).is_none());
+        assert!(hull_contact(c + Vec3::Y * (COLONY_RADIUS + 200.0), HULL_MARGIN).is_none());
+        assert!(hull_contact(c + Vec3::new(COLONY_HALF_WIDTH + 100.0, mid, 0.0), HULL_MARGIN).is_none());
     }
 
     /// Whether `q` is in the ring grown by `r` (in f64).
@@ -360,7 +366,7 @@ mod tests {
                 3 => {
                     let a = around(u * h * 0.9, v * inn * 0.9, k0);
                     let to = around(u * h * 0.9 + w * 150.0, rad, k1);
-                    (a, a + normalize_or(to - a, Vec3::Y) * (far + 300.0))
+                    (a, a + normalize_or(to - a, Vec3::Y) * (far + inn))
                 }
                 // Grazing the hull: a chord passing within half a metre of it, either side.
                 _ => {

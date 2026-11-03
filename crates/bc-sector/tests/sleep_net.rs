@@ -149,7 +149,7 @@ fn sleepers_cleared_for_room_are_reported() {
 #[test]
 fn suits_on_bodies_are_counted_and_the_welcome_names_the_landmarks() {
     let (mut sector, shared) = sector(16);
-    assert_eq!(shared.landmarks, 3, "Fornax, Hermit and the docking hub");
+    assert_eq!(shared.landmarks, 4, "Fornax, Hermit, the docking hub and the spokes");
     send(&mut sector, &shared, 0, join(0, Comeback::default()));
     let (idx, generation) = shared.slots[0].suit_id().unwrap();
     // Standing on Hermit (out of its hide spots) as its pilot leaves: parked on its feet.
@@ -166,7 +166,7 @@ fn suits_on_bodies_are_counted_and_the_welcome_names_the_landmarks() {
     assert_eq!((count(&m.grounded), count(&m.hidden), count(&m.sleepers_hidden)), (1, 1, 1), "dark");
 
     // A sector of fewer landmarks says so; one asking for more than there are has them all.
-    for (asked, has) in [(0, 0), (1, 1), (9, 3)] {
+    for (asked, has) in [(0, 0), (1, 1), (9, 4)] {
         let cfg = SectorConfig {
             sim: SimConfig { target_drones: 0, field_rocks: 0, landmarks: asked, ..SimConfig::default() },
             max_clients: 1,
