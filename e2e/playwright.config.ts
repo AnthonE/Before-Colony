@@ -4,6 +4,8 @@ import { defineConfig } from "@playwright/test";
 // In the dev container Chromium comes from /opt/pw-browsers (PLAYWRIGHT_BROWSERS_PATH); never
 // `playwright install` there. The nightly CI job (.github/workflows/e2e.yml) installs its own.
 const common = ["--no-proxy-server", "--autoplay-policy=no-user-gesture-required"];
+// A Chromium of another build than this Playwright's (a container's pre-installed one, say).
+const chromium = process.env.BC_CHROMIUM ? { executablePath: process.env.BC_CHROMIUM } : {};
 
 export default defineConfig({
   testDir: "./tests",
@@ -24,6 +26,7 @@ export default defineConfig({
       use: {
         browserName: "chromium",
         launchOptions: {
+          ...chromium,
           args: [...common, "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
         },
       },
