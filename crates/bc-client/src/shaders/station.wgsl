@@ -362,9 +362,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         albedo *= 1.0 - 0.3 * joints(uv, size, joint, fw);
         rough = 0.82;
     } else if (surface == GRASS) {
-        let patch = hash2(floor(uv * 0.35) + vec2(seed));
+        let clump = hash2(floor(uv * 0.35) + vec2(seed));
         let blade = hash2(floor(uv * 6.0) + vec2(seed * 0.5));
-        albedo = vec3(0.075, 0.14, 0.05) * (0.9 + 0.12 * patch + 0.06 * blade);
+        albedo = vec3(0.075, 0.14, 0.05) * (0.9 + 0.12 * clump + 0.06 * blade);
         rough = 0.92;
     } else if (surface == WATER) {
         albedo = vec3(0.02, 0.07, 0.08);

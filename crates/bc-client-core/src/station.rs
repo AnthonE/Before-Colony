@@ -361,6 +361,84 @@ mod tests {
         }
     }
 
+    /// No name in the shaders is one of WGSL's reserved words (naga in the browser refuses it; nothing
+    /// natively compiles the shader to catch it). The words a shader's names are likeliest to be.
+    #[test]
+    fn no_name_in_the_shaders_is_reserved() {
+        const RESERVED: &[&str] = &[
+            "patch",
+            "filter",
+            "sample",
+            "shared",
+            "target",
+            "precision",
+            "input",
+            "output",
+            "buffer",
+            "texture",
+            "packoffset",
+            "layout",
+            "attribute",
+            "varying",
+            "uniform",
+            "static",
+            "module",
+            "mutable",
+            "handle",
+            "common",
+            "new",
+            "null",
+            "self",
+            "super",
+            "this",
+            "typeof",
+            "type",
+            "inline",
+            "interface",
+            "external",
+            "unless",
+            "where",
+            "with",
+            "yield",
+            "macro",
+            "match",
+            "move",
+            "namespace",
+            "noexcept",
+            "operator",
+            "private",
+            "public",
+            "protected",
+            "auto",
+            "await",
+            "become",
+            "cast",
+            "catch",
+            "class",
+            "concept",
+            "const_cast",
+            "constexpr",
+            "cbuffer",
+        ];
+        for (name, src) in [("station.wgsl", SHADER), ("anime.wgsl", ANIME)] {
+            for line in src.lines().map(|l| l.split("//").next().unwrap_or("")) {
+                for word in ["let ", "var ", "fn ", "const "] {
+                    for part in line.split(word).skip(1) {
+                        let ident: String = part
+                            .trim_start()
+                            .chars()
+                            .take_while(|c| c.is_alphanumeric() || *c == '_')
+                            .collect();
+                        assert!(
+                            !RESERVED.contains(&ident.as_str()),
+                            "{name}: `{ident}` is reserved in WGSL: {line}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// Each scale's numbers make sense as a wall's: the kick under the band, the band inside a
     /// storey (or a suit's deck), the stripes and collar a whole number of panels or less.
     #[test]
