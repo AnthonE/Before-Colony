@@ -19,7 +19,7 @@
 use bc_client_core::ring_deck::{self, DECK_ORIGIN, Layout};
 use bc_client_core::station::{GLYPHS, PAINT, PAINTS, Scale, Sign, lay_out};
 use bc_sim::TICK_HZ;
-use bc_sim::world::colony_spin_angle;
+use bc_sim::colony::hub::hub_spin_angle;
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{RenderTarget, ScalingMode};
@@ -431,14 +431,14 @@ fn hang_deck_signs(
     deck.hung = true;
 }
 
-/// While the deck's shown, the sky turns as the colony does (about its axis, x), Earth
+/// While the deck's shown, the sky turns as the drum does (about the colony's axis, x), Earth
 /// passing under the rail once a turn, and is dimmed to the deck's exposure; elsewhere it's as it
 /// was.
 fn turn_sky(time: Res<VisTime>, indoors: Res<Indoors>, set: Res<IndoorSet>, mut sky: ResMut<SkyTurn>) {
     let want = if indoors.0 && *set == IndoorSet::Deck {
         let ticks = time.now.max(0.0) * f64::from(TICK_HZ);
         let spin =
-            colony_spin_angle((ticks.floor() as u64 % u64::from(u32::MAX)) as u32, ticks.fract() as f32);
+            hub_spin_angle((ticks.floor() as u64 % u64::from(u32::MAX)) as u32, ticks.fract() as f32);
         // At no turn, Earth straight down through the glass and aft (the most of it through it).
         let phase = EARTH_DIR.z.atan2(-EARTH_DIR.y);
         SkyTurn { turn: Quat::from_rotation_x(phase - spin), gain: SKY_GAIN }

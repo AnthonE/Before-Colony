@@ -14,13 +14,13 @@ use crate::math::{cos, sin};
 /// Plates round the spine.
 pub const LOUVRES: u32 = 24;
 /// Where each plate's middle is: along the axis, and out from it, m (colony frame).
-pub const LOUVRE_X: f32 = 160.0;
-pub const LOUVRE_R: f32 = 420.0;
+pub const LOUVRE_X: f32 = 480.0;
+pub const LOUVRE_R: f32 = 1_260.0;
 /// Along a plate (across the sunlight when it's open), m.
-pub const LOUVRE_LENGTH: f32 = 260.0;
+pub const LOUVRE_LENGTH: f32 = 780.0;
 /// Round the axis, m.
-pub const LOUVRE_WIDTH: f32 = 100.0;
-pub const LOUVRE_THICKNESS: f32 = 3.0;
+pub const LOUVRE_WIDTH: f32 = 300.0;
+pub const LOUVRE_THICKNESS: f32 = 6.0;
 
 /// Plate `k` opened `beta`, in the colony's own frame.
 #[derive(Clone, Copy, Debug, PartialEq)]

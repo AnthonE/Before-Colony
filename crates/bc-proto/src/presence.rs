@@ -464,7 +464,7 @@ mod tests {
     #[test]
     fn the_base_deck_is_a_floor_poses_and_the_plaza_carry() {
         // Bay Row, by bay 1's airlock: x along the axis, s round the deck.
-        let on_deck = PersonPose { strip: BASE_DECK, x: -599.5, s: 1_256.6, h: 0.0, ..pose(4) };
+        let on_deck = PersonPose { strip: BASE_DECK, x: -1_299.5, s: 1_256.6, h: 0.0, ..pose(4) };
         let mut buf = [0u8; 64];
         let n = PosePacket { seq: 9, pose: on_deck }.encode(&mut buf).unwrap();
         let q = PosePacket::decode(&buf[..n]).unwrap();

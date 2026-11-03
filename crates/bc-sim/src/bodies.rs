@@ -1481,8 +1481,9 @@ mod tests {
             b.grippable(Body::Landmark(0))
                 && b.grippable(Body::Landmark(1))
                 && b.grippable(Body::Landmark(2))
+                && b.grippable(Body::Landmark(3))
         );
-        assert!(b.pose(Body::Landmark(3)).is_none() && !b.alive(Body::Landmark(3)));
+        assert!(b.pose(Body::Landmark(4)).is_none() && !b.alive(Body::Landmark(4)));
         // A shattered rock is gone, but still posed (the seed says where it was).
         field.set_dead(0, true);
         let b = Bodies::at(&field, &LANDMARKS, 0);
@@ -1612,7 +1613,7 @@ mod tests {
         }
         assert!(
             b.surface_along(Body::None, Vec3::Y).is_none()
-                && b.surface_along(Body::Landmark(3), Vec3::Y).is_none()
+                && b.surface_along(Body::Landmark(4), Vec3::Y).is_none()
         );
         // Any way out, on the surface, with nothing further out.
         let mut rng = Rng::new(5);

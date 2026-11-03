@@ -1,8 +1,12 @@
 //! The docking hub on the ring's axis, as built (`docs/RING.md`): the drum standing forward of the
 //! ring (−X), whose forward face is the hub's mouth, with the deck hatch in its middle and the
 //! pilots' bays' doors round it; the spine through the ring's hole to its far side; and six spokes
-//! out to the ring's ceiling. All turn with the colony, and the drum and spine are shapes of
-//! revolution about its axis.
+//! out to the ring's ceiling. The drum and spine are shapes of revolution about the axis.
+//!
+//! The spine and spokes turn with the ring. The drum turns faster, on its own bearing round the spine
+//! (`docs/FREE_ROAM.md`): once in [`HUB_SPIN_PERIOD_TICKS`], so that the bays and the base's deck keep
+//! their 0.4 g though the 3 km ring turns only once in 110 s. To suits the drum is the same solid at
+//! either turn; it is its own landmark, so a suit holding its face turns with it.
 //!
 //! A suit launches from its pilot's own bay: it rides the bay's catapult cradle in the door
 //! ([`Body::Bay`](crate::bodies::Body::Bay), posed by [`bay_pose`]) until its pilot lets go of the
@@ -15,12 +19,23 @@ use glam::{Quat, Vec3};
 
 use crate::bodies::{Base, BodyPose, Prim, Shape};
 use crate::math::{look_rotation, quat_axis_angle};
-use crate::world::{COLONY_CENTER, COLONY_HALF_WIDTH, COLONY_INNER_RADIUS, SPIN_RATE, colony_spin_angle};
+use crate::world::{COLONY_CENTER, COLONY_HALF_WIDTH, COLONY_INNER_RADIUS};
+
+/// The drum turns once every this many ticks (63.4 s) on its bearing: 0.4 g at the bays.
+pub const HUB_SPIN_PERIOD_TICKS: u32 = 1_903;
+/// How fast the drum turns about the colony's axis, rad/s.
+pub const HUB_SPIN_RATE: f32 = core::f32::consts::TAU / (HUB_SPIN_PERIOD_TICKS as f32 * crate::config::DT);
+
+/// How far the drum has turned about the axis at tick `t` plus `frac` of the next, rad: as
+/// `world::colony_spin_angle`, on the drum's own period.
+pub fn hub_spin_angle(t: u32, frac: f32) -> f32 {
+    core::f32::consts::TAU * (((t % HUB_SPIN_PERIOD_TICKS) as f32 + frac) / HUB_SPIN_PERIOD_TICKS as f32)
+}
 
 /// The drum: its radius, and the x of its faces in the colony's frame (its forward face, at
-/// [`DRUM_X`]`.0`, is the hub's mouth).
+/// [`DRUM_X`]`.0`, is the hub's mouth). Its back face is 50 m forward of the ring's.
 pub const DRUM_RADIUS: f32 = 440.0;
-pub const DRUM_X: (f32, f32) = (-650.0, -350.0);
+pub const DRUM_X: (f32, f32) = (-COLONY_HALF_WIDTH - 350.0, -COLONY_HALF_WIDTH - 50.0);
 /// The hub's mouth: the drum's forward face (the dock lies beyond it).
 pub const MOUTH_X: f32 = DRUM_X.0;
 /// The spine, from the drum's back face through the ring's hole to its far side.
@@ -85,13 +100,13 @@ pub fn bay_angle(n: u8) -> f32 {
     core::f32::consts::TAU * f32::from(n.saturating_sub(1)) / BAYS as f32
 }
 
-/// Bay `n`'s frame at tick `t` plus `frac` of the next, turning with the colony: its origin in the
+/// Bay `n`'s frame at tick `t` plus `frac` of the next, turning with the drum: its origin in the
 /// middle of its door's outer face, +X into the drum, +Y outward (the bay's down), +Z the way the
 /// spin carries it. A closed form of the tick, as a landmark's pose is.
 pub fn bay_pose(n: u8, t: u32, frac: f32) -> BodyPose {
-    let rot = quat_axis_angle(Vec3::X, colony_spin_angle(t, frac) + bay_angle(n));
+    let rot = quat_axis_angle(Vec3::X, hub_spin_angle(t, frac) + bay_angle(n));
     let pos = COLONY_CENTER + rot * Vec3::new(BAY_DOOR_X, BAY_RADIUS, 0.0);
-    let ang_vel = Vec3::X * SPIN_RATE;
+    let ang_vel = Vec3::X * HUB_SPIN_RATE;
     BodyPose { pos, rot, vel: ang_vel.cross(pos - COLONY_CENTER), ang_vel, moving: true }
 }
 
@@ -107,18 +122,21 @@ pub const fn bay_shape() -> Shape {
 
 /// What a rider in its bay feels: the deck holding it toward the axis against the spin, m/s².
 pub fn bay_g() -> f32 {
-    SPIN_RATE * SPIN_RATE * BAY_RADIUS
+    HUB_SPIN_RATE * HUB_SPIN_RATE * BAY_RADIUS
 }
 
-/// The hub as one solid, in its own frame (centred on the ring's middle, turning with it): the drum,
-/// the spine, and the spokes (`content::landmarks`' docking hub).
-pub const HUB_PRIMS: [Prim; 8] = [
-    Prim::CylinderX {
-        c: Vec3::new((DRUM_X.0 + DRUM_X.1) * 0.5, 0.0, 0.0),
-        half_len: (DRUM_X.1 - DRUM_X.0) * 0.5,
-        r: DRUM_RADIUS,
-        round: 8.0,
-    },
+/// The drum as a solid, in its own frame (centred on the ring's middle, turning on its bearing):
+/// `content::landmarks`' docking hub.
+pub const DRUM_PRIMS: [Prim; 1] = [Prim::CylinderX {
+    c: Vec3::new((DRUM_X.0 + DRUM_X.1) * 0.5, 0.0, 0.0),
+    half_len: (DRUM_X.1 - DRUM_X.0) * 0.5,
+    r: DRUM_RADIUS,
+    round: 8.0,
+}];
+
+/// The spine and the spokes as one solid, in their frame (centred on the ring's middle, turning
+/// with it): `content::landmarks`' spokes.
+pub const SPOKE_PRIMS: [Prim; 7] = [
     Prim::CylinderX {
         c: Vec3::new((SPINE_X.0 + SPINE_X.1) * 0.5, 0.0, 0.0),
         half_len: (SPINE_X.1 - SPINE_X.0) * 0.5,
@@ -155,10 +173,13 @@ mod tests {
     use crate::config::G0;
     use crate::content::salvage::{DOCK_CENTER, DOCK_RADIUS};
     use crate::math::{cos, sin};
-    use crate::world::{COLONY_HALF_WIDTH, colony_spin_angle};
+    use crate::world::COLONY_HALF_WIDTH;
 
     #[test]
     fn the_bays_hang_at_four_tenths_of_a_g_on_the_drums_face() {
+        // Whole ticks modulo the drum's own period, as the ring's.
+        assert_eq!(hub_spin_angle(HUB_SPIN_PERIOD_TICKS * 1_000 + 5, 0.25), hub_spin_angle(5, 0.25));
+        assert!((hub_spin_angle(1, 0.0) - HUB_SPIN_RATE * crate::config::DT).abs() < 1e-7);
         assert!((bay_g() / G0 - 0.4).abs() < 0.005, "{} g", bay_g() / G0);
         // A pilot walks their bay in the pull its deck feels.
         assert!((bay_g() - crate::foot::GRAVITY).abs() < 0.01);
@@ -183,13 +204,13 @@ mod tests {
     fn a_bay_is_its_door_as_drawn_turning_with_the_colony() {
         for (n, t, frac) in [(1u8, 0u32, 0.0f32), (2, 17, 0.5), (50, 1_000, 0.25), (99, 1_902, 0.9)] {
             let p = bay_pose(n, t, frac);
-            // Where the client draws door `n − 1`, turned by the colony's spin.
-            let a = colony_spin_angle(t, frac) + core::f32::consts::TAU * f32::from(n - 1) / BAYS as f32;
+            // Where the client draws door `n − 1`, turned by the drum's spin.
+            let a = hub_spin_angle(t, frac) + core::f32::consts::TAU * f32::from(n - 1) / BAYS as f32;
             let want = COLONY_CENTER + Vec3::new(BAY_DOOR_X, BAY_RADIUS * cos(a), BAY_RADIUS * sin(a));
             assert!((p.pos - want).length() < 0.05, "bay {n}: {} vs {want}", p.pos);
             // Moving round the axis the way the frame's +Z points, at about 40 m/s, and its +Y out.
             let v = p.point_vel(p.pos);
-            assert!((v.length() - SPIN_RATE * BAY_RADIUS).abs() < 0.01 && (v.length() - 39.6).abs() < 0.2);
+            assert!((v.length() - HUB_SPIN_RATE * BAY_RADIUS).abs() < 0.01 && (v.length() - 39.6).abs() < 0.2);
             assert!(v.normalize().dot(p.rot * Vec3::Z) > 0.9999);
             assert!((p.rot * Vec3::Y).dot((p.pos - COLONY_CENTER).with_x(0.0).normalize()) > 0.9999);
         }

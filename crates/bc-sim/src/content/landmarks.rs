@@ -11,13 +11,13 @@
 //!   a bowl in the aft module's end face on the spin axis, is a hide spot.
 //! - **Hermit**, a big asteroid 1.8 km long: static, and it can't be mined or broken. A crater bowl
 //!   at each of three poles is a hide spot.
-//! - **The docking hub** on the ring's axis ([`DOCKING_HUB`]): its drum, forward of the ring, the
-//!   spine through the ring's hole and the six spokes out to its ceiling, turning with the colony
-//!   (`colony::hub`). Near its middle the drum's forward face (the mouth) moves slowly enough to
-//!   land on, and a suit standing on the deck hatch there docks. (The colony draws it; it's a
-//!   landmark so that it's solid, and walked like any other.) It has no hide spots, so reshaping it
-//!   from the cylinder's spire to the ring's drum (`docs/RING.md`) left [`LANDMARKS_VERSION`] where
-//!   it was: nothing saved about the landmarks keys on it, and a suit parked in a hide spot stays.
+//! - **The docking hub** on the ring's axis ([`DOCKING_HUB`]): its drum, forward of the ring, turning
+//!   on its own bearing (`colony::hub`). Near its middle the drum's forward face (the mouth) moves
+//!   slowly enough to land on, and a suit standing on the deck hatch there docks. (The colony draws
+//!   it; it's a landmark so that it's solid, and walked like any other.)
+//! - **The spokes** ([`SPOKES`]): the spine through the ring's hole and the six spokes out to its
+//!   ceiling, turning with the ring. Split from the hub when the ring grew and the drum took its own
+//!   turn (`docs/FREE_ROAM.md`), which moved [`LANDMARKS_VERSION`] to 3.
 //!
 //! Hide spots are bowls cut from the shape (exact spheres), so their rims are real cover.
 
@@ -25,14 +25,16 @@ use glam::{Quat, Vec3};
 
 use super::names;
 use crate::bodies::{Base, Prim, Shape, SphereCut};
-use crate::colony::hub::{HUB_PRIMS, MOUTH_X};
+use crate::colony::hub::{DRUM_PRIMS, HUB_SPIN_PERIOD_TICKS, MOUTH_X, SPOKE_PRIMS};
 use crate::world::{COLONY_CENTER, COLONY_SPIN_PERIOD_TICKS};
 
 /// Bumped with `PROTOCOL_VERSION` on any change to [`LANDMARKS`] (it keys what's saved about them).
-pub const LANDMARKS_VERSION: u16 = 2;
+pub const LANDMARKS_VERSION: u16 = 3;
 
 /// The docking hub's index among [`LANDMARKS`].
 pub const DOCKING_HUB: u8 = 2;
+/// The spine and spokes' index among [`LANDMARKS`]: the colony's, and not a place the chart lists.
+pub const SPOKES: u8 = 3;
 
 /// A place on a landmark where a suit can hide: crouched still in it, or parked in it, sensors
 /// lose it.
@@ -78,7 +80,7 @@ pub struct LandmarkDef {
 }
 
 /// The landmarks, by id. A sector has the first `SimConfig::landmarks` of them.
-pub static LANDMARKS: [LandmarkDef; 3] = [FORNAX, HERMIT, HUB];
+pub static LANDMARKS: [LandmarkDef; 4] = [FORNAX, HERMIT, HUB, SPOKE_SET];
 
 const FORNAX: LandmarkDef = LandmarkDef {
     name: names::FORNAX,
@@ -149,12 +151,30 @@ const HUB: LandmarkDef = LandmarkDef {
     orbit_period: 0,
     orbit_phase: 0,
     rot0: Quat::IDENTITY,
-    // It turns with the colony, on its clock (`world::colony_spin_angle`).
+    // It turns on its own bearing, on its clock (`colony::hub::hub_spin_angle`).
+    spin_axis: Vec3::X,
+    spin_period: HUB_SPIN_PERIOD_TICKS,
+    shape: Shape { base: Base::Union(&DRUM_PRIMS), cuts: &[] },
+    // The drum's rim at its mouth: (1,350, 440) out.
+    bound: 1_421.0,
+    grippable: true,
+    hides: &[],
+    colony: true,
+};
+
+const SPOKE_SET: LandmarkDef = LandmarkDef {
+    name: "SPOKES",
+    center: COLONY_CENTER,
+    orbit_radius: 0.0,
+    orbit_period: 0,
+    orbit_phase: 0,
+    rot0: Quat::IDENTITY,
+    // It turns with the ring, on its clock (`world::colony_spin_angle`).
     spin_axis: Vec3::X,
     spin_period: COLONY_SPIN_PERIOD_TICKS,
-    shape: Shape { base: Base::Union(&HUB_PRIMS), cuts: &[] },
-    // The drum's rim at its mouth: (650, 440) out.
-    bound: 790.0,
+    shape: Shape { base: Base::Union(&SPOKE_PRIMS), cuts: &[] },
+    // A spoke's end at the ceiling: 2,500 + 22 out.
+    bound: 2_523.0,
     grippable: true,
     hides: &[],
     colony: true,
@@ -178,7 +198,6 @@ mod tests {
     use crate::field::{FIELD_CENTER, Field, SPAWN_BASES};
     use crate::math::{Rng, angle_between, cos, length, normalize_or, sin, sqrt};
     use crate::sim::Sim;
-    use crate::world::COLONY_SPIN_PERIOD_TICKS;
     use crate::world::{COLONY_CENTER, colony_clearance};
     use core::f32::consts::{PI, TAU};
 
@@ -300,14 +319,20 @@ mod tests {
     }
 
     #[test]
-    fn the_docking_hub_turns_with_the_colony_where_its_drawn() {
+    fn the_docking_hub_turns_on_its_bearing_and_the_spokes_with_the_ring_where_theyre_drawn() {
         let hub = &LANDMARKS[usize::from(DOCKING_HUB)];
-        for t in [0, 1_000, 3_404] {
+        let spokes = &LANDMARKS[usize::from(SPOKES)];
+        for t in [0, 1_000, 1_902, 3_296] {
             let p = crate::bodies::landmark_pose(hub, t, 0.5);
-            let want = crate::math::quat_axis_angle(Vec3::X, crate::world::colony_spin_angle(t, 0.5));
+            let want = crate::math::quat_axis_angle(Vec3::X, crate::colony::hub::hub_spin_angle(t, 0.5));
             assert!(p.rot.dot(want).abs() > 1.0 - 1e-6, "tick {t}");
             assert_eq!(p.pos, hub.center);
+            let p = crate::bodies::landmark_pose(spokes, t, 0.5);
+            let want = crate::math::quat_axis_angle(Vec3::X, crate::world::colony_spin_angle(t, 0.5));
+            assert!(p.rot.dot(want).abs() > 1.0 - 1e-6, "tick {t}");
+            assert_eq!(p.pos, spokes.center);
         }
+        assert!(spokes.hides.is_empty() && spokes.colony);
         // Its mouth where the colony draws it; nowhere on it to hide.
         assert_eq!(hub.center + Vec3::X * HUB_MOUTH_X, COLONY_CENTER + Vec3::X * crate::colony::hub::MOUTH_X);
         assert!(hub.hides.is_empty());
@@ -329,7 +354,9 @@ mod tests {
         // The bays' doors, where suits are thrown out, round the ring as the spin carries them.
         let doors = |c: Vec3| {
             (1..=BAYS as u8)
-                .flat_map(|n| (0..4).map(move |q| bay_pose(n, q * COLONY_SPIN_PERIOD_TICKS / 4, 0.0).pos))
+                .flat_map(|n| {
+                    (0..4).map(move |q| bay_pose(n, q * crate::colony::hub::HUB_SPIN_PERIOD_TICKS / 4, 0.0).pos)
+                })
                 .map(|p| length(c - p))
                 .fold(f32::MAX, f32::min)
         };

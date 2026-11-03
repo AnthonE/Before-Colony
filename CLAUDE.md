@@ -7,7 +7,8 @@ surveys what players of similar games expect of the controls (read it before cha
 `docs/PEERS.md` is what the nearest games teach us, with priorities (read it before adding a system players will
 compare with theirs), and `docs/ROADMAP.md` how each is built;
 `docs/STORY.md` is the world bible (setting, factions, eras, voice, and the secret it shares with Gates: read it before writing in-game text; every name is the game's own, never another franchise's: its "Voice and naming");
-`docs/RING.md` is the plan of record for the First Colony as a 1 km ring, Gundam Wing's look in our own designs (painted anime, the base in the hub, buildings from Gates' pieces): it supersedes the cylinder of `COLONY.md` and `COLONY_LOOK.md` where they disagree, so read it before touching the colony;
+`docs/FREE_ROAM.md` is the plan of record for the turn to free roam (a town at GTA's scale on a 3 km ring, a new pilot starting on foot in it, the station language's panels everywhere, and the infrastructure for crowds, traffic and the Watch: read it before touching the ring, the town, its people or its police; where it and `RING.md` disagree it wins);
+`docs/RING.md` is the plan of record for the First Colony as a ring, Gundam Wing's look in our own designs (painted anime, the base in the hub, buildings from Gates' pieces): it supersedes the cylinder of `COLONY.md` and `COLONY_LOOK.md` where they disagree, so read it before touching the colony;
 `docs/OPEN_CITY.md` is the open city (homes at real addresses, not instanced, on Rust's rules taken from Gates; then the street in the
 tick, cars you own, heat and the Watch, intrusion, raids, businesses: read it before touching homes, crime or the street);
 `docs/FLOOR.md` is the Exchange floor seen from the Elo Pros store (one room, two clients: read it before touching the floor or `/floor.json`);

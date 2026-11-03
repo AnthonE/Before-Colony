@@ -15,6 +15,7 @@ use glam::{Quat, Vec3};
 use crate::content::base::SITES;
 use crate::math::{atan2, cos, floor, quat_axis_angle, sin, sqrt};
 use crate::pieces::parts::Aabb;
+use crate::colony::hub::{DRUM_X, HUB_SPIN_RATE};
 use crate::world::{COLONY_HALF_WIDTH, COLONY_INNER_RADIUS, COLONY_RADIUS, SPIN_RATE};
 
 /// A deck: a band round the axis.
@@ -29,6 +30,8 @@ pub struct Deck {
     pub roof_h: f32,
     /// Where `s` is 0 round it, rad from +Y towards +Z (before the spin).
     pub seam: f32,
+    /// How fast it turns about the axis, rad/s: the drum's on its bearing, or the ring's.
+    pub spin: f32,
 }
 
 impl Deck {
@@ -44,13 +47,14 @@ pub const BASE: u8 = 0;
 pub const RING: u8 = 1;
 /// The decks there are.
 pub const DECKS: [Deck; 2] = [
-    Deck { floor_r: 400.0, x0: -602.0, x1: -350.0, roof_h: 280.0, seam: PI },
+    Deck { floor_r: 400.0, x0: DRUM_X.0 + 48.0, x1: DRUM_X.1, roof_h: 280.0, seam: PI, spin: HUB_SPIN_RATE },
     Deck {
         floor_r: COLONY_RADIUS,
         x0: -COLONY_HALF_WIDTH,
         x1: COLONY_HALF_WIDTH,
         roof_h: COLONY_RADIUS - COLONY_INNER_RADIUS,
         seam: PI,
+        spin: SPIN_RATE,
     },
 ];
 
@@ -137,7 +141,8 @@ pub fn deck_at(p: Vec3) -> Option<DeckPos> {
 
 /// The pull on deck `deck` at `h` m up from its floor, m/s².
 pub fn gravity(deck: u8, h: f32) -> f32 {
-    SPIN_RATE * SPIN_RATE * (DECKS[deck as usize % DECKS.len()].floor_r - h)
+    let d = &DECKS[deck as usize % DECKS.len()];
+    d.spin * d.spin * (d.floor_r - h)
 }
 
 /// How long a metre of `s` is at height `h` on deck `deck`: the deck narrows towards the axis.
@@ -217,8 +222,8 @@ mod tests {
     fn walls_are_plumb_and_the_walkers_frame_turns_right_handed() {
         for k in 0..DECKS.len() as u8 {
             for s in [0.0f32, 300.0, 1_000.0] {
-                let foot = DeckPos::new(k, -400.0 * f32::from(k == BASE), s, 0.0).to_colony();
-                let roof = DeckPos::new(k, -400.0 * f32::from(k == BASE), s, 20.0).to_colony();
+                let foot = DeckPos::new(k, (DECKS[BASE as usize].x0 + 202.0) * f32::from(k == BASE), s, 0.0).to_colony();
+                let roof = DeckPos::new(k, (DECKS[BASE as usize].x0 + 202.0) * f32::from(k == BASE), s, 20.0).to_colony();
                 let up = (roof - foot).normalize();
                 assert!((up - Vec3::new(0.0, -foot.y, -foot.z).normalize()).length() < 1e-5);
                 let q = local_frame(k, s);
@@ -256,14 +261,14 @@ mod solid_tests {
             (w - Vec3::new(0.3, 0.0, 0.3), w + Vec3::new(0.3, 1.8, 0.3))
         };
         // Standing on the floor, clear of everything; a hair into it, not.
-        let (lo, hi) = at(-450.0, 1_500.0, 0.0);
+        let (lo, hi) = at(d.x0 + 152.0, 1_500.0, 0.0);
         assert!(!solid(BASE, lo, hi));
-        let (lo, hi) = at(-450.0, 1_500.0, -0.01);
+        let (lo, hi) = at(d.x0 + 152.0, 1_500.0, -0.01);
         assert!(solid(BASE, lo, hi));
         // Its ends and its seam are walls.
         let (lo, hi) = at(d.x0 + 0.1, 1_500.0, 0.0);
         assert!(solid(BASE, lo, hi));
-        let (lo, hi) = at(-450.0, 0.1, 0.0);
+        let (lo, hi) = at(d.x0 + 152.0, 0.1, 0.0);
         assert!(solid(BASE, lo, hi));
     }
 }

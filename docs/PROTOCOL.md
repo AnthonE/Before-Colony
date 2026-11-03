@@ -1,8 +1,16 @@
-# Before Colony wire protocol (v41)
+# Before Colony wire protocol (v42)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v42 (from v41): the bigger ring (`docs/FREE_ROAM.md`). Nothing on the wire changes shape, but what
+both ends simulate does: the ring is 3 km in radius (its ceiling at 2.5 km) and 2 km wide, centred at
+(−15,550, −4,200, 0) and turning once every 3,297 ticks; the docking hub's drum turns on its own
+bearing once every 1,903 ticks (`colony::hub::hub_spin_angle`), and stays where it was in the world, so
+the colony frame's x of the drum, the bays and the base's deck are 700 m lower (`content::base`,
+`BASE_VERSION` 3); the docking hub landmark is the drum alone, and the spine and spokes are a fourth
+landmark (`content::landmarks::SPOKES`, `LANDMARKS_VERSION` 3) turning with the ring.
 
 v41 (from v40): the base's deck in the hub (`docs/RING.md`, "The base"). A pose's 2-bit strip code
 takes 3 for the base's deck (`presence::BASE_DECK`), its `x` along the axis, `s` round the deck and

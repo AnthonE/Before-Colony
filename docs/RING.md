@@ -12,6 +12,11 @@ series' colonies:
 - **Inside:** a city on a floor that bends up into the distance under a lattice of frames, light falling through it
   in shafts, and the far end lost in bright blue haze.
 
+> **The ring grew** (November 2026, `FREE_ROAM.md`): its floor is 3 km from the axis and 2 km wide, its
+> ceiling 500 m up, one turn in 109.9 s; the hub's drum turns on its own bearing at the old rate, so the
+> bays and the Muster keep their 0.4 g and stay where they were in the world. The town comes before the
+> base's buildings, and a new pilot starts in it. The table below has the new numbers.
+
 These are influences for a look and a shape. Every design and name stays the game's own (`STORY.md`, "Voice and
 naming").
 
@@ -31,6 +36,7 @@ this one wins.
 | R2: Gates' building pieces in `bc_sim::pieces`; the decks; a walkable test building | built: `pieces` (lattice, sock, shape, support, check, parts, prefab), `colony::deck` and `foot::DeckGround`, `content::base`'s test hall walked in at its door and up its stairs (`tests/pieces.rs`, `PIECES_GOLDEN`), drawn by `bc_client_core::piece_mesh` and `bc-client`'s `base.rs` in the drum's inside with its own light (`?showcase=base`); walking it in the game comes with R3 |
 | R1.5, R1.6: the cylinder's inside cleared (homes refunded) | to do |
 | R3: the base opens: the bay's airlock onto Bay Row, the desks in its rooms | Bay Row open (protocol 41): E at the bay's airlock steps out onto the base's deck, walked on `foot::DeckGround`, seen by the others out there (the plaza's floor 3), the test hall across the row by bay 1's airlock, and back in by your own door (`tests/base.rs`, `scripts/e2e.sh base`); with `--colony` the airlock still rides the cap lift. The desks in the base's rooms, and the objectives, come with its buildings (R4) |
+| F1 (`FREE_ROAM.md`): the ring at 3 km, the drum on its own bearing | done (protocol 42) |
 | R4 on: the base's buildings, one at a time; then the ring's town | to do; Bay Row and the test hall are dressed in the station language (`muster`, `piece_mesh`), which each building takes up as it's built; the deck between them is marked out in paint (`muster::deck_floor`: deck plates, a road round it with a lane each way, pads bordered in hazard stripes) until there are buildings to fill it |
 
 ## The owner's decisions
@@ -51,23 +57,23 @@ Asked in planning (October 2026), and answered:
 ## The ring
 
 The colony's frame has its origin at the ring's middle, with +X towards the sun (the spin axis, as before).
-`world::COLONY_CENTER` moves to (−16,250, −4,200, 0), where the cylinder's bay ring was. That keeps the dock, the
-lanes and the field where they are, and every deck coordinate inside the pose codec's ±16 km.
+`world::COLONY_CENTER` is (−15,550, −4,200, 0): the hub's mouth where the cylinder's bay ring was (x −16,900). That
+keeps the dock, the lanes and the field where they are, and every deck coordinate inside the pose codec's ±16 km.
 
 | Part | Numbers |
 |---|---|
-| The ring | Floor and hull at r 1,000 m; ceiling at r 700 (300 m up); \|x\| ≤ 300. 6.28 km round, 3.8 km² of floor. |
-| Spin | One turn in 1,903 ticks (63.4 s): 1.0004 g at the floor, rim speed 99 m/s. |
+| The ring | Floor and hull at r 3,000 m; ceiling at r 2,500 (500 m up); \|x\| ≤ 1,000. 18.85 km round, 37.7 km² of floor. |
+| Spin | One turn in 3,297 ticks (109.9 s): 0.9999 g at the floor, rim speed 171 m/s. The drum turns on its own bearing, once in 1,903 ticks (63.4 s). |
 | The ceiling | The window lattice the light falls through: frames across and along, glass between. |
-| Sight | From the floor you see about 1.4 km before the floor rising ahead meets the ceiling: the tunnel of the reference, and the bound on what's ever drawn. |
-| The hub drum | r 440, x −650 to −350. The bays' doors are on its forward face at r 400 and face −X, so a launch goes out along −X as from the cylinder's bay ring, and the ring is behind it. The deck hatch is at r < 40. |
-| The base deck | Floor at r 400 (0.4 g), x −602 to −350: 252 m wide and 2.5 km round. Bay Row runs behind the bays, the one way out of every pilot's airlock. |
-| Spine and spokes | The spine r 100, from the drum to the ring's far face; six spokes at x 0, r 100 to 700, each with a lift down to the town (later). |
+| Sight | From the floor a line grazes the ceiling 1.66 km ahead and meets the rising floor 3.3 km ahead: the tunnel of the reference, and the bound on what's ever drawn. |
+| The hub drum | r 440, x −1,350 to −1,050. The bays' doors are on its forward face at r 400 and face −X, so a launch goes out along −X as from the cylinder's bay ring, and the ring is behind it. The deck hatch is at r < 40. |
+| The base deck | Floor at r 400 (0.4 g), x −1,302 to −1,050: 252 m wide and 2.5 km round. Bay Row runs behind the bays, the one way out of every pilot's airlock. |
+| Spine and spokes | The spine r 100, from the drum to the ring's far face; six spokes at x 0, r 100 to 2,500, each with a lift down to the town (later). They turn with the ring; the drum turns on a bearing round the spine. |
 | Light | Louvres round the spine, between the spokes, opening with `colony::time::day().mirror_beta`: the 48-minute day and its colour script unchanged. |
 | The dock | On the axis 800 m off the hub's mouth: (−17,700, −4,200, 0), r 300 (450 m further out than the cylinder's, so a suit coming in at speed swings round it clear of the drum). The client's dock approach is its ring and 100 m, so a launch from the face doesn't dock straight back. |
 
-**Physics.** To the space sector the ring is still a solid: a hollow cylinder, |x| ≤ 300 and 700 ≤ r ≤ 1,000, plus
-the hub and spokes as landmark shapes. Hits come four ways (the outer cylinder, the inner one from the hole, either
+**Physics.** To the space sector the ring is still a solid: a hollow cylinder, |x| ≤ 1,000 and 2,500 ≤ r ≤ 3,000,
+plus the hub's drum and the spokes as two landmark shapes. Hits come four ways (the outer cylinder, the inner one from the hole, either
 face). Inside, `colony::spin_frame` keeps the cylinder's pull, Coriolis and drag, with the ring's ω.
 
 **Space's "up"** was "away from the colony" for the default controls, the lock-on's floor and the HUD's altitude. A
