@@ -1580,7 +1580,7 @@ fn town_cams() -> Vec<Orbit> {
         // Over Exchange Row's towers near Tower Hill's lift.
         toward(at(-260.0, 2_350.0, 150.0), at(0.0, 3_000.0, 60.0)),
         // From under the ceiling over Hub Gate, along the ring.
-        toward(at(0.0, ROUND - 400.0, ROOF - 60.0), at(0.0, 1_600.0, 0.0)),
+        toward(at(-320.0, ROUND - 400.0, ROOF - 60.0), at(-120.0, 1_600.0, 0.0)),
         // Down the canal from a bridge.
         toward(at(canal, 9.0 * CELL, 3.0), at(canal, 12.0 * CELL, 2.0)),
         // Across the ring from the fore rim walk.

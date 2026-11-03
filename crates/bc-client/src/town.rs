@@ -24,12 +24,12 @@ use bc_sim::colony::deck::{DeckPos, RING, deck_at, local_frame};
 use bc_sim::colony::town::{self, ROUND};
 use bc_sim::world::{COLONY_HALF_WIDTH, COLONY_INNER_RADIUS, COLONY_RADIUS};
 use bevy::asset::RenderAssetUsages;
-use bevy::platform::time::Instant;
 use bevy::camera::Exposure;
 use bevy::light::cluster::ClusterConfig;
 use bevy::light::{CascadeShadowConfigBuilder, EnvironmentMapLight, NotShadowCaster};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::pbr::{DistanceFog, FogFalloff};
+use bevy::platform::time::Instant;
 use bevy::prelude::*;
 
 use crate::camera::{FillLight, MainCamera};
@@ -57,8 +57,8 @@ const TOWN_EV100: f32 = 13.0;
 /// The fill from the ceiling's glass and the floor all round, cd/m².
 const SKY: f32 = 2_400.0;
 /// The haze along the ring.
-const HAZE: Color = Color::srgb(0.66, 0.76, 0.9);
-const HAZE_DENSITY: f32 = 0.00042;
+const HAZE: Color = Color::srgb(0.56, 0.69, 0.9);
+const HAZE_DENSITY: f32 = 0.00032;
 
 /// Whether the view is in the town (it has its own light: `sky.rs` stands aside), and where the
 /// town is drawn upright: `x` across, `t` round from Hub Gate.
@@ -211,7 +211,7 @@ pub fn setup_town(
     // The day through the glass: the pale sky blue the vanishing point burns white-blue in.
     let glass = standard.add(StandardMaterial {
         base_color: Color::srgb(0.6, 0.72, 0.88),
-        emissive: LinearRgba::rgb(0.72, 0.86, 1.0) * 9_000.0,
+        emissive: LinearRgba::rgb(0.6, 0.76, 1.0) * 3_200.0,
         unlit: false,
         perceptual_roughness: 0.2,
         ..default()

@@ -223,18 +223,43 @@ is one closed form, so neighbours can't disagree about it. This is `SCALE.md`'s 
 
 ### 6. A client that draws a town (V)
 
-`SCALE.md`'s E, for the town:
+`SCALE.md`'s E, for the town.
 
-- **A floating origin**: `RenderOrigin` (the cylinder city's f64 origin, recentred every kilometre) for
-  the ring and the town.
-- **Build by distance and frame budget**: the town's blocks as chunks on a quadtree within the 3.3 km sight
-  line, built a few a frame, as `city.rs` built the cylinder's (1.5 to 4 ms a frame, 1,400 cached).
-- **The station language at three distances**, painted in bands (`bc::anime`): panels and their joints
-  procedural in `station.wgsl` up close; a tower's faces as one quad each further off; past 1 km, blocks as
-  boxes in the haze's painted layers.
-- **Instancing** for everything there are many of: people, cars, lamps, props.
-- **Numbers on screen**: `perf.rs`' readout with the town's counts (chunks, people, cars, draws), and a
-  showcase camera on a crowded street that the browser suite times.
+*V1's first pass is built:*
+
+- **`bc_client_core::town_mesh`** builds a chunk at a time: two cells round the ring and its whole width
+  across, from the boxes the walker meets, in the station language. It has two levels of detail:
+  - **near:** bent round the floor every 8 m, its railings and all;
+  - **far:** every 48 m.
+
+  The whole ring is about 510k vertices finely; the busiest chunk is 9,500.
+- **`station.wgsl`'s town surfaces:**
+  - `Facade`: a storey at a time, with panels, a ribbon of windows and a few lit. Each floor's line is in
+    the building's quarter's tram colour, and a fascia runs over the shopfronts. Its storeys are checked
+    against `colony::town`'s.
+  - `Road`, `Grass` and `Water`.
+  - All of it at `Scale::TOWN`, under one material.
+- **`bc-client`'s `town`:**
+  - It draws the town upright round the view, far above the sector: the base's floating origin, not
+    `RenderOrigin`.
+  - It streams the chunks within the 3.4 km sight line round the camera: nearest first, two a frame,
+    finely within 900 m.
+  - It draws the ring's two faces and the ceiling's lattice and glass, and lights the town with the day
+    from the ceiling, a bright exposure, the sky's fill and a blue haze along the ring.
+- **`?showcase=town`** has six cameras, which `scripts/e2e.sh gfx` photographs:
+  - each draws about 27 chunks (8 near) and 90 to 110k vertices;
+  - a chunk builds in under 1 ms;
+  - `__bc.town_*` logs them.
+
+*Still to come:*
+
+- the painted look made the default once it's been seen beside the plain one;
+- the town's signs (the districts' names on the lifts' shafts and at the squares);
+- lamps and the day's colour script;
+- props and trees;
+- a tower's faces as one quad each past a kilometre, if the far chunks cost too much;
+- instancing for people, cars, lamps and props;
+- `perf.rs`' readout with the town's counts.
 
 ### 7. Start on foot (O)
 
@@ -249,7 +274,7 @@ The suit stays exactly as it is.
 | FR0 | This plan | written |
 | F1 | The ring at 3 km, the hub on its own turn | done (protocol 42) |
 | T1 | The town's plan as a closed form on the ring's deck, its goldens | done (protocol 43) |
-| V1 | The town drawn in the station language, painted like the anime: chunks, a floating origin, level of detail; a showcase camera; the anime look made the default | to do |
+| V1 | The town drawn in the station language, painted like the anime: chunks, a floating origin, level of detail; a showcase camera; the anime look made the default | first pass built: chunks streamed round the camera at two levels of detail, `?showcase=town`; the look's default, signs, lamps and props to do |
 | P1 | Ambient people and traffic on the town's plan; the census | to do |
 | W1 | The Watch's stations, patrols and dispatch, with incidents from a test hook | to do |
 | P2 | Promotion and release: the taken set, the pools in the tick, the wire's tiers | to do |

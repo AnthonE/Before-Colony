@@ -336,18 +336,18 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let cell = vec2(floor(bx), storey);
         let h = hash2(cell + vec2(seed * 0.29, seed * 0.07));
         // Glass: from the sill to under the next floor's slab (a shopfront from near the street).
-        let sill = select(1.0, 0.35, ground);
-        let head = select(sh - 0.55, b0 - 0.1, ground);
-        let mullion = pulse(bx, 0.0, 0.06, fw.x / bay);
+        let sill = select(1.1, 0.35, ground);
+        let head = select(sh - 0.8, b0 - 0.1, ground);
+        let mullion = pulse(bx, 0.0, 0.1, fw.x / bay);
         let glass = band(local, sill, head, fw.y) * (1.0 - mullion);
         let spandrel = white * (0.97 + 0.06 * (hash2(cell * 1.3 + 7.0) - 0.5));
         let panels = spandrel * (1.0 - 0.4 * joints(uv, vec2(bay, panel.y), joint, fw));
         // The glass: dark, cooler higher up where it takes the haze; a lamp on behind a few.
-        let pane = mix(vec3(0.035, 0.045, 0.06), vec3(0.07, 0.09, 0.12), clamp(y / 120.0, 0.0, 1.0));
+        let pane = mix(vec3(0.1, 0.13, 0.18), vec3(0.17, 0.21, 0.28), clamp(y / 120.0, 0.0, 1.0));
         albedo = mix(panels, pane, glass);
         rough = mix(0.5, 0.08, glass);
-        let lit = step(0.93, h) * glass;
-        glow = vec3(1.0, 0.82, 0.55) * 0.35 * lit;
+        let lit = step(0.975, h) * glass;
+        glow = vec3(1.0, 0.82, 0.55) * 0.12 * lit;
         // The floor's line, in the building's paint, and the fascia over the shopfronts.
         let rule = band(local, sh - 0.3, sh, fw.y) * select(1.0, 0.0, ground);
         let fascia = band(y, b0, b1, fw.y);
@@ -362,8 +362,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         albedo *= 1.0 - 0.3 * joints(uv, size, joint, fw);
         rough = 0.82;
     } else if (surface == GRASS) {
-        let cell = floor(uv * 1.3);
-        albedo = vec3(0.1, 0.22, 0.06) * (0.85 + 0.3 * hash2(cell + vec2(seed)));
+        let patch = hash2(floor(uv * 0.35) + vec2(seed));
+        let blade = hash2(floor(uv * 6.0) + vec2(seed * 0.5));
+        albedo = vec3(0.075, 0.14, 0.05) * (0.9 + 0.12 * patch + 0.06 * blade);
         rough = 0.92;
     } else if (surface == WATER) {
         albedo = vec3(0.02, 0.07, 0.08);
