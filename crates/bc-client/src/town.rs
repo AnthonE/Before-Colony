@@ -24,6 +24,7 @@ use bc_sim::colony::deck::{DeckPos, RING, deck_at, local_frame};
 use bc_sim::colony::town::{self, ROUND};
 use bc_sim::world::{COLONY_HALF_WIDTH, COLONY_INNER_RADIUS, COLONY_RADIUS};
 use bevy::asset::RenderAssetUsages;
+use bevy::platform::time::Instant;
 use bevy::camera::Exposure;
 use bevy::light::cluster::ClusterConfig;
 use bevy::light::{CascadeShadowConfigBuilder, EnvironmentMapLight, NotShadowCaster};
@@ -278,7 +279,7 @@ fn stream_chunks(
         kept
     });
     // The nearest wanted that isn't drawn as wanted, a few a frame.
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let mut built = 0;
     let mut pending = 0;
     for (_, k, lod) in want {
