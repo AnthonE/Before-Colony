@@ -516,7 +516,9 @@ fn apply_chart_tier(mut commands: Commands, gfx: Res<Gfx>, cams: Query<Entity, W
 fn listed() -> Vec<Place> {
     let mut out = vec![Place::Colony, Place::Dock, Place::Field];
     // (The spokes are the colony's, which is listed already.)
-    for (k, def) in LANDMARKS.iter().enumerate().filter(|(k, _)| *k as u8 != bc_sim::content::landmarks::SPOKES) {
+    for (k, def) in
+        LANDMARKS.iter().enumerate().filter(|(k, _)| *k as u8 != bc_sim::content::landmarks::SPOKES)
+    {
         out.push(Place::Landmark(k as u8));
         for s in 0..def.hides.len() {
             out.push(Place::HideSpot(k as u8, s as u8));

@@ -210,7 +210,9 @@ mod tests {
             assert!((p.pos - want).length() < 0.05, "bay {n}: {} vs {want}", p.pos);
             // Moving round the axis the way the frame's +Z points, at about 40 m/s, and its +Y out.
             let v = p.point_vel(p.pos);
-            assert!((v.length() - HUB_SPIN_RATE * BAY_RADIUS).abs() < 0.01 && (v.length() - 39.6).abs() < 0.2);
+            assert!(
+                (v.length() - HUB_SPIN_RATE * BAY_RADIUS).abs() < 0.01 && (v.length() - 39.6).abs() < 0.2
+            );
             assert!(v.normalize().dot(p.rot * Vec3::Z) > 0.9999);
             assert!((p.rot * Vec3::Y).dot((p.pos - COLONY_CENTER).with_x(0.0).normalize()) > 0.9999);
         }

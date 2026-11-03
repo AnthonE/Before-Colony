@@ -104,4 +104,5 @@ pub const TEST_HALL: Prefab = Prefab {
 /// Where the base's buildings stand: by the first bays (a sector's slots take their bays from bay
 /// 1 up, `hub::bay_of_slot`), across Bay Row from them, their doors facing it. The test hall stands
 /// between bays 1's and 2's airlocks, 22 m across the row.
-pub const SITES: [Site; 1] = [Site { deck: BASE, x: crate::colony::hub::DRUM_X.0 + 70.0, s: 1_268.0, turn: 1, prefab: &TEST_HALL }];
+pub const SITES: [Site; 1] =
+    [Site { deck: BASE, x: crate::colony::hub::DRUM_X.0 + 70.0, s: 1_268.0, turn: 1, prefab: &TEST_HALL }];

@@ -12,10 +12,10 @@ use core::f32::consts::{PI, TAU};
 
 use glam::{Quat, Vec3};
 
+use crate::colony::hub::{DRUM_X, HUB_SPIN_RATE};
 use crate::content::base::SITES;
 use crate::math::{atan2, cos, floor, quat_axis_angle, sin, sqrt};
 use crate::pieces::parts::Aabb;
-use crate::colony::hub::{DRUM_X, HUB_SPIN_RATE};
 use crate::world::{COLONY_HALF_WIDTH, COLONY_INNER_RADIUS, COLONY_RADIUS, SPIN_RATE};
 
 /// A deck: a band round the axis.
@@ -222,8 +222,10 @@ mod tests {
     fn walls_are_plumb_and_the_walkers_frame_turns_right_handed() {
         for k in 0..DECKS.len() as u8 {
             for s in [0.0f32, 300.0, 1_000.0] {
-                let foot = DeckPos::new(k, (DECKS[BASE as usize].x0 + 202.0) * f32::from(k == BASE), s, 0.0).to_colony();
-                let roof = DeckPos::new(k, (DECKS[BASE as usize].x0 + 202.0) * f32::from(k == BASE), s, 20.0).to_colony();
+                let foot = DeckPos::new(k, (DECKS[BASE as usize].x0 + 202.0) * f32::from(k == BASE), s, 0.0)
+                    .to_colony();
+                let roof = DeckPos::new(k, (DECKS[BASE as usize].x0 + 202.0) * f32::from(k == BASE), s, 20.0)
+                    .to_colony();
                 let up = (roof - foot).normalize();
                 assert!((up - Vec3::new(0.0, -foot.y, -foot.z).normalize()).length() < 1e-5);
                 let q = local_frame(k, s);

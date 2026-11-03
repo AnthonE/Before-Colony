@@ -355,7 +355,8 @@ mod tests {
         let doors = |c: Vec3| {
             (1..=BAYS as u8)
                 .flat_map(|n| {
-                    (0..4).map(move |q| bay_pose(n, q * crate::colony::hub::HUB_SPIN_PERIOD_TICKS / 4, 0.0).pos)
+                    (0..4)
+                        .map(move |q| bay_pose(n, q * crate::colony::hub::HUB_SPIN_PERIOD_TICKS / 4, 0.0).pos)
                 })
                 .map(|p| length(c - p))
                 .fold(f32::MAX, f32::min)

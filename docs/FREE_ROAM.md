@@ -26,9 +26,13 @@ Asked in planning (November 2026), and answered:
   It still turns for 1 g at the floor, once every 109.9 s.
 - **A new pilot starts on foot in the town.** The bay and the suit come later, the way GTA holds back the
   jets. The suit is still the game's reason, but the first hour is the street.
-- **The station language everywhere.** The clean panels of the Ring Deck and Bay Row (`RING.md`, "The
-  station language") become the town's look: its towers, streets and halls. Each district takes its own
-  paint and accent over the same panels, so it is not all white. Wear stays a hint.
+- **The station language everywhere, painted like the anime.** The clean panels of the Ring Deck and Bay
+  Row (`RING.md`, "The station language") become the town's look: its towers, streets and halls. Each
+  district takes its own paint and accent over the same panels, so it is not all white. Wear stays a hint.
+  They are lit the painted way (`RING.md`, "The look": light in soft bands, shadows going violet and blue,
+  rim light, haze in layers), which `?look=anime` already does to the panels (`shaders/anime.wgsl`). The
+  owner chose that over plain panels, so the town is built under it, and it becomes the default look once
+  the town's first showcase camera has been seen beside the plain one (V1).
 
 ## Defaults taken in planning
 
@@ -150,8 +154,9 @@ is one closed form, so neighbours can't disagree about it. This is `SCALE.md`'s 
   the ring and the town.
 - **Build by distance and frame budget**: the town's blocks as chunks on a quadtree within the 3.3 km sight
   line, built a few a frame, as `city.rs` built the cylinder's (1.5 to 4 ms a frame, 1,400 cached).
-- **The station language at three distances**: panels and their joints procedural in `station.wgsl` up
-  close; a tower's faces as one quad each further off; past 1 km, blocks as boxes in the haze.
+- **The station language at three distances**, painted in bands (`bc::anime`): panels and their joints
+  procedural in `station.wgsl` up close; a tower's faces as one quad each further off; past 1 km, blocks as
+  boxes in the haze's painted layers.
 - **Instancing** for everything there are many of: people, cars, lamps, props.
 - **Numbers on screen**: `perf.rs`' readout with the town's counts (chunks, people, cars, draws), and a
   showcase camera on a crowded street that the browser suite times.
@@ -169,7 +174,7 @@ The suit stays exactly as it is.
 | FR0 | This plan | written |
 | F1 | The ring at 3 km, the hub on its own turn | done (protocol 42) |
 | T1 | The town's plan as a closed form on the ring's deck, its goldens | to do |
-| V1 | The town drawn in the station language: chunks, a floating origin, level of detail; a showcase camera | to do |
+| V1 | The town drawn in the station language, painted like the anime: chunks, a floating origin, level of detail; a showcase camera; the anime look made the default | to do |
 | P1 | Ambient people and traffic on the town's plan; the census | to do |
 | W1 | The Watch's stations, patrols and dispatch, with incidents from a test hook | to do |
 | P2 | Promotion and release: the taken set, the pools in the tick, the wire's tiers | to do |

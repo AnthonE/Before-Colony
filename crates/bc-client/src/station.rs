@@ -437,8 +437,7 @@ fn hang_deck_signs(
 fn turn_sky(time: Res<VisTime>, indoors: Res<Indoors>, set: Res<IndoorSet>, mut sky: ResMut<SkyTurn>) {
     let want = if indoors.0 && *set == IndoorSet::Deck {
         let ticks = time.now.max(0.0) * f64::from(TICK_HZ);
-        let spin =
-            hub_spin_angle((ticks.floor() as u64 % u64::from(u32::MAX)) as u32, ticks.fract() as f32);
+        let spin = hub_spin_angle((ticks.floor() as u64 % u64::from(u32::MAX)) as u32, ticks.fract() as f32);
         // At no turn, Earth straight down through the glass and aft (the most of it through it).
         let phase = EARTH_DIR.z.atan2(-EARTH_DIR.y);
         SkyTurn { turn: Quat::from_rotation_x(phase - spin), gain: SKY_GAIN }
