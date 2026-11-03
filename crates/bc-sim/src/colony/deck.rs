@@ -160,13 +160,17 @@ pub fn local_frame(deck: u8, s: f32) -> Quat {
 
 /// Whether the box `min..max` (the walker's frame on deck `deck`, `(x, h, −s)`) touches anything
 /// solid there: the deck's floor, its ends, its ceiling, the bulkhead at its seam, or a building
-/// standing on it (`content::base::SITES`). What a walker meets on the deck, and what the server's
-/// pose check asks, as `city::solid` is on the cylinder's strips.
+/// standing on it (`content::base::SITES`; on the ring's, the town: `colony::town`). What a walker
+/// meets on the deck, and what the server's pose check asks, as `city::solid` is on the cylinder's
+/// strips.
 pub fn solid(deck: u8, min: Vec3, max: Vec3) -> bool {
     let d = &DECKS[deck as usize % DECKS.len()];
     // The floor, the deck's ends, its ceiling; round it, the seam (`s` from 0 to the round, so the
     // walker's z from −round to 0) is a bulkhead till the ring's town crosses it.
     if min.y < 0.0 || min.x < d.x0 || max.x > d.x1 || max.y > d.roof_h || max.z > 0.0 || min.z < -d.round() {
+        return true;
+    }
+    if deck == RING && crate::colony::town::solid(min, max) {
         return true;
     }
     let b = Aabb::new(min, max);

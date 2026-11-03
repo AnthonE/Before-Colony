@@ -76,24 +76,99 @@ scale with it. Protocol 42.
 
 ### 2. The town's plan as a closed form (T1)
 
-The cylinder's city taught the way: a town is a closed form of where you ask (`colony::city` was 32 km of
-it, allocation-free and deterministic, its goldens checked native and wasm). The ring's town is a new
-closed form on its deck (`colony::deck::RING`), parametric in the deck's size so a later change of the
-ring's numbers moves it without rewriting it:
+*Built: `bc_sim::colony::town` (the rules) and `content::town` (the districts and the key places),
+`TOWN_GOLDEN`, `TOWN_VERSION` 1, protocol 43.*
 
-- **The ring road** round the floor, on both edges, and **avenues** round it between districts.
-- **Districts** round the ring, twelve of 30° (1.57 km each), each with its kind, its paint and its accent
-  (the station language's per-district colour), a spoke's lift at every other boundary.
-- **Blocks and lots** on a grid in each district, the cross streets on it, the heights by district and by
-  how far from a lift.
-- **Solids** for the walker and the car through `deck::solid`, as the base's buildings already are, so
-  nothing new walks it.
-- **Hand-built places** (the Exchange floor, The Arrival, the Watch's station, the homes' blocks) are Gates'
-  pieces (`bc_sim::pieces`) placed on reserved lots, as the Muster's buildings are.
+The cylinder's city taught the way: a town is a closed form of where you ask, allocation-free and
+deterministic, its goldens checked native and wasm. The ring's town is one on the ring's deck
+(`colony::deck::RING`). Nothing of it is stored or sent. Its coordinates are `x` across (the colony's own,
+fore at the hub's side to aft) and `t` round the floor from Hub Gate (`town::town_t` of the deck's `s`).
 
-A `TOWN_GOLDEN` like `CITY_GOLDEN`, and a version (`TOWN_VERSION`) that moves with the protocol. The
-plaza's pose codec spans 4,096 m of `s` (`bc_proto::presence`), enough for the base's deck but not the
-ring's 18.85 km round, so the first pose on the town's floor widens it: a wire change with T1.
+**Round the ring:** twelve districts of 1,571 m (`content::town::DISTRICTS`), each twelve cells of 131 m.
+A cross street (20 m) runs at every cell's edge and an avenue (40 m) between districts. A spoke's lift
+comes down at the start of every even district, under its spoke, in the boulevard's middle. Its foot is
+a portal the boulevard runs under: four piers, a lintel at 24 m and the shaft up to the ceiling. The four
+blocks round it are its square, and the avenue between them is the square's too (the piers stand on it,
+so cars cross the ring at the other avenues). Hub Gate is the first.
+
+| District | Quarter | Kind |
+|---|---|---|
+| Charter Square (Hub Gate's lift at its start) | Charter | Civic halls |
+| Exchange Row | Charter | Towers on podiums |
+| Tower Hill (a lift) | Charter | Towers on podiums |
+| Old Town | Charter | Low, narrow lots |
+| Quayside (a lift) | Canal | Depots and sheds |
+| Lock Town | Canal | Homes |
+| The Basin (a lift) | Canal | Midtown |
+| The Yards | Canal | Depots and sheds |
+| Garden Gate (a lift) | Gardens | Parkland |
+| Terraces | Gardens | Homes |
+| Green Meridian (a lift) | Gardens | Midtown |
+| The Building Site | Site | Frames and cranes |
+
+**Across the ring** (`town::band_at`), fore to aft:
+
+| Band | x, m |
+|---|---|
+| The rim walk, along the ring's face | −1,000 to −940 |
+| The rim road | −940 to −910 |
+| Seven columns of blocks | −910 to −32 |
+| The boulevard, its tram on a 16 m median | −32 to 32 |
+| Four columns | 32 to 560 |
+| The canal, round the whole ring, railed, bridged at every street | 560 to 600 |
+| Two columns of depots on its far quay | 600 to 910 |
+| The rim road, and the rim walk | 910 to 1,000 |
+
+**A block** (`town::BlockId`: its cell and its column, 144 × 13 of them) is its cell inset by its streets'
+halves, a 6 m pavement along the boulevard and the rim roads, a 14 m quay along the canal. What stands on
+it (`town::block_use`) is one of:
+
+- **a lift's square;**
+- **a key place's site,** left empty for its pieces: the Exchange floor and The Arrival facing each other
+  across the boulevard just past Hub Gate's square, the Charter Board's hall just before it, and a station
+  of the Watch on the boulevard halfway round every district (`town::watch_station`);
+- **a park:** all of Garden Gate, and a pocket park on about one block in sixteen where people live;
+- **the building site's frames:** corner columns, and a crane's mast on one block in three;
+- **the buildings its district builds** (`town::each_block_box`):
+  - towers on podiums for the money;
+  - halls for Civic;
+  - sheds for the depots;
+  - two or four lots of homes, or of Old Town's low houses;
+  - two lots of midtown blocks.
+
+  Each is up to 8 boxes, 5 m for the ground floor and 4 m a storey over it. They're taller nearer a lift,
+  up to 2.5 times for the towers, and none over 200 m (the ceiling is at 500).
+
+**Walked and asked:**
+
+- `deck::solid` asks `town::solid` for the ring's deck, so the walker and the server's pose check meet the
+  town as they meet the Muster's buildings.
+- `town::each_box` gives every box in a span round the ring, wrapping either side of Hub Gate, for drawing.
+- `town::ground_at` says what the floor is: a block, a road, the median, pavement, water or the rim walk.
+  That's what P1's traffic and W1's dispatch will route on.
+
+The tests hold:
+
+- the lifts under their spokes;
+- the columns and cells tiling the ring;
+- every building on its block and under the ceiling;
+- the towers rising round the lifts;
+- the squares and places on their blocks;
+- the lifts clear of the road and the blocks;
+- `solid` equal to every box it touches, wrapping round the ring;
+- the town allocation-free (`no_alloc`);
+- the golden, native and wasm;
+- a walker reaching every block's kerb and a car reaching every Watch station's door from Hub Gate,
+  flooded over the floor 4 m at a time.
+
+`cargo run -q -p bc-sim --example town_map -- [m_per_px] [t0] [t1] > town.ppm` draws the plan from above.
+
+**Still to come with the town's first walkers (P1, O1):**
+
+- The deck's seam is still a bulkhead, at the avenue between Quayside and Lock Town. It opens when the
+  walker wraps round the ring.
+- The plaza's pose codec spans 4,096 m of `s` (`bc_proto::presence`): enough for the base's deck, not for
+  the ring's 18.85 km. The first pose on the town's floor widens it, a wire change.
 
 ### 3. People and traffic in tiers (P)
 
@@ -173,7 +248,7 @@ The suit stays exactly as it is.
 |---|---|---|
 | FR0 | This plan | written |
 | F1 | The ring at 3 km, the hub on its own turn | done (protocol 42) |
-| T1 | The town's plan as a closed form on the ring's deck, its goldens | to do |
+| T1 | The town's plan as a closed form on the ring's deck, its goldens | done (protocol 43) |
 | V1 | The town drawn in the station language, painted like the anime: chunks, a floating origin, level of detail; a showcase camera; the anime look made the default | to do |
 | P1 | Ambient people and traffic on the town's plan; the census | to do |
 | W1 | The Watch's stations, patrols and dispatch, with incidents from a test hook | to do |

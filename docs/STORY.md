@@ -40,10 +40,10 @@ Breakaway, the war. Here none of it has happened. Whether it has to is up to eve
 
 - **Its name.** The colonists call it **the First Colony**, and so does everything they sign; the
   Consortium's papers say L1-01.
-- **The ring.** A wheel 2 km across and 600 m wide, turning once a minute for a full gravity at its
-  floor, its interior still being finished. Its town lies on the inside of the rim and rises ahead of
-  you whichever way you look, into the lattice of the ceiling 300 m overhead, where the light falls
-  through. The game's sector L1 is the space around it: the debris of its construction (asteroids
+- **The ring.** A wheel 6 km across and 2 km wide, turning once in a little under two minutes for a full
+  gravity at its floor, its interior still being finished. Its town lies on the inside of the rim and
+  rises ahead of you whichever way you look, into the lattice of the ceiling 500 m overhead, where the
+  light falls through. The game's sector L1 is the space around it: the debris of its construction (asteroids
   hauled in for metal), the docking hub on its axis, and the lanes between. (Until October 2026 the
   game drew a 32 km cylinder here; `RING.md` is why it's a ring, and the cylinder's districts below
   are names in waiting.)

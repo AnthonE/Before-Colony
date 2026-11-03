@@ -1,8 +1,12 @@
-# Before Colony wire protocol (v42)
+# Before Colony wire protocol (v43)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v43 (from v42): the ring's town (`docs/FREE_ROAM.md`, T1; `colony::town`, `content::town::TOWN_VERSION`
+1). Nothing on the wire changes shape, but the ring's deck now has the town standing on it, which both
+ends' walkers and the server's pose check meet (`deck::solid`).
 
 v42 (from v41): the bigger ring (`docs/FREE_ROAM.md`). Nothing on the wire changes shape, but what
 both ends simulate does: the ring is 3 km in radius (its ceiling at 2.5 km) and 2 km wide, centred at

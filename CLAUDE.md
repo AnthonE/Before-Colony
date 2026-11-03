@@ -46,6 +46,11 @@ travels in the command as `bc_proto::LockOn`, so prediction stays exact); the sh
   `bc_client_core::station`'s, which also hold its derivatives above its surface branch and none in `anime.wgsl`
   (`bc::anime`, the painted look the hull and station shaders share). In `city.wgsl` every derivative is taken at the top
   of `fragment()`, before the surface branch (WebGPU rejects them under it; naga doesn't catch it).
+- The ring's town (`bc_sim::colony::town`, `docs/FREE_ROAM.md`: its districts, streets, blocks, buildings, lifts'
+  feet and the canal's railings) is a closed form of where you ask too, deterministic and allocation-free
+  (`TOWN_GOLDEN`, `no_alloc`); nothing of it is stored or sent, `deck::solid` asks it for the ring's deck, and a
+  layout change bumps `content::town::TOWN_VERSION` with the protocol. `cargo run -q -p bc-sim --example
+  town_map -- [m_per_px] [t0] [t1] > town.ppm` draws its plan from above.
 - The Corona's Ward (`sim::ward`) stops hostile beams where they cross into its field: the tick keeps the fields
   standing in a fixed list (`MAX_WARDS`), and the client stops a beam at a field its SPECIAL flag shows, alike
   (`bc_sim::collide::sphere_entry`).
