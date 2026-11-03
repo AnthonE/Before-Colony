@@ -104,11 +104,13 @@ impl StationParams {
     }
 }
 
-/// The station materials: a suit's deck's, and a person's halls' (the Muster's).
+/// The station materials: a suit's deck's, a person's halls' (the Muster's), and the town's.
 #[derive(Resource)]
 pub struct Stations {
     pub deck: Handle<StationMaterial>,
     pub muster: Handle<StationMaterial>,
+    /// The town's streets and buildings (`town`).
+    pub town: Handle<StationMaterial>,
 }
 
 impl MaterialExtension for StationExt {
@@ -234,6 +236,7 @@ pub fn setup_stations(
     commands.insert_resource(Stations {
         deck: stations.add(material(&Scale::DECK)),
         muster: stations.add(material(&Scale::MUSTER)),
+        town: stations.add(material(&Scale::TOWN)),
     });
     let [w, h] = ATLAS;
     let image = images.add(Image::new_target_texture(w, h, TextureFormat::Rgba8UnormSrgb, None));

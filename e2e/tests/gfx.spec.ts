@@ -138,6 +138,15 @@ const scenes: Array<[string, number, number, number]> = [
   ["ring", 2, 6, 12],
   ["ring", 3, 10.6, 12],
   ["ring", 4, 6, 12],
+  // The ring's town (`docs/FREE_ROAM.md`), streamed round the camera: on the boulevard at Hub Gate
+  // looking round the ring, over Exchange Row's towers, from under the ceiling along the ring, down
+  // the canal, across the ring from the rim walk, up Hub Gate's lift.
+  ["town", 1, 2, 30],
+  ["town", 2, 2, 30],
+  ["town", 3, 2, 30],
+  ["town", 4, 2, 30],
+  ["town", 5, 2, 30],
+  ["town", 6, 2, 30],
 ];
 // What the Markab's driver is doing at each of those moments (`showcase_markab::Act`).
 const markabActs: Record<string, string> = {
@@ -185,6 +194,12 @@ for (const [scene, cam, t, frames] of scenes) {
     // unless `life=0` hides them.
     if (scene === "city") {
       console.log(`life: ${status.ambient_people} people, ${status.ambient_cars} cars, ${status.life_ms} ms`);
+    }
+    if (scene === "town") {
+      console.log(
+        `town: ${status.town_chunks} near, ${status.town_far} far, ${status.town_pending} waiting, ${status.town_vertices} vertices, ${status.town_build_ms} ms`,
+      );
+      expect(status.town_chunks).toBeGreaterThan(0);
     }
     if (scene === "markab") {
       expect(status.markab_act).toBe(markabActs[String(t)]);

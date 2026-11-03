@@ -50,6 +50,15 @@ const GLOW: u32 = 6u;
 const DOOR: u32 = 7u;
 const WINDOW: u32 = 8u;
 const HAZARD: u32 = 9u;
+const FACADE: u32 = 10u;
+const ROAD: u32 = 11u;
+const GRASS: u32 = 12u;
+const WATER: u32 = 13u;
+
+// The town's storeys, m: the ground floor's, and each one over it (`station::FACADE_GROUND`,
+// `FACADE_FLOOR`).
+const FACADE_GROUND: f32 = 5.0;
+const FACADE_FLOOR: f32 = 4.0;
 
 // What's painted on a face (its flags).
 const F_BAND: u32 = 1u;
@@ -313,6 +322,53 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     } else if (surface == HAZARD) {
         albedo = mix(dark, yellow, stripes(uv, fw));
         rough = 0.55;
+    } else if (surface == FACADE) {
+        // A storey at a time from the street: `v` is height over it. Its window bays are a panel
+        // wide; in each storey a ribbon of glass over a sill, panels under it, and a rule of the
+        // building's paint at the floor's line. The ground floor is shopfronts under a fascia.
+        let y = uv.y;
+        let ground = y < FACADE_GROUND;
+        let storey = select(floor((y - FACADE_GROUND) / FACADE_FLOOR), -1.0, ground);
+        let sh = select(FACADE_FLOOR, FACADE_GROUND, ground);
+        let local = select(y - FACADE_GROUND - storey * FACADE_FLOOR, y, ground);
+        let bay = panel.x;
+        let bx = uv.x / bay;
+        let cell = vec2(floor(bx), storey);
+        let h = hash2(cell + vec2(seed * 0.29, seed * 0.07));
+        // Glass: from the sill to under the next floor's slab (a shopfront from near the street).
+        let sill = select(1.0, 0.35, ground);
+        let head = select(sh - 0.55, b0 - 0.1, ground);
+        let mullion = pulse(bx, 0.0, 0.06, fw.x / bay);
+        let glass = band(local, sill, head, fw.y) * (1.0 - mullion);
+        let spandrel = white * (0.97 + 0.06 * (hash2(cell * 1.3 + 7.0) - 0.5));
+        let panels = spandrel * (1.0 - 0.4 * joints(uv, vec2(bay, panel.y), joint, fw));
+        // The glass: dark, cooler higher up where it takes the haze; a lamp on behind a few.
+        let pane = mix(vec3(0.035, 0.045, 0.06), vec3(0.07, 0.09, 0.12), clamp(y / 120.0, 0.0, 1.0));
+        albedo = mix(panels, pane, glass);
+        rough = mix(0.5, 0.08, glass);
+        let lit = step(0.93, h) * glass;
+        glow = vec3(1.0, 0.82, 0.55) * 0.35 * lit;
+        // The floor's line, in the building's paint, and the fascia over the shopfronts.
+        let rule = band(local, sh - 0.3, sh, fw.y) * select(1.0, 0.0, ground);
+        let fascia = band(y, b0, b1, fw.y);
+        albedo = mix(albedo, ink, max(rule, fascia));
+        // The kick plate at the street.
+        albedo = mix(albedo, kick_c, band(y, -1e3, kick_h * 0.5, fw.y));
+    } else if (surface == ROAD) {
+        // Dark plates, worn a shade apart.
+        let size = vec2(plate * 2.0);
+        let cell = floor(uv / size);
+        albedo = vec3(0.075, 0.08, 0.088) * (0.94 + 0.12 * (hash2(cell + vec2(seed)) - 0.5));
+        albedo *= 1.0 - 0.3 * joints(uv, size, joint, fw);
+        rough = 0.82;
+    } else if (surface == GRASS) {
+        let cell = floor(uv * 1.3);
+        albedo = vec3(0.1, 0.22, 0.06) * (0.85 + 0.3 * hash2(cell + vec2(seed)));
+        rough = 0.92;
+    } else if (surface == WATER) {
+        albedo = vec3(0.02, 0.07, 0.08);
+        rough = 0.06;
+        metal = 0.0;
     }
 
     pbr.material.base_color = vec4(albedo, 1.0);

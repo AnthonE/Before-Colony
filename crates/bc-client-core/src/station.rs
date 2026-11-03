@@ -34,7 +34,22 @@ pub enum Surface {
     Window = 8,
     /// Yellow and black stripes.
     Hazard = 9,
+    /// A town building's face (`town_mesh`): a storey at a time from the ground (its UV's `v` is
+    /// height over the street), panels with a ribbon of windows in each, a rule in its paint at every
+    /// floor's line and a fascia over the ground floor's shopfronts.
+    Facade = 10,
+    /// A road: dark plates.
+    Road = 11,
+    /// Grass, in a park or on the rim walk.
+    Grass = 12,
+    /// The canal's water.
+    Water = 13,
 }
+
+/// The town's storeys as `station.wgsl`'s facades paint them, m: the ground floor's, and each one
+/// over it (`bc_sim::colony::town`'s, checked by a test).
+pub const FACADE_GROUND: f32 = 5.0;
+pub const FACADE_FLOOR: f32 = 4.0;
 
 /// Paints, the palette's entries (`g` of a vertex's colour, in 255ths).
 pub const WHITE: u8 = 0;
@@ -144,6 +159,24 @@ impl Scale {
         collar: [1.6, 2.0],
     };
 
+    /// The town's streets and buildings (`town_mesh`): a facade's window bays 2 m wide over 1 m
+    /// panels, the band its ground floor's fascia, deck plates 2 m on the pavements.
+    pub const TOWN: Self = Self {
+        panel: [2.0, 1.0],
+        plate: 2.0,
+        joint: 0.02,
+        kick: 0.6,
+        kick_paint: HULL,
+        band: [4.35, 4.85],
+        arrow_every: 6.0,
+        lanes: [-4.0, 4.0],
+        lane_half: 1.0,
+        chevron_every: 10.0,
+        strip_every: 4.0,
+        hazard_period: 0.8,
+        collar: [3.0, 4.0],
+    };
+
     /// As the shader's uniform has it (`station.wgsl`'s `Station`: `size`, `band`, `lanes`,
     /// `marks`), and the kick plate's paint.
     pub fn uniform(&self) -> ([[f32; 4]; 4], u8) {
@@ -245,6 +278,10 @@ mod tests {
             ("DOOR", Surface::Door),
             ("WINDOW", Surface::Window),
             ("HAZARD", Surface::Hazard),
+            ("FACADE", Surface::Facade),
+            ("ROAD", Surface::Road),
+            ("GRASS", Surface::Grass),
+            ("WATER", Surface::Water),
         ] {
             assert_eq!(c(name), f32::from(s as u8), "{name}");
         }
@@ -261,6 +298,11 @@ mod tests {
             assert_eq!(c(name), f32::from(p), "{name}");
         }
         assert_eq!(c("PAINTS"), PAINTS as f32);
+        // The facades' storeys are the town's.
+        assert_eq!(c("FACADE_GROUND"), FACADE_GROUND);
+        assert_eq!(c("FACADE_FLOOR"), FACADE_FLOOR);
+        assert_eq!(FACADE_GROUND, bc_sim::colony::town::GROUND_FLOOR);
+        assert_eq!(FACADE_FLOOR, bc_sim::colony::town::FLOOR);
     }
 
     /// The uniform's fields, in the order `Scale::uniform` fills them (and `bc-client`'s
@@ -323,7 +365,7 @@ mod tests {
     /// storey (or a suit's deck), the stripes and collar a whole number of panels or less.
     #[test]
     fn the_scales_paint_walls_that_read() {
-        for s in [Scale::DECK, Scale::MUSTER] {
+        for s in [Scale::DECK, Scale::MUSTER, Scale::TOWN] {
             assert!(s.kick < s.band[0] && s.band[0] < s.band[1]);
             assert!(s.joint < s.panel[0].min(s.panel[1]) * 0.05);
             assert!(s.lanes[0] + s.lane_half < s.lanes[1] - s.lane_half, "the lanes overlap");

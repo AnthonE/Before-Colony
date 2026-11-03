@@ -253,6 +253,7 @@ impl Plugin for VisualsPlugin {
                 crate::signs::SignsPlugin,
                 crate::station::StationPlugin,
                 crate::base::BasePlugin,
+                crate::town::TownPlugin,
             ))
             .configure_sets(
                 Update,
@@ -281,6 +282,7 @@ impl Plugin for VisualsPlugin {
                         crate::ambience::setup_ambience,
                         crate::hangar::setup_bay,
                         crate::base::setup_base,
+                        crate::town::setup_town,
                         crate::city::setup_city,
                     ),
                     crate::cockpit::setup_cockpit,

@@ -81,10 +81,27 @@ impl PieceMesh {
         colour: [f32; 4],
         uv: &dyn Fn(Vec3, Vec3) -> [f32; 2],
     ) {
+        self.rect_in_strips(deck, frame, o, u, v, colour, uv, STRIP);
+    }
+
+    /// [`rect`](Self::rect), its strips round the deck at most `strip` m long (a deck of radius `r`
+    /// sags a strip by `strip² / 8r`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn rect_in_strips(
+        &mut self,
+        deck: u8,
+        frame: &Frame,
+        o: Vec3,
+        u: Vec3,
+        v: Vec3,
+        colour: [f32; 4],
+        uv: &dyn Fn(Vec3, Vec3) -> [f32; 2],
+        strip: f32,
+    ) {
         let n = u.cross(v).normalize_or_zero();
         // Cut along the side that runs round the deck (its z, which is −s).
         let (cuts_u, cuts_v) =
-            (((u.z.abs() / STRIP).ceil() as u32).max(1), ((v.z.abs() / STRIP).ceil() as u32).max(1));
+            (((u.z.abs() / strip).ceil() as u32).max(1), ((v.z.abs() / strip).ceil() as u32).max(1));
         let base = self.positions.len() as u32;
         for j in 0..=cuts_v {
             for i in 0..=cuts_u {

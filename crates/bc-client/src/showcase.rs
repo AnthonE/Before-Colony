@@ -112,6 +112,11 @@ pub enum Scene {
     /// (1), from the counter's end back to the door and the street (2), from high over the door (3),
     /// among the traders at eye height (4, the store's).
     Floor,
+    /// The ring's town (`docs/FREE_ROAM.md`, `town`), streamed round the camera: on the boulevard's
+    /// pavement at Hub Gate looking round the ring as the floor rises into the haze (1), over Exchange
+    /// Row's towers (2), from under the ceiling over Hub Gate along the ring (3), down the canal (4),
+    /// across the ring from the fore rim walk (5), up the lift's shaft from under its portal (6).
+    Town,
 }
 
 impl Scene {
@@ -135,6 +140,7 @@ impl Scene {
             "base" | "muster" => Some(Self::Base),
             "ring" | "station" | "deck" => Some(Self::Ring),
             "floor" | "exchange" => Some(Self::Floor),
+            "town" | "streets" => Some(Self::Town),
             _ => None,
         }
     }
@@ -159,6 +165,7 @@ impl Scene {
             Self::Base => "base",
             Self::Ring => "ring",
             Self::Floor => "floor",
+            Self::Town => "town",
         }
     }
 
@@ -169,6 +176,7 @@ impl Scene {
             Self::Markab => markab_cams(),
             Self::Base => base_cams(),
             Self::Floor => floor_cams(),
+            Self::Town => town_cams(),
             Self::Ring => {
                 use bc_client_core::ring_deck::{CAMS, DECK_ORIGIN};
                 CAMS.iter().map(|&(eye, at)| look(DECK_ORIGIN + eye, at - eye)).collect()
@@ -521,6 +529,9 @@ impl Plugin for ShowcasePlugin {
         if self.scene == Scene::Ring {
             app.add_systems(Update, ring_script.after(script).in_set(crate::view::Vis::Drive));
         }
+        if self.scene == Scene::Town {
+            app.add_systems(Update, town_script.after(script).in_set(crate::view::Vis::Drive));
+        }
         if self.scene == Scene::City {
             app.add_systems(Startup, city_script)
                 .add_systems(Update, city_crowd.after(script).in_set(crate::view::Vis::Drive));
@@ -626,7 +637,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Surface => {
             vec![(Argo, Faction::Colonies), (Argo, Faction::Colonies), (Argo, Faction::Alliance)]
         }
-        Scene::City | Scene::Markab | Scene::Base | Scene::Floor => vec![],
+        Scene::City | Scene::Markab | Scene::Base | Scene::Floor | Scene::Town => vec![],
         Scene::Ring => vec![(Argo, Faction::Colonies), (Altair, Faction::Colonies)],
     }
 }
@@ -1556,6 +1567,29 @@ fn base_cams() -> Vec<Orbit> {
     ]
 }
 
+fn town_cams() -> Vec<Orbit> {
+    use bc_sim::colony::town::{CANAL, CELL, ROOF, ROUND};
+    let view = crate::town::TownView::default();
+    // A point of the town: across, round from Hub Gate, up.
+    let at = |x: f32, t: f32, h: f32| crate::town::world(&view, x, t, h);
+    let toward = |from: Vec3, to: Vec3| look(from, to - from);
+    let canal = 0.5 * (CANAL.0 + CANAL.1);
+    vec![
+        // On the boulevard's pavement by Hub Gate's square, round the ring: the floor rising ahead.
+        toward(at(-36.0, 60.0, 1.7), at(-20.0, 1_400.0, 30.0)),
+        // Over Exchange Row's towers near Tower Hill's lift.
+        toward(at(-260.0, 2_350.0, 150.0), at(0.0, 3_000.0, 60.0)),
+        // From under the ceiling over Hub Gate, along the ring.
+        toward(at(0.0, ROUND - 400.0, ROOF - 60.0), at(0.0, 1_600.0, 0.0)),
+        // Down the canal from a bridge.
+        toward(at(canal, 9.0 * CELL, 3.0), at(canal, 12.0 * CELL, 2.0)),
+        // Across the ring from the fore rim walk.
+        toward(at(-985.0, 500.0, 1.8), at(400.0, 650.0, 40.0)),
+        // Up Hub Gate's lift from under its portal.
+        toward(at(-20.0, 30.0, 1.7), at(0.0, 0.0, 80.0)),
+    ]
+}
+
 fn markab_cams() -> Vec<Orbit> {
     use bc_client_core::showcase_markab::Stunt;
     let toward = |from: Vec3, to: Vec3| look(from, (to - from).normalize());
@@ -2381,7 +2415,7 @@ fn script(
         }
         // The bay is driven by `hangar_script`; the city by `city_script`; the Markab by
         // `markab_crowd`; the base stands still.
-        Scene::Hangar | Scene::City | Scene::Markab | Scene::Base | Scene::Floor => {}
+        Scene::Hangar | Scene::City | Scene::Markab | Scene::Base | Scene::Floor | Scene::Town => {}
         Scene::Ring => {
             use bc_client_core::ring_deck::{DECK_ORIGIN, STANDING, flyer};
             // The Argo before bay 07, facing the deck, looking about.
@@ -2648,6 +2682,13 @@ fn ring_script(mut indoors: ResMut<crate::hangar::Indoors>, mut set: ResMut<crat
     }
     if *set != crate::hangar::IndoorSet::Deck {
         *set = crate::hangar::IndoorSet::Deck;
+    }
+}
+
+/// The town's scene: the view in the town, upright where its cameras are.
+fn town_script(mut view: ResMut<crate::town::TownView>) {
+    if !view.active {
+        view.active = true;
     }
 }
 

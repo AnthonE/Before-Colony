@@ -123,6 +123,8 @@ mod suits_vis;
 #[cfg(target_arch = "wasm32")]
 mod terminal;
 #[cfg(target_arch = "wasm32")]
+mod town;
+#[cfg(target_arch = "wasm32")]
 mod trams;
 #[cfg(target_arch = "wasm32")]
 mod transport;
