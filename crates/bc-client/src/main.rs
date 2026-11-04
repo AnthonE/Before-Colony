@@ -47,6 +47,8 @@ mod echo;
 #[cfg(target_arch = "wasm32")]
 mod fx;
 #[cfg(target_arch = "wasm32")]
+mod fx_stage;
+#[cfg(target_arch = "wasm32")]
 mod gfx;
 #[cfg(target_arch = "wasm32")]
 mod hangar;

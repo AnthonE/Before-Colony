@@ -17,6 +17,7 @@ webgpu = ["bevy/webgpu"]
 bc-auth.workspace = true
 bc-client-core.workspace = true
 bc-econ.workspace = true
+fx.workspace = true
 bc-model.workspace = true
 bc-proto.workspace = true
 bc-sim.workspace = true

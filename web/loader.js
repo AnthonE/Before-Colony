@@ -120,6 +120,8 @@ async function main() {
     hz: Number(params.get("hz") || 60),
     // `?clean=1`: the showcase without its line of text in the corner, for clips.
     clean: params.get("clean") === "1",
+    // `?showcase=fx&fx=<name>`: the fx stage, one effect alone (fx_stage.rs, scripts/fx.sh).
+    fx: params.get("fx") || "",
   };
   if (!showcase) {
     if (!("WebTransport" in window)) {
