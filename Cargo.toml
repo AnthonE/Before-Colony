@@ -20,6 +20,8 @@ bc-sim = { path = "crates/bc-sim", default-features = false }
 bc-sector = { path = "crates/bc-sector" }
 bc-orrery = { path = "crates/bc-orrery" }
 bc-client-core = { path = "crates/bc-client-core" }
+# Vendored from Gates (scripts/fx-sync.sh): the effects engine with no Bevy in it.
+fx = { path = "crates/fx" }
 bc-model = { path = "crates/bc-model" }
 bc-bot = { path = "crates/bc-bot" }
 bc-econ = { path = "crates/bc-econ" }

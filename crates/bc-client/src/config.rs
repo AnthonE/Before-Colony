@@ -64,6 +64,8 @@ pub struct LaunchConfig {
     pub showcase_hz: f64,
     /// `?clean=1`: the showcase without its line of text in the corner, for clips.
     pub showcase_clean: bool,
+    /// `?fx=<name>`: the effect `?showcase=fx` stages (`fx_stage.rs`).
+    pub showcase_fx: String,
 }
 
 fn get(obj: &JsValue, key: &str) -> JsValue {
@@ -117,6 +119,7 @@ impl LaunchConfig {
             ssao: get(&cfg, "ssao").as_bool().unwrap_or(true),
             showcase_hz: number("hz").filter(|h| *h >= 1.0).unwrap_or(60.0).min(240.0),
             showcase_clean: flag("clean"),
+            showcase_fx: string("fx"),
         }
     }
 }

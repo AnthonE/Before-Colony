@@ -1,98 +1,185 @@
-# Before Colony — notes for AI assistants
+# CLAUDE.md — Before Colony
 
-A space mech MMO (free aim, Newtonian 6DOF). Rust server, Bevy 0.19 client compiled to wasm,
-WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md`; `docs/CONTROLS.md`
-surveys what players of similar games expect of the controls (read it before changing a binding);
-`docs/NETCODE.md` is the netcode of record (what we keep, what we took from whom, what we turned down, and the road to one world of many sectors: read it before changing the wire, replication or how sectors meet), `docs/SCALE.md` what stops the world growing, with numbers;
-`docs/PEERS.md` is what the nearest games teach us, with priorities (read it before adding a system players will
-compare with theirs), and `docs/ROADMAP.md` how each is built;
-`docs/STORY.md` is the world bible (setting, factions, eras, voice, and the secret it shares with Gates: read it before writing in-game text; every name is the game's own, never another franchise's: its "Voice and naming");
-`docs/FREE_ROAM.md` is the plan of record for the turn to free roam (a town at GTA's scale on a 3 km ring, a new pilot starting on foot in it, the station language's panels everywhere, and the infrastructure for crowds, traffic and the Watch: read it before touching the ring, the town, its people or its police; where it and `RING.md` disagree it wins);
-`docs/RING.md` is the plan of record for the First Colony as a ring, Gundam Wing's look in our own designs (painted anime, the base in the hub, buildings from Gates' pieces): it supersedes the cylinder of `COLONY.md` and `COLONY_LOOK.md` where they disagree, so read it before touching the colony;
-`docs/OPEN_CITY.md` is the open city (homes at real addresses, not instanced, on Rust's rules taken from Gates; then the street in the
-tick, cars you own, heat and the Watch, intrusion, raids, businesses: read it before touching homes, crime or the street);
-`docs/FLOOR.md` is the Exchange floor seen from the Elo Pros store (one room, two clients: read it before touching the floor or `/floor.json`);
-`docs/COLONY.md` is the plan for the First Colony's inside (Milestone 5), `docs/SUITS_INSIDE.md` the design for
-suits inside it, `docs/TRAINING.md` the Proving Ground (training inside it, after X-Wing and TIE Fighter), `docs/COLONY_LOOK.md` its look (Rust's realism, Phantasy Star Online's clean colony, anime behind)
-and the passes towards it; `docs/LIFE.md` is living in it (jobs as seats worked by Arrivals or the colony's staff, the
-body and its meals on the wall clock, the great works as the server's raid); `docs/UI.md` is the UI's look (what the nearest mech games teach, and the rules every panel and readout keeps to: read it before adding one); `docs/LOCK.md` is the lock-on (it moves the suit about its target, never the aim: what it decides
-travels in the command as `bc_proto::LockOn`, so prediction stays exact); the shooter controls, the default
-(`bc_client_core::upright`: the view upright, W where the pilot looks), ride the same `LockOn` with nothing to hold to.
+**MVP fast-iteration mode**, as in Gates (operator, 2026-11-04). Ship code.
+This page is the whole process. The longer page it replaced (every system
+described, every e2e suite narrated, the trailer, publishing, suit renders) is
+in git: `git show 3779604:CLAUDE.md` (a shallow clone needs
+`git fetch --unshallow` first). Grep it when something weird happens. Don't
+read it up front.
 
-## Hot-path rules (non-negotiable)
-- The sector tick (`bc-sim` step + `bc-sector` input drain/encode) must not allocate or lock.
-  Storage is sized at construction (`Box<[T]>`); `bc-sim/src/storage.rs` is the only allocation site.
-- `bc-proto` is `no_std` with no `alloc` — it cannot allocate by construction.
-- `bc-sim` and `bc-sector` have `clippy.toml` bans (Mutex/RwLock/String/HashMap/`vec!`/`format!`/`Box::new`…).
-- Threads talk only through preallocated lock-free queues (`rtrb`, crossbeam `ArrayQueue`).
-  The sector thread never wakes tokio; it `unpark()`s the egress thread.
-- Proof: the `no_alloc` tests count heap operations with `bc-alloc::CountingAlloc` and must stay at 0.
-- Determinism: use `bc_sim::math` (libm) for trig; never enable glam `fast-math` or wasm `simd128`.
-- Surface contact is `bc_sim::ground::move_step` (the server and the client's predictor share it); body
-  poses are closed forms in the integer tick (`bodies::landmark_pose(t)`) and never replicated; a rider is
-  body-local (`Anchor`) and its world pose is derived from it every tick (`docs/ARCHITECTURE.md`, "Bodies and frames").
-- The colony's inside (`bc_sim::colony`: frames, day, louvres, the city, its traffic and people: `traffic`,
-  `walkers`) is closed forms of the tick and of where you ask, deterministic and allocation-free (`CITY_GOLDEN`,
-  `TRAFFIC_GOLDEN`, `WALKERS_GOLDEN`, `no_alloc`); nothing of it is stored or sent. Its law (nothing fires inside)
-  has one exception, the Blast Hall (`colony::hall`, `HALL_GOLDEN`): the tick and the owner's prediction both clear
-  the weapons' buttons of any suit outside it, and its rounds touch no suit and never leave it. The interior sector
-  times each pilot's Proving Ground course and drill in its tick (`Sector::watch_training`, `docs/TRAINING.md`) with the
-  closed forms their client runs alike (`course::Run`, stepped on the predictor's samples; `hall::Drill`, fed their own
-  `TargetHit`s). People cross only where no car drives (`tests/life.rs` holds it). The client draws the life with one `LifeMaterial` that never changes after
-  start-up (what changes rides in each `MeshTag`; `life_lib.wgsl`'s numbers are checked by `bc_client_core::life`). Shaders
-  paint the city from its block atlas (`bc::city`) and never re-implement the layout; a layout change bumps
-  `content::city::CITY_VERSION` with the protocol. The rules' numbers the shaders keep (`city_lib.wgsl`,
-  `city_facade.wgsl`) are checked by `city_atlas.rs`'s tests; `station.wgsl`'s surfaces, flags and uniform by
-  `bc_client_core::station`'s, which also hold its derivatives above its surface branch and none in `anime.wgsl`
-  (`bc::anime`, the painted look the hull and station shaders share). In `city.wgsl` every derivative is taken at the top
-  of `fragment()`, before the surface branch (WebGPU rejects them under it; naga doesn't catch it).
-- The ring's town (`bc_sim::colony::town`, `docs/FREE_ROAM.md`: its districts, streets, blocks, buildings, lifts'
-  feet and the canal's railings) is a closed form of where you ask too, deterministic and allocation-free
-  (`TOWN_GOLDEN`, `no_alloc`); nothing of it is stored or sent, `deck::solid` asks it for the ring's deck, and a
-  layout change bumps `content::town::TOWN_VERSION` with the protocol. `cargo run -q -p bc-sim --example
-  town_map -- [m_per_px] [t0] [t1] > town.ppm` draws its plan from above.
-- The Corona's Ward (`sim::ward`) stops hostile beams where they cross into its field: the tick keeps the fields
-  standing in a fixed list (`MAX_WARDS`), and the client stops a beam at a field its SPECIAL flag shows, alike
-  (`bc_sim::collide::sphere_entry`).
-- Never log signatures or resume tokens (addresses shortened: `pilots::short`). `bc_proto::auth::Signature`'s
-  `Debug` hides its bytes on purpose.
+## What this is
+
+A space mech MMO in the browser: free aim, Newtonian 6DOF. A Rust server and a
+Bevy 0.19 client compiled to wasm (a WebGL2 and a WebGPU build), with
+WebTransport (QUIC) between them. `docs/ARCHITECTURE.md` and `docs/DESIGN.md`
+are the system and the product.
+
+| crate | what |
+|---|---|
+| `bc-sim` | the simulation core: `no_std`, an allocation-free tick shared by server and client. Flight (`tuning`), combat, bodies, ground contact, the colony's and the town's closed forms (`colony::*`) |
+| `bc-sector` | the hot loop: input drain, step, encode; no tokio, no locks, no allocation after start-up |
+| `bc-proto` | the wire: `no_std`, no `alloc`, bit-packed, one QUIC datagram |
+| `bc-server` | WebTransport sessions, sector threads, the dev HTTP (`/status`, `/floor.json`, …) |
+| `bc-client` | the browser client, Bevy 0.19 → wasm32 (**a no-op natively**) |
+| `bc-client-core` | the client with no transport and no Bevy: handshake, clock, prediction, interpolation, the page's types (`page`), the gallery |
+| `bc-econ` | the economy: stores, recipes, the bay's suit, the fabricator, the Exchange; off the hot path |
+| `bc-model` | the mechs, procedurally: the kit, the skeleton, each frame's design, as plain mesh data |
+| `bc-bot` | agents playing over the same protocol as people |
+| `bc-auth` | wallet sign-in (SIWE), both sides |
+| `bc-orrery` | the Orrery tactical oracle, off the hot path |
+| `bc-sound` | the generated bank, the mixer, the cockpit, the music; no Bevy, no I/O |
+| `bc-alloc` | the counting allocator that proves the tick never allocates |
+| `fx` | effects with no engine (pool, sprites, recipes, the fx stage's contract), **vendored from Gates** (`scripts/fx-sync.sh`). Our particles are still `bc-client/src/particles.rs`; only the stage is shared so far |
+
+## The loop
+
+1. Write the code.
+2. `scripts/quick.sh`: fmt, the native clippy and **both wasm clippies**
+   (only they compile `bc-client`). Add crate names to run their tests too,
+   in release (`scripts/quick.sh bc-sim bc-sector`). Then only what you
+   touched:
+   - **the page or a screen:** `scripts/build-web.sh page`, then `/?gallery`
+     (`scripts/e2e.sh gallery` photographs every screen);
+   - **an effect:** `scripts/fx.sh <name>` (the `fx` skill);
+   - **how anything looks or plays:** `scripts/pt` (the `playtest` skill; the
+     `playtester` agent takes an area each).
+3. Commit with a short message. Push your branch.
+
+CI runs `scripts/ci.sh`'s checks on every push: fmt, the three clippies,
+`cargo test --workspace --release`, determinism on wasm and the tick bench.
+The e2e suites run nightly (`.github/workflows/e2e.yml`).
+
+## Don't
+
+- Update `docs/` unless asked. Do read your area's doc before changing it
+  (below).
+- Write findings notes, research docs or long commit bodies.
+- Add a test for every change. The goldens and the `no_alloc` proofs hold a
+  lot; add one when the logic is tricky or has broken before.
+- Read every doc up front. Read your area's, grep the rest:
+
+  | area | doc |
+  |---|---|
+  | a binding | `CONTROLS.md` |
+  | the wire, replication, how sectors meet | `NETCODE.md`, `SCALE.md` |
+  | a system players will compare with another game's | `PEERS.md`, `ROADMAP.md` |
+  | in-game text | `STORY.md` (setting, voice and naming) |
+  | the ring, its town, people, police | `FREE_ROAM.md` (wins over `RING.md`), `RING.md` (wins over `COLONY.md` and `COLONY_LOOK.md`) |
+  | homes, crime, the street | `OPEN_CITY.md` |
+  | the Exchange floor, `/floor.json` | `FLOOR.md` |
+  | the colony's inside | `COLONY.md`, `SUITS_INSIDE.md`, `TRAINING.md`, `LIFE.md` |
+  | a panel or readout | `UI.md` |
+  | the lock-on | `LOCK.md` |
+- Edit `crates/fx`, `scripts/fxstrip.mjs` or `scripts/board.mjs`. They are
+  vendored (Gates; the Elo Pros agent kit): fix them upstream, then sync.
+- Set `RUSTFLAGS`. It drops the `web_sys_unstable_apis` cfg from
+  `.cargo/config.toml`.
+- Name anything after another franchise. Every name is the game's own
+  (`STORY.md`, "Voice and naming").
+
+## What CI will stop you on (so you know why)
+
+1. **The sector tick neither allocates nor locks** (`bc-sim` step plus
+   `bc-sector` input drain and encode). Storage is sized at construction
+   (`Box<[T]>`); `bc-sim/src/storage.rs` is the only allocation site. The
+   `no_alloc` tests count heap operations (`bc-alloc::CountingAlloc`) and must
+   stay at 0.
+2. **`bc-proto` is `no_std` with no `alloc`**, so it cannot allocate.
+3. **`bc-sim` and `bc-sector` have `clippy.toml` bans** (Mutex, RwLock,
+   String, HashMap, `vec!`, `format!`, `Box::new`…). Threads talk only through
+   preallocated lock-free queues (`rtrb`, crossbeam `ArrayQueue`); the sector
+   thread never wakes tokio, it `unpark()`s the egress thread.
+4. **Determinism.** Trig goes through `bc_sim::math` (libm). Never glam
+   `fast-math` or wasm `simd128`. Native and wasm32 hit the same golden
+   (`--test determinism`).
+5. **The colony and the town are closed forms** of the tick and of where you
+   ask: deterministic, allocation-free, never stored or sent. Their goldens
+   are `CITY_GOLDEN`, `TRAFFIC_GOLDEN`, `WALKERS_GOLDEN`, `HALL_GOLDEN` and
+   `TOWN_GOLDEN`. A layout change bumps `content::city::CITY_VERSION` or
+   `content::town::TOWN_VERSION` with the protocol. People cross only where
+   no car drives (`tests/life.rs`).
+6. **Shaders paint, they never re-implement the layout** (`bc::city`'s block
+   atlas). The numbers they keep are checked from Rust: `city_atlas.rs`,
+   `bc_client_core::station`, `bc_client_core::life`. **Derivatives are taken
+   at the top of `fragment()`**, before any branch on the surface; WebGPU
+   rejects them under it and naga doesn't catch it, so the tests scan for it.
+7. **The page and the client agree.** `tests/page_contract.rs` reads
+   `web/ui.js` against `bc_client_core::page`'s types and `terminal`'s JSON.
+8. **`bc-client` compiles only for wasm.** A green native workspace says
+   nothing about it; the two wasm clippies do.
+9. **`crates/fx` is Gates'** (`crates/fx/tests/vendored.rs`).
 
 ## Commands
-- `scripts/ci.sh` — everything CI runs (`BC_E2E=1` adds the browser tests).
-- `scripts/dev.sh` — build the web client, run a survival sector with drones, an AI agent and a miner (`BC_RULES=arcade` for the arcade rules, `BC_FLIGHT=real` for the simulator's flight instead of anime rules, `BC_DATA=dir` to keep pilots and the exchange; the retired cylinder's inside is closed by default while the ring is built (`docs/RING.md`): the airlock steps out onto Bay Row, and `BC_COLONY=1` opens the old city instead, the server's `--colony`, survival only).
-- `cargo test --workspace --release` — all native tests (bc-client is a no-op natively; release
-  because the simulation-heavy tests are slow unoptimised).
-- `cargo clippy --workspace --all-targets -- -D warnings`,
-  `cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings` and
-  `cargo clippy -p bc-client --target wasm32-unknown-unknown --features webgpu -- -D warnings`
-- `scripts/build-web.sh [webgl2] [webgpu]` — browser build into `web/dist/` (needs wasm-bindgen-cli 0.2.128).
-- The page around the game (`web/ui.js`: menus, terminals, desks) is drawn from `bc_client_core::page`'s types
-  (`View`, `Init`, `SettingsView`, `Cmd`) and `terminal`'s JSON; `tests/page_contract.rs` reads `ui.js` and fails on a
-  field or command one side has and the other doesn't. A new screen or tab gets a scene in `bc_client_core::gallery`:
-  `scripts/build-web.sh page` (no wasm needed) then `/?gallery` shows every screen with made-up data, `[`/`]` to step;
-  `scripts/e2e.sh gallery` photographs them all into `e2e/artifacts/gallery/`. Look at it before and after a change to
-  the page's look.
-- `cargo run -p bc-server --release` then open http://127.0.0.1:8080
-- `scripts/publish-web.sh` — the browser build onto the Elo Pros origin (`/data/apps/scry-data/before-colony-web/<build>/`, `current` flipped last; served at elopros.com/games/before-colony/play/). Its `config.js` names the game server (`web/config.js`: empty, the page's own server; `?server=host:port`, `?http=url` override it), since that page dials game.elopros.com from another site. The page has no inline script (the store's CSP); the server's `--siwe-domain` lists both hosts, `--cors-origin` (default https://elopros.com) may read `/status`, `/status.json` (the launcher's `{players, max_players, tick}`), `/online.json` (the signed-in wallets, for the store's playtime: `bc_server::online`), `/floor.json` (who stands on the Exchange floor and its boards, for the store's trade terminal: `bc_server::floor`, `docs/FLOOR.md`) and `/cert-hash`.
-- `scripts/pt` — play the game from a shell, to playtest it and look for what needs polish (`.claude/skills/playtest/SKILL.md`; the `playtester` agent, `.claude/agents/`, takes an area each): `scripts/pt up` starts a world (survival, drones, an agent, a miner; `BC_COLONY=1` opens the old city, with strollers), `scripts/pt open` a browser kept open on it (`PT_SESSION` names each), then `shot` (a PNG to read), `around`, `ui` (the page's words), `walk <spot>`, `use`, `key`, `turn <yaw> [pitch]` (the `look` dev hook: the mouse can't steer), `profile <secs>`, `cmd '<bcInbox json>'`, `wait '<js over s = __bc>'`, `note`; out in `e2e/artifacts/playtest/<session>/`.
-- `scripts/trailer/make.sh` — the alpha trailer (`out/before-colony-alpha.mp4`), cut like Gates' to the title theme from
-  showcase footage and the game's own sounds (`bc-sound`'s `bank` example); `make.sh stills` the store's frames;
-  `make.sh battle` the fight reel (`out/before-colony-battle.mp4`, from `shots/battle.json`, cut by `reel.py`).
-  `overhaul.sh` is a quick captioned cut for seeing new work move (`shots/overhaul.json`: the ring, the Ring Deck, the
-  Muster; `BC_SHOTS` names another list), `shots/survey.json` stills every camera, and `shots/elopros.json` is raw
-  footage for the Elo Pros platform trailer, cut elsewhere. `film.mjs`
-  films a shot list (`shots/*.json`) a frame at a time through the showcase's film hook (`window.__bcFilm`, `showcase::film`:
-  the clock stepped and held, the camera turned, zoomed or kept on a suit), so SwiftShader's pace never shows.
-- Looking at a suit's design outside the game: `cargo run -q -p bc-model --example suit_json -- argo > argo.json`
-  (add `head=altair`, `arms=corvus`… to swap sections, `far` for the far level of detail; `sagittarius` and
-  `corona`, the Almagest's prototype pair, render in their own liveries), then
-  `python3 scripts/suit-render.py argo.json out/argo [sheet art figure head …] [--turn Head:0,40,0]` renders it in
-  Blender (`pip install bpy==4.2.0`, Python 3.11). Compare against the reference art before and after a design change.
-  `--look cel|kit|real|worn` tries other surfaces on it (anime cel shading and ink, a model kit, realistic painted armour with decals, battle-worn: `scripts/suit_looks.py`).
-- `scripts/e2e.sh spike|slice|gfx|frames|lockon|ui|login|hangar|base|surface|colony|chart|inside|home [webgl2|webgpu]` — Playwright against a real server (`frames`: the autopilot flies each Lodestar; `lockon`: Y locks on to a drone, W carries the suit in; `gfx`: every showcase scene, screenshots in `e2e/artifacts/` (`ring` is the Ring Deck, the colony's station language at a suit's scale as a test set: `bc_client_core::ring_deck`; `base` the Muster, Bay Row and the test hall in it at a person's: `muster`, `piece_mesh`; `docs/RING.md`); `ui`: the page around the game; `login`: wallet sign-in with a stub wallet; `hangar`: survival on foot, the terminals (the bay's pointing at the city's desks), launching and docking; `base`: out of the bay's airlock onto Bay Row, the base's deck in the hub (`docs/RING.md`), into the test hall to its counter and back in, and two browsers meeting on the row; `surface`: the lander autopilot lands in Fornax's Aft Well, hides, parks and wakes there; `colony`: down the cap lift into the city, in to the Proving Ground's desk, the Exchange floor's counter (an order resting on the book) and the Charter Board's desk (a delivery for standing, a contract posted and withdrawn), to a sight, The Arrival's seats and its counter's Most Wanted (salvage terms), each desk's objective done in turn, and back up, a tram, a car, a Markab (the rocket car, `bc_client_core::markab`: backed up Hub Gate's terminal on its fan, dropped off it, a leap), the Canal strip's cap lift (Q at the airlock) and back up, and two browsers: two pilots meet at Hub Gate, one rides home, and an agent's suit (`suit_inside`) comes down onto the avenue by the other; `chart`: the 3D chart out to Earth-Moon space, a course to Fornax's Aft Well and the auto-nav flying it; `inside`: Q at the cockpit launches the suit into the colony by the inner gate, it flies a way down it and docks back; another lands on the avenue with the grip armed, sees the stroller there and walks it; a third flies into the Blast Hall and its training rounds score on its targets; a fourth walks to the hall's gantry, boards a trainer, starts the drill and docks back on foot; `home`: two pilots signed in with stub wallets wake in neighbouring flats (a register seeded by `bc-server`'s `seed_homes` example), one sets her code and puts a sofa down, the other knocks, is shocked, enters the code and comes in, and she logs out asleep in her bed and wakes there). The suits' suites (`slice`, `frames`, `lockon`, `ui`, `login`, `surface`, `chart`) run `--rules arcade` (`BC_RULES` overrides); `hangar`, `base`, `colony`, `inside` and `home` always run survival, the server's default; `hangar`, `colony`, `inside` and `home` also pass `--colony`, since they still walk the retired cylinder's inside, and `base` runs with it closed. Arguments after the project go to Playwright (`scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`); `BC_GFX_EXTRA="look=0"` adds query parameters to every gfx shot (and its file name).
-- A suit's stats are `bc_sim::tuning` (frame × systems × equipment), built identically by the server and the
-  owner's prediction: anything that changes flight goes through it, from state the own snapshot carries.
-  The sector's flight rules (`tuning::FlightRules`: anime, the default, or real) go through it too; the
-  Welcome's ANIME flag tells the client.
-- Survival's economy is `bc-econ` (off the hot path); the hangar's JSON messages are `bc_econ::wire` on control-stream frames tagged 11 (`docs/PROTOCOL.md`).
-- Never set `RUSTFLAGS` (it would drop the `web_sys_unstable_apis` cfg from `.cargo/config.toml`).
+
+```
+scripts/quick.sh [crate…]                          # the local check
+scripts/ci.sh                                      # what CI runs (BC_E2E=1 adds the browser suites)
+cargo run -p bc-server --release                   # then http://127.0.0.1:8080
+scripts/dev.sh                                     # web build + a survival sector with drones, an agent, a miner
+scripts/build-web.sh [webgl2] [webgpu] [page]      # the browser build into web/dist/
+scripts/e2e.sh <suite> [webgl2|webgpu]             # Playwright against a real server (e2e/tests/*.spec.ts)
+scripts/e2e.sh gfx webgl2                          # every showcase scene, screenshots in e2e/artifacts/
+scripts/pt up | open | shot | showcase …           # play it from a shell (the playtest skill)
+scripts/fx.sh list | <name>…                       # the fx stage: one effect's strip → e2e/artifacts/fx/<name>/
+node scripts/board.mjs look                        # the reference board (board/board.json): strips beside refs and marks
+scripts/fx-sync.sh [GATES_DIR]                     # the fx crate and fxstrip from a Gates checkout
+scripts/trailer/make.sh                            # the trailer and its cuts (scripts/trailer/)
+cargo run -q -p bc-model --example suit_json -- argo > argo.json   # a suit's design; scripts/suit-render.py renders it
+```
+
+`dev.sh` and `pt up` take `BC_RULES=arcade`, `BC_FLIGHT=real`, `BC_DATA=dir`
+and `BC_COLONY=1` (the retired cylinder's inside; the ring is built without
+it).
+
+## Traps that already cost real time
+
+- **`RUSTFLAGS` set anywhere** silently drops the WebGPU API cfg.
+- **`wasm-bindgen-cli` must be exactly 0.2.128**; `build-web.sh` checks it.
+- **Tests in debug crawl.** The simulation-heavy ones are slow unoptimised;
+  use `--release`.
+- **SwiftShader lies about the look.** It is slow, and only `quality=high`
+  is the real look; screenshots are 960×540 (the playtest skill's caveats).
+- **The showcase's film hook sleeps the app** once its clock stands still.
+  Wake it (`window.__bcWake`), or a waiting shooter hangs.
+- **`scripts/pt showcase` needs `scripts/pt up` first.**
+- **Some e2e suites pass `--colony`.** `hangar`, `colony`, `inside` and
+  `home` walk the retired cylinder; `base` runs with it closed.
+
+## Fresh box
+
+- `rustup show`: 1.98.1 with the wasm target (pinned).
+- `cargo install wasm-bindgen-cli --version 0.2.128 --locked`.
+- `cd e2e && pnpm i` for Playwright (a global one and `/opt/pw-browsers/chromium`
+  also serve `scripts/fx.sh` and the board).
+- Suit renders: `pip install bpy==4.2.0` (Python 3.11).
+- A Gates checkout beside this one (`../Gates`) for `scripts/fx-sync.sh`.
+
+## Rules that stay
+
+- **Surface contact is `bc_sim::ground::move_step`,** shared by the server
+  and the client's predictor. Body poses are closed forms in the integer tick
+  (`bodies::landmark_pose(t)`), never replicated. A rider is body-local
+  (`Anchor`); its world pose is derived every tick (`ARCHITECTURE.md`,
+  "Bodies and frames").
+- **A suit's stats are `bc_sim::tuning`** (frame × systems × equipment),
+  built identically by the server and the owner's prediction. Anything that
+  changes flight goes through it, from state the own snapshot carries; the
+  sector's `FlightRules` too (the Welcome's ANIME flag tells the client).
+- **The lock-on moves the suit about its target, never the aim.** What it
+  decides travels in the command as `bc_proto::LockOn` (`LOCK.md`); the
+  default shooter controls (`bc_client_core::upright`) ride the same `LockOn`.
+- **Nothing fires inside the colony,** except in the Blast Hall
+  (`colony::hall`, `HALL_GOLDEN`). The tick and the owner's prediction both
+  clear the weapons of a suit outside it; its rounds touch no suit and never
+  leave it.
+- **The Corona's Ward stops hostile beams** where they cross its field
+  (`sim::ward`, `MAX_WARDS`). The client stops a beam alike at a field its
+  SPECIAL flag shows (`collide::sphere_entry`).
+- **The colony's life draws with one `LifeMaterial`** that never changes
+  after start-up; what changes rides in each `MeshTag`.
+- **Never log signatures or resume tokens.** Shorten addresses
+  (`pilots::short`); `bc_proto::auth::Signature`'s `Debug` hides its bytes on
+  purpose.
+- **The secret shared with Gates** (`STORY.md`) is never said in game.
+- **Operator-only:** publishing the page (`scripts/publish-web.sh`) and
+  deploying.

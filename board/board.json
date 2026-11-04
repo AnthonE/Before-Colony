@@ -1,0 +1,134 @@
+{
+  "game": "Before Colony",
+  "about": "The reference board: the fx stage's strips (scripts/fx.sh, the fx skill), one effect over a dark and a light card, every frame of it, measured against the plate and the last run, beside references and the operator's marks. node scripts/board.mjs look shoots every view and draws the sheet; it scores nothing. A reference that is not ours or CC0 stays out of the repo: mark it private and keep it in $ELO_REF_DIR.",
+  "refs": "refs",
+  "private_refs_env": "ELO_REF_DIR",
+  "views": [
+    {
+      "id": "fx-hit-beam-rifle",
+      "name": "Effect: a beam rifle's shot striking",
+      "what": "a beam rifle's shot striking a suit on the fx stage: dark card left, light card right",
+      "take": "a hard white-hot flash and sparks thrown off the armour, gone fast; reads at mech scale against black space",
+      "shoot": [
+        "scripts/fx.sh",
+        "hit-beam-rifle",
+        "hit-machine-cannon",
+        "muzzle-heavy-beam-rifle",
+        "clash",
+        "kill",
+        "missile-burst",
+        "rock-break"
+      ],
+      "png": "e2e/artifacts/fx/hit-beam-rifle/strip.png",
+      "refs": []
+    },
+    {
+      "id": "fx-hit-machine-cannon",
+      "name": "Effect: machine-cannon rounds striking",
+      "what": "a machine cannon's round striking on the fx stage",
+      "take": "smaller and duller than a beam's: ballistic sparks and a puff, so a burst reads as many small hits",
+      "shoot": [
+        "scripts/fx.sh",
+        "hit-beam-rifle",
+        "hit-machine-cannon",
+        "muzzle-heavy-beam-rifle",
+        "clash",
+        "kill",
+        "missile-burst",
+        "rock-break"
+      ],
+      "png": "e2e/artifacts/fx/hit-machine-cannon/strip.png",
+      "refs": []
+    },
+    {
+      "id": "fx-muzzle-heavy-beam-rifle",
+      "name": "Effect: the Heavy Beam Rifle firing",
+      "what": "the Heavy Beam Rifle's muzzle on the fx stage",
+      "take": "the biggest muzzle in the game: a white core blooming to colour, a ring, gone in a breath",
+      "shoot": [
+        "scripts/fx.sh",
+        "hit-beam-rifle",
+        "hit-machine-cannon",
+        "muzzle-heavy-beam-rifle",
+        "clash",
+        "kill",
+        "missile-burst",
+        "rock-break"
+      ],
+      "png": "e2e/artifacts/fx/muzzle-heavy-beam-rifle/strip.png",
+      "refs": []
+    },
+    {
+      "id": "fx-clash",
+      "name": "Effect: beam sabers meeting",
+      "what": "beam sabers clashing on the fx stage",
+      "take": "a burst of sparks and light where the blades meet, anime-bright, the sparks thrown wide",
+      "shoot": [
+        "scripts/fx.sh",
+        "hit-beam-rifle",
+        "hit-machine-cannon",
+        "muzzle-heavy-beam-rifle",
+        "clash",
+        "kill",
+        "missile-burst",
+        "rock-break"
+      ],
+      "png": "e2e/artifacts/fx/clash/strip.png",
+      "refs": []
+    },
+    {
+      "id": "fx-kill",
+      "name": "Effect: a suit destroyed",
+      "what": "a suit's death on the fx stage, framed for 40 m",
+      "take": "a flash, a fireball that cools, debris and smoke hanging in vacuum (no gravity, no drag); the light card shows the smoke's body",
+      "shoot": [
+        "scripts/fx.sh",
+        "hit-beam-rifle",
+        "hit-machine-cannon",
+        "muzzle-heavy-beam-rifle",
+        "clash",
+        "kill",
+        "missile-burst",
+        "rock-break"
+      ],
+      "png": "e2e/artifacts/fx/kill/strip.png",
+      "refs": []
+    },
+    {
+      "id": "fx-missile-burst",
+      "name": "Effect: a missile's warhead",
+      "what": "a missile bursting on the fx stage",
+      "take": "a sharp flash and a ball of fire smaller than a kill's, smoke after",
+      "shoot": [
+        "scripts/fx.sh",
+        "hit-beam-rifle",
+        "hit-machine-cannon",
+        "muzzle-heavy-beam-rifle",
+        "clash",
+        "kill",
+        "missile-burst",
+        "rock-break"
+      ],
+      "png": "e2e/artifacts/fx/missile-burst/strip.png",
+      "refs": []
+    },
+    {
+      "id": "fx-rock-break",
+      "name": "Effect: a rock shattering",
+      "what": "a rock breaking on the fx stage, its ore's colour in the dust",
+      "take": "chunks and a cloud of dust in the ore's colour flying outward and drifting on in vacuum",
+      "shoot": [
+        "scripts/fx.sh",
+        "hit-beam-rifle",
+        "hit-machine-cannon",
+        "muzzle-heavy-beam-rifle",
+        "clash",
+        "kill",
+        "missile-burst",
+        "rock-break"
+      ],
+      "png": "e2e/artifacts/fx/rock-break/strip.png",
+      "refs": []
+    }
+  ]
+}

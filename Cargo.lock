@@ -586,6 +586,7 @@ dependencies = [
  "console_error_panic_hook",
  "encase",
  "futures",
+ "fx",
  "glam",
  "half",
  "js-sys",
@@ -3284,6 +3285,10 @@ dependencies = [
  "pin-project-lite",
  "slab",
 ]
+
+[[package]]
+name = "fx"
+version = "0.1.0"
 
 [[package]]
 name = "generic-array"

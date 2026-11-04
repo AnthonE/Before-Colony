@@ -112,6 +112,9 @@ pub enum Scene {
     /// (1), from the counter's end back to the door and the street (2), from high over the door (3),
     /// among the traders at eye height (4, the store's).
     Floor,
+    /// The fx stage (`?fx=<name>`, `fx_stage.rs`): one effect alone in front of a dark card and a
+    /// light card, fired on the clock's step 1, for `scripts/fx.sh`'s strips.
+    Fx,
 }
 
 impl Scene {
@@ -135,6 +138,7 @@ impl Scene {
             "base" | "muster" => Some(Self::Base),
             "ring" | "station" | "deck" => Some(Self::Ring),
             "floor" | "exchange" => Some(Self::Floor),
+            "fx" => Some(Self::Fx),
             _ => None,
         }
     }
@@ -159,6 +163,7 @@ impl Scene {
             Self::Base => "base",
             Self::Ring => "ring",
             Self::Floor => "floor",
+            Self::Fx => "fx",
         }
     }
 
@@ -169,6 +174,8 @@ impl Scene {
             Self::Markab => markab_cams(),
             Self::Base => base_cams(),
             Self::Floor => floor_cams(),
+            // Framed by the effect it stages (`ShowcasePlugin::build`).
+            Self::Fx => vec![orbit(crate::fx_stage::AT, 0.0, 0.0, 10.0)],
             Self::Ring => {
                 use bc_client_core::ring_deck::{CAMS, DECK_ORIGIN};
                 CAMS.iter().map(|&(eye, at)| look(DECK_ORIGIN + eye, at - eye)).collect()
@@ -472,11 +479,23 @@ pub struct ShowcasePlugin {
     pub frame: FrameId,
     /// No line of text in the corner (`?clean=1`).
     pub clean: bool,
+    /// The effect the fx scene stages (`?fx=`).
+    pub fx: String,
 }
 
 impl Plugin for ShowcasePlugin {
     fn build(&self, app: &mut App) {
-        let presets = self.scene.presets();
+        let mut presets = self.scene.presets();
+        if self.scene == Scene::Fx
+            && let Some(stage) = crate::fx_stage::Stage::new(&self.fx)
+        {
+            let (eye, dir) = stage.eye();
+            presets = vec![look(eye, dir)];
+            app.insert_resource(stage).add_systems(Startup, crate::fx_stage::setup).add_systems(
+                Update,
+                crate::fx_stage::lens.after(place_camera).in_set(crate::view::Vis::Camera),
+            );
+        }
         let preset = (self.cam as usize).clamp(1, presets.len());
         app.insert_resource(Show {
             scene: self.scene,
@@ -626,7 +645,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Surface => {
             vec![(Argo, Faction::Colonies), (Argo, Faction::Colonies), (Argo, Faction::Alliance)]
         }
-        Scene::City | Scene::Markab | Scene::Base | Scene::Floor => vec![],
+        Scene::City | Scene::Markab | Scene::Base | Scene::Floor | Scene::Fx => vec![],
         Scene::Ring => vec![(Argo, Faction::Colonies), (Altair, Faction::Colonies)],
     }
 }
@@ -1975,6 +1994,7 @@ fn script(
     mut events: ResMut<FxEvents>,
     mut target: ResMut<CameraTarget>,
     field: Res<crate::rocks::VisField>,
+    stage: Option<Res<crate::fx_stage::Stage>>,
 ) {
     let t = vis.now;
     let crossed = |at: f64| at > show.prev && at <= t;
@@ -2382,6 +2402,11 @@ fn script(
         // The bay is driven by `hangar_script`; the city by `city_script`; the Markab by
         // `markab_crowd`; the base stands still.
         Scene::Hangar | Scene::City | Scene::Markab | Scene::Base | Scene::Floor => {}
+        Scene::Fx => {
+            if let Some(stage) = &stage {
+                crate::fx_stage::fire(stage, show.t0, show.step, show.prev, t, &mut events);
+            }
+        }
         Scene::Ring => {
             use bc_client_core::ring_deck::{DECK_ORIGIN, STANDING, flyer};
             // The Argo before bay 07, facing the deck, looking about.
