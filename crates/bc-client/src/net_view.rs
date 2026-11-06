@@ -249,6 +249,7 @@ pub fn sync_view(
             held_gun: world.gun_in_hand(),
             ground: view.ground.and_then(|g| SuitGround::of(&g, &bodies)),
             weathering: bc_client_core::weathering(world, own.slot),
+            pill: bc_client_core::has_pill(world, own.slot),
             doomed: own.alive && own.doom > 0,
             // As flown: the prediction runs the stagger down tick by tick.
             staggered: own.alive && core.predict.stagger > 0,
@@ -288,6 +289,7 @@ pub fn sync_view(
             held_gun: holders.get(&(slot as u16)).and_then(|h| h.1),
             ground: p.ground.and_then(|g| SuitGround::of(&g, &bodies)),
             weathering: bc_client_core::weathering(world, slot as u16),
+            pill: bc_client_core::has_pill(world, slot as u16),
             doomed: state.flags & ent_flags::WRECK == 0 && world.doomed.contains_key(&(slot as u16)),
             staggered: state.flags & ent_flags::WRECK == 0 && world.is_staggered(slot as u16, t_render),
         });

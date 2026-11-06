@@ -38,7 +38,10 @@ bin="${CARGO_TARGET_DIR:-target}/release"
 # The suites that start an agent or the signer themselves find them here.
 BC_BIN_DIR="$(cd "$bin" && pwd)"
 export BC_BIN_DIR
-server=("$bin/bc-server" --http "127.0.0.1:${port}" --wt-port "${BC_WT_PORT:-4433}" --web-dir web/dist)
+# Elo Pros' test key (crates/bc-auth/tests/testdata/account_token.json): the login suite mints passes
+# with it. It signs nothing real, and no suite asks the real origin for a wallet's items.
+server=("$bin/bc-server" --http "127.0.0.1:${port}" --wt-port "${BC_WT_PORT:-4433}" --web-dir web/dist
+  --elo-pubkey "H0SHD2PwtN2Lb2tZhyrcrQCHGFIs+qy9VvR4aISFwlE=" --elo-origin none)
 pids=()
 data=""
 cleanup() {

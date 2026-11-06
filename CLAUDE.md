@@ -25,7 +25,7 @@ are the system and the product.
 | `bc-econ` | the economy: stores, recipes, the bay's suit, the fabricator, the Exchange; off the hot path |
 | `bc-model` | the mechs, procedurally: the kit, the skeleton, each frame's design, as plain mesh data |
 | `bc-bot` | agents playing over the same protocol as people |
-| `bc-auth` | wallet sign-in (SIWE), both sides |
+| `bc-auth` | sign-in, both sides: a wallet's text (SIWE, and its Solana form) and the check of an Elo Pros pass. A pilot's id is `bc_proto::auth::PlayerId` (`0x` lowercase, base58 as written, or `acct_`); `--elo-pubkey` takes passes |
 | `bc-orrery` | the Orrery tactical oracle, off the hot path |
 | `bc-sound` | the generated bank, the mixer, the cockpit, the music; no Bevy, no I/O |
 | `bc-alloc` | the counting allocator that proves the tick never allocates |

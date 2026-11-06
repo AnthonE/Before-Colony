@@ -540,6 +540,7 @@ version = "0.1.0"
 dependencies = [
  "bc-proto",
  "k256",
+ "ring",
  "tiny-keccak",
 ]
 
@@ -680,6 +681,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "bc-alloc",
  "bc-auth",
  "bc-bot",
@@ -696,6 +698,7 @@ dependencies = [
  "glam",
  "hex",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createPrivateKey, sign as edSign } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import { bc, built, calmPointer, collectConsole } from "./util";
 
@@ -11,6 +12,12 @@ test.beforeEach(({ page }) => page.addInitScript(calmPointer));
 // wallet again), a second tab taking the pilot over, and sleeping in the cockpit: leaving signed
 // in keeps the suit in the sector, and coming back wakes in it.
 const SIGNER = built("examples/sign");
+// With the phone wallet switched on (the platform's `wallet-config.js`, when the origin answers) a
+// second row makes the picker open: choose in it.
+const pick = async (page: Page, name: RegExp) => {
+  const row = page.locator("#wallet-list button", { hasText: name });
+  if (await row.waitFor({ timeout: 5_000 }).then(() => true, () => false)) await row.click({ timeout: 60_000 });
+};
 // Test key 1's address.
 const ADDRESS = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
 
@@ -61,6 +68,7 @@ test("sign in with a wallet, come back on the token, get taken over, sleep and w
   await page.goto(`/?quality=low&gfx=${info.project.name}`);
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
   await page.locator("#wallet-button").click();
+  await pick(page, /Browser wallet/);
   await expect(page.locator("#wallet-account")).toContainText("0x7e5f");
   await page.locator("#callsign").fill("E2E-Wallet");
 
@@ -138,4 +146,83 @@ test("sign in with a wallet, come back on the token, get taken over, sleep and w
   const errors = logs.filter((l) => /%cERROR|\[pageerror\]|panicked/.test(l));
   if (errors.length) console.log(errors.join("\n"));
   expect(errors).toEqual([]);
+});
+
+// A player with only a Solana wallet, and one with only an Elo Pros login. A stub Phantom signs with
+// `signin_check.json`'s throwaway key (Ed25519 seed 07…07); a stub `EloSignIn` mints a pass with Elo
+// Pros' test key (`account_token.json`, its `seed_hex`; `scripts/e2e.sh` names its public half).
+const SOL = "GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB";
+const ACCT = "acct_0123456789abcdef0123";
+const ed25519 = (seedHex: string) =>
+  createPrivateKey({
+    key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(seedHex, "hex")]),
+    format: "der",
+    type: "pkcs8",
+  });
+const b64url = (b: Buffer) => b.toString("base64url");
+function mintPass(game: string, nonce: string) {
+  const text = `elo account\nid: ${ACCT}\nfor: play:${game}\nshard: 127.0.0.1\nnonce: ${nonce}\nwallet: none\nexp: ${Math.floor(Date.now() / 1000) + 600}`;
+  const key = ed25519("2f3e65db2d7c08d3d45cb88040eca8badb2b6287066b2d30a1861756938b6536");
+  return `${b64url(Buffer.from(text))}.${b64url(edSign(null, Buffer.from(text), key))}`;
+}
+const onlineWallets = async (request: any) =>
+  ((await (await request.get("/online.json")).json()).online as any[]).map((e) => e.wallet);
+
+test("sign in with only a Solana wallet", async ({ context, page, request }, info) => {
+  test.setTimeout(180_000);
+  await context.exposeFunction("__solSign", (hex: string) =>
+    Array.from(edSign(null, Buffer.from(hex, "hex"), ed25519("07".repeat(32)))),
+  );
+  await context.addInitScript((sol) => {
+    const pk = { toString: () => sol };
+    (window as any).phantom = {
+      solana: {
+        isPhantom: true,
+        publicKey: null as any,
+        async connect() {
+          this.publicKey = pk;
+          return { publicKey: pk };
+        },
+        async signMessage(bytes: Uint8Array) {
+          const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+          return { signature: Uint8Array.from(await (window as any).__solSign(hex)), publicKey: pk };
+        },
+      },
+    };
+  }, SOL);
+  await page.goto(`/?quality=low&gfx=${info.project.name}`);
+  await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
+  await page.locator("#wallet-button").click();
+  await pick(page, /Phantom/);
+  await expect(page.locator("#wallet-account")).toContainText("GmaDrp");
+  await page.locator("#callsign").fill("E2E-Sol");
+  await page.locator("#launch-button").click();
+  await page.waitForFunction("window.__bc?.link === 'ingame' && window.__bc?.signed_in", null, { timeout: 60_000 });
+  expect(await onlineWallets(request)).toContain(SOL);
+});
+
+test("sign in with only an Elo Pros login, and come back on the token", async ({ context, page, request }, info) => {
+  test.setTimeout(180_000);
+  await context.exposeFunction("__mintPass", mintPass);
+  await context.addInitScript(() => {
+    (window as any).EloSignIn = {
+      popup: async ({ game, nonce }: { game: string; nonce: string }) => ({ pass: await (window as any).__mintPass(game, nonce) }),
+    };
+  });
+  await page.goto(`/?quality=low&gfx=${info.project.name}`);
+  await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
+  await page.locator("#elo-button").click();
+  await expect(page.locator("#wallet-account")).toContainText("Elo Pros account");
+  await page.locator("#callsign").fill("E2E-Acct");
+  await page.locator("#launch-button").click();
+  await page.waitForFunction("window.__bc?.link === 'ingame' && window.__bc?.signed_in", null, { timeout: 60_000 });
+  expect(await onlineWallets(request)).toContain(ACCT);
+
+  // A reload needs no second pass: the token this tab kept.
+  await page.waitForFunction("sessionStorage.getItem('bc.resume')", null, { timeout: 15_000 });
+  await page.reload();
+  await expect(page.locator("#wallet-account")).toContainText("Elo Pros account", { timeout: 60_000 });
+  await page.locator("#launch-button").click();
+  await page.waitForFunction("window.__bc?.link === 'ingame' && window.__bc?.signed_in", null, { timeout: 60_000 });
+  expect(await onlineWallets(request)).toContain(ACCT);
 });

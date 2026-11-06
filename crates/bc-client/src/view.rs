@@ -47,6 +47,8 @@ pub struct SuitDrive {
     /// How weathered its paint is, 0 (factory fresh) to 7 (a veteran's): earned by use, and on
     /// the roster with its pilot (`bc_econ::weathering`).
     pub weathering: u8,
+    /// The Pill on its shoulder: its pilot's wallet holds it (the roster's word, from the server).
+    pub pill: bool,
     /// Doomed: its torso breached and its reactor going (`Event::Doomed`), it burns.
     pub doomed: bool,
     /// Staggered (`bc_sim::sim::stagger`): its attitude jets fire every which way, and it sparks.

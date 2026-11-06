@@ -11,6 +11,8 @@
        or handler anywhere on the page: it also runs under the store's `script-src 'self'`. -->
   <script src="config.js"></script>
   <script src="boot.js"></script>
+  <!-- Sign in with Elo Pros (ui.js, the pass). -->
+  <script async src="https://elopros.com/sdk/elo-signin-1.js"></script>
   <script src="floor.js"></script>
 </head>
 <body>
@@ -64,6 +66,7 @@
             <span>PILOT</span>
             <div class="row wallet-row">
               <button id="wallet-button" type="button">CONNECT WALLET</button>
+              <button id="elo-button" type="button" class="hidden">SIGN IN WITH ELO PROS</button>
               <button id="guest-button" type="button" class="hidden">PLAY AS GUEST</button>
             </div>
             <div id="wallet-account" class="note"></div>

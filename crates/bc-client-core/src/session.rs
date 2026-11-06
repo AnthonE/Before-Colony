@@ -88,7 +88,7 @@ impl LinkError {
                 RejectReason::ServerFull => "The sector is full. Try again in a moment.".into(),
                 RejectReason::BadHello => "The server didn't understand this client.".into(),
                 RejectReason::FrameNotAllowed => "That frame isn't flyable here. Pick another.".into(),
-                RejectReason::AuthFailed => "The signature didn't check out. Sign in again.".into(),
+                RejectReason::AuthFailed => "The sign-in didn't check out. Sign in again.".into(),
                 RejectReason::AuthRequired => {
                     "This server is for signed-in pilots: connect a wallet to launch.".into()
                 }

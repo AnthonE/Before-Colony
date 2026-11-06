@@ -97,6 +97,7 @@ fn park_trainer(
                 held_gun: None,
                 ground: None,
                 weathering: 0,
+                pill: false,
                 doomed: false,
                 staggered: false,
             };

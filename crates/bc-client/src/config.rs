@@ -40,6 +40,8 @@ pub struct LaunchConfig {
     pub showcase: Option<String>,
     /// `?t=`: showcase start time, seconds.
     pub showcase_t: f64,
+    /// `?pill=1`: every suit in the showcase wears the Pill.
+    pub showcase_pill: bool,
     /// `?cam=`: showcase camera preset (1-9).
     pub showcase_cam: u32,
     /// `?realtime=1`: run the showcase on the wall clock instead of a fixed 60 Hz step.
@@ -107,6 +109,7 @@ impl LaunchConfig {
             quality_param: string("qualityParam"),
             showcase: Some(string("showcase")).filter(|s| !s.is_empty()),
             showcase_t: number("t").unwrap_or(0.0),
+            showcase_pill: string("pill") == "1",
             showcase_cam: number("cam").map_or(1, |c| c.clamp(1.0, 9.0) as u32),
             showcase_realtime: flag("realtime"),
             showcase_hold: number("hold").map_or(0, |n| n.max(0.0) as u64),

@@ -30,7 +30,7 @@ use bc_econ::body::{self, Body, BodyView};
 use bc_econ::proving::{self as board, Bests, Feat};
 use bc_econ::wire::{self, HangarView, MarketView, Outcome as SortieOutcome, Place, Request, Update};
 use bc_econ::{Bay, Hangar, Item};
-use bc_proto::auth::Address;
+use bc_proto::auth::PlayerId;
 use bc_proto::control::{
     self, ControlMsg, Frame, Name, RejectReason, bye, notice, roster_flags, welcome_flags,
 };
@@ -64,7 +64,9 @@ pub(super) struct Who {
     pub frame: FrameId,
     pub faction: Faction,
     pub name: Name,
-    pub address: Option<Address>,
+    pub address: Option<PlayerId>,
+    /// Their wallet holds the Pill (read at sign-in; cosmetic).
+    pub pill: bool,
 }
 
 /// How often the session looks at its suit's reports, its stations and the market.
@@ -125,6 +127,7 @@ pub(super) async fn run(
         faction: who.faction,
         callsign,
         address: who.address,
+        pill: who.pill,
         record,
         max_datagram: conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16,
         suit: None,
@@ -183,7 +186,8 @@ struct Session<'a> {
     frame: FrameId,
     faction: Faction,
     callsign: String,
-    address: Option<Address>,
+    address: Option<PlayerId>,
+    pill: bool,
     record: Option<PilotRecord>,
     max_datagram: u16,
     /// The suit flown, while the pilot is in the sector: (entity slot, generation).
@@ -292,6 +296,11 @@ pub const ARRIVAL: &str =
 pub const TOWED_FROM_THE_GATE: &str = "THE COLONY'S TUGS BROUGHT YOUR SUIT IN FROM THE INNER GATE";
 
 impl Session<'_> {
+    /// The roster's mark for the Pill.
+    fn pill_flag(&self) -> u8 {
+        if self.pill { roster_flags::PILL } else { 0 }
+    }
+
     fn survival(&self) -> bool {
         self.game.survival
     }
@@ -543,7 +552,7 @@ impl Session<'_> {
         }
         // On everyone's roster while it flies, with how weathered it is for everyone to see.
         let verified = if self.address.is_some() { roster_flags::VERIFIED } else { 0 };
-        let flags = verified | roster_flags::weathering(self.hangar.weathering());
+        let flags = verified | self.pill_flag() | roster_flags::weathering(self.hangar.weathering());
         if let Ok(mut r) = self.game.roster.write() {
             r.insert(
                 suit,
@@ -2062,6 +2071,7 @@ impl Session<'_> {
                     &self.callsign,
                     roster_flags::VERIFIED
                         | roster_flags::ASLEEP
+                        | self.pill_flag()
                         | roster_flags::weathering(self.hangar.weathering()),
                 );
             } else {

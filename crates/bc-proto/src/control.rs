@@ -5,7 +5,9 @@
 //! carries a hangar message instead (JSON, defined by `bc_econ::wire`, up to [`MAX_HANGAR_FRAME`]):
 //! read the stream with [`Frame::decode`].
 
-use crate::auth::{Address, Domain, MAX_DOMAIN, NONCE_BYTES, Signature, TOKEN_BYTES};
+use crate::auth::{
+    Address, Domain, MAX_DOMAIN, NONCE_BYTES, SOLANA_KEY_BYTES, Signature, SolanaSignature, TOKEN_BYTES,
+};
 use crate::types::{Faction, FrameId, PilotKind};
 use crate::{DecodeError, PROTOCOL_VERSION};
 
@@ -17,6 +19,10 @@ pub const MAX_FRAME: usize = 256;
 pub const HANGAR: u8 = 11;
 /// Largest hangar frame (prefix and tag included).
 pub const MAX_HANGAR_FRAME: usize = 2 + u16::MAX as usize;
+/// The tag of a pass frame: an Elo Pros pass as the page was handed it (`bc_auth::verify_pass`).
+pub const PASS: u8 = 13;
+/// The longest pass (Elo Pros refuses a longer one too).
+pub const MAX_PASS: usize = 1024;
 
 /// [`ControlMsg::Hello`] flags.
 pub mod hello_flags {
@@ -27,6 +33,8 @@ pub mod hello_flags {
     /// This client walks in the tick: on foot in the colony it sends commands (`InputCmd`, its
     /// acts in `InputCmd::act`) and takes `ON_FOOT` snapshots, rather than its poses.
     pub const STREET: u8 = 1 << 2;
+    /// The pilot signs in with an Elo Pros pass: a [`super::PASS`] frame follows the Hello.
+    pub const PASS: u8 = 1 << 3;
 }
 
 /// [`ControlMsg::Welcome`] flags.
@@ -61,6 +69,8 @@ pub mod roster_flags {
     /// How weathered the suit's paint is, 0 (factory fresh) to 7 (a veteran's): what its life
     /// has done to it (`bc_econ::weathering`), in bits 2-4.
     pub const WEATHERING: u8 = 0b111 << 2;
+    /// The pilot's wallet holds the Pill: the decal on the suit's shoulder. Cosmetic.
+    pub const PILL: u8 = 1 << 5;
 
     /// The flags' weathering bits for `level` (at most 7).
     pub const fn weathering(level: u8) -> u8 {
@@ -212,6 +222,8 @@ pub enum ControlMsg {
     Challenge { nonce: [u8; NONCE_BYTES], issued_at: u64, domain: Domain },
     /// Client → server: the wallet's address and its signature over the challenge's message.
     Auth { address: Address, signature: Signature },
+    /// Client → server: the same from a Solana wallet, over `bc_auth::siws_message`'s text.
+    AuthSolana { key: [u8; SOLANA_KEY_BYTES], signature: SolanaSignature },
     /// Server → client, after the Welcome of a signed-in pilot: reconnect with this instead of
     /// signing again.
     Token { token: [u8; TOKEN_BYTES] },
@@ -305,6 +317,11 @@ impl ControlMsg {
             ControlMsg::Auth { address, signature } => {
                 p.u8(8);
                 p.bytes(&address.0);
+                p.bytes(&signature.0);
+            }
+            ControlMsg::AuthSolana { key, signature } => {
+                p.u8(12);
+                p.bytes(&key);
                 p.bytes(&signature.0);
             }
             ControlMsg::Token { token } => {
@@ -406,6 +423,7 @@ impl ControlMsg {
                 ControlMsg::Challenge { nonce, issued_at, domain: Domain::new(text) }
             }
             8 => ControlMsg::Auth { address: Address(r.array()?), signature: Signature(r.array()?) },
+            12 => ControlMsg::AuthSolana { key: r.array()?, signature: SolanaSignature(r.array()?) },
             9 => ControlMsg::Token { token: r.array()? },
             10 => ControlMsg::Notice { code: r.u8()?, name: r.name()? },
             _ => return Err(DecodeError::WrongKind),
@@ -420,6 +438,8 @@ pub enum Frame<'a> {
     Msg(ControlMsg),
     /// A hangar message's payload (JSON).
     Hangar(&'a [u8]),
+    /// An Elo Pros pass.
+    Pass(&'a [u8]),
 }
 
 impl<'a> Frame<'a> {
@@ -429,17 +449,18 @@ impl<'a> Frame<'a> {
         if buf.len() < 3 {
             return Ok(None);
         }
-        if buf[2] != HANGAR {
+        if buf[2] != HANGAR && buf[2] != PASS {
             return ControlMsg::decode(buf).map(|m| m.map(|(msg, used)| (Frame::Msg(msg), used)));
         }
         let payload = u16::from_le_bytes([buf[0], buf[1]]) as usize;
-        if payload == 0 {
+        if payload == 0 || (buf[2] == PASS && payload > MAX_PASS + 1) {
             return Err(DecodeError::Invalid);
         }
         if buf.len() < payload + 2 {
             return Ok(None);
         }
-        Ok(Some((Frame::Hangar(&buf[3..payload + 2]), payload + 2)))
+        let body = &buf[3..payload + 2];
+        Ok(Some((if buf[2] == PASS { Frame::Pass(body) } else { Frame::Hangar(body) }, payload + 2)))
     }
 }
 
@@ -454,6 +475,16 @@ pub fn encode_hangar(payload: &[u8], out: &mut [u8]) -> Option<usize> {
     out[2] = HANGAR;
     out[3..len + 2].copy_from_slice(payload);
     Some(len + 2)
+}
+
+/// Writes a pass frame carrying `pass` into `out`. Its length, or `None` if it's too long.
+pub fn encode_pass(pass: &[u8], out: &mut [u8]) -> Option<usize> {
+    if pass.len() > MAX_PASS {
+        return None;
+    }
+    let n = encode_hangar(pass, out)?;
+    out[2] = PASS;
+    Some(n)
 }
 
 struct Cursor<'a> {
@@ -630,6 +661,7 @@ mod tests {
                 domain: Domain::new("127.0.0.1:8080"),
             },
             ControlMsg::Auth { address: Address([0x7E; 20]), signature: Signature([0x1C; 65]) },
+            ControlMsg::AuthSolana { key: [0x7E; 32], signature: SolanaSignature([0x1C; 64]) },
             ControlMsg::Token { token: [9; TOKEN_BYTES] },
             ControlMsg::Notice { code: notice::SLEEPER_DESTROYED, name: Name::new("Corvus-03") },
         ];
@@ -697,6 +729,12 @@ mod tests {
     #[test]
     fn sign_in_frames_have_their_sizes() {
         let mut buf = [0u8; MAX_FRAME];
+        // A pass frame: whole, and one too long is refused.
+        let mut out = [0u8; MAX_PASS + 8];
+        let n = encode_pass(b"abc.def", &mut out).unwrap();
+        assert_eq!(Frame::decode(&out[..n]).unwrap(), Some((Frame::Pass(b"abc.def"), n)));
+        assert_eq!(Frame::decode(&out[..n - 1]).unwrap(), None);
+        assert_eq!(encode_pass(&[b'a'; MAX_PASS + 1], &mut out), None);
         let auth = ControlMsg::Auth { address: Address([1; 20]), signature: Signature([2; 65]) };
         assert_eq!(auth.encode(&mut buf), Some(88));
         assert_eq!(&buf[..3], &[86, 0, 8]);

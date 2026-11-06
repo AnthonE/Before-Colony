@@ -61,6 +61,8 @@ pub struct SuitVisual {
     shimmer: Entity,
     /// The contact shadow under it on a body.
     shadow: Entity,
+    /// The Pill on its shoulder (hidden unless its pilot's wallet holds it).
+    decal: Option<Entity>,
 }
 
 impl SuitVisual {
@@ -374,6 +376,22 @@ fn build_suit(
             ChildOf(root),
         ))
         .id();
+    // The Pill, on the left shoulder's outer face; shown from the roster (`pose_suits`).
+    let decal = lib.decal(d.frame).map(|place| {
+        commands
+            .spawn((
+                Mesh3d(shapes.quad.clone()),
+                MeshMaterial3d(pal.pill.clone()),
+                Transform::from_translation(place.pos)
+                    .with_rotation(Quat::from_rotation_arc(Vec3::Z, place.normal))
+                    .with_scale(Vec3::splat(place.size)),
+                NotShadowCaster,
+                SuitPartMarker,
+                Visibility::Hidden,
+                ChildOf(bones[place.bone.index()]),
+            ))
+            .id()
+    });
     commands.entity(root).insert((
         SuitVisual {
             generation: d.generation,
@@ -392,6 +410,7 @@ fn build_suit(
             aura,
             shimmer,
             shadow,
+            decal,
         },
         Anim::default(),
         Damage::new(d.slot),
@@ -444,6 +463,11 @@ pub fn pose_suits(
         let has = |f: u16| d.flags & f != 0;
         let wreck = has(ent_flags::WRECK);
         let intact = |p: Part| d.parts[p as usize] > 0;
+        if let Some(decal) = v.decal
+            && let Ok((_, mut vis)) = parts.get_mut(decal)
+        {
+            set_visible(&mut vis, d.pill && !wreck && v.lod == Lod::Near);
+        }
         // The main thrusters: longer and brighter with forward thrust, brightest on boost.
         let power = plume_power(d);
         let lit = power > 0.03 && intact(Part::Backpack);

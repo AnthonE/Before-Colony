@@ -107,13 +107,13 @@ async fn the_registers_overlay_is_what_the_crew_and_strangers_see() -> anyhow::R
         })
         .expect("a block of flats");
     let (flat, next_door) = (plan.home(0, 0).expect("a flat"), plan.home(0, 1).expect("another"));
-    let ada = bc_server::pilots::key(&wallet().address());
+    let ada = bc_server::pilots::key(&wallet().address().into());
     let bo_wallet = {
         let mut secret = [0u8; 32];
         secret[31] = 78;
         LocalWallet::from_secret(&secret).expect("a valid key")
     };
-    let bo = bc_server::pilots::key(&bo_wallet.address());
+    let bo = bc_server::pilots::key(&bo_wallet.address().into());
     let mut reg = Homes::new();
     let mut bay = Hangar { credits: 100_000, ..Hangar::starter() };
     reg.rent(&flat, &ada, "Ada", 2, &mut bay, bc_server::pilots::unix_now()).map_err(anyhow::Error::msg)?;
@@ -179,7 +179,7 @@ async fn asleep_in_their_bed_at_home_they_wake_beside_it_and_sleep_there_again()
     std::fs::create_dir_all(&dir)?;
     // Ada's flat, its bed, and Ada asleep in it, as the register keeps it.
     let flat = a_flat();
-    let ada = bc_server::pilots::key(&wallet().address());
+    let ada = bc_server::pilots::key(&wallet().address().into());
     let mut reg = Homes::new();
     let mut bay = Hangar { credits: 100_000, ..Hangar::starter() };
     reg.rent(&flat, &ada, "Ada", 2, &mut bay, bc_server::pilots::unix_now()).map_err(anyhow::Error::msg)?;

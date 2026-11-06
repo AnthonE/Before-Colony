@@ -734,6 +734,7 @@ fn drive_bay(
             // Held in its gantry, not standing on a body: it doesn't kneel asleep.
             ground: None,
             weathering: suit.weathering.level(),
+            pill: false,
             doomed: false,
             staggered: false,
         });

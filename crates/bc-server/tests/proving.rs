@@ -178,7 +178,8 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
 
     // Their best is on their record, and the board outlives the server.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let record = FileStore::new(dir.join("pilots"))?.load(&bc_server::pilots::key(&w.address())).await?;
+    let record =
+        FileStore::new(dir.join("pilots"))?.load(&bc_server::pilots::key(&w.address().into())).await?;
     assert_eq!(record.map(|r| r.proving.drill_ms), Some(Some(ms)));
     let server = bc_server::start(config(&dir)?).await?;
     let http = format!("http://{}", server.http_addr);
