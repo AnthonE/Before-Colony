@@ -10,7 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use bc_econ::Bay;
-use bc_proto::auth::{Address, Domain, NONCE_BYTES};
+use bc_proto::auth::{Domain, NONCE_BYTES, PlayerId};
 use bc_proto::control::{ControlMsg, Frame, MAX_FRAME, RejectReason, hello_flags, roster_flags};
 use bc_proto::{Faction, MAX_DATAGRAM, PROTOCOL_VERSION, PilotKind};
 use bc_sector::{
@@ -71,6 +71,10 @@ pub struct SignIn {
     pub wait: Duration,
     /// At most this many sign-ins wait on wallets at once.
     pub waiting: Arc<tokio::sync::Semaphore>,
+    /// Elo Pros' account key (`Config::elo_pubkey`). Without it no pass is taken.
+    pub pass_key: Option<[u8; 32]>,
+    /// The nonces a pass must carry (`/nonce`).
+    pub nonces: Arc<crate::elo::Nonces>,
 }
 
 /// A pilot in their hangar bay (survival rules), as `/status` lists them.
@@ -142,6 +146,8 @@ pub struct GameShared {
     pub radio: Arc<crate::radio::Radio>,
     /// The wallets on now, for the store (`/online.json`).
     pub online: Arc<crate::online::Online>,
+    /// Where a wallet's items are read (`Config::elo_origin`; off: nobody shows any).
+    pub(super) elo: Option<Arc<crate::elo::Items>>,
     /// The suits left in hide spots have been put back (or let go): a suit the sector puts back
     /// from now on came too late, and goes again ([`process_notes`]).
     restore_over: Arc<AtomicBool>,
@@ -154,6 +160,11 @@ const RESTORE_WAIT: Duration = Duration::from_secs(2);
 const LINGER: Duration = Duration::from_secs(3);
 
 impl GameShared {
+    /// A nonce for an Elo Pros pass (`/nonce`), when this server takes passes.
+    pub fn pass_nonce(&self) -> Option<String> {
+        self.sign_in.pass_key.map(|_| self.sign_in.nonces.issue())
+    }
+
     /// `/floor.json`: who stands on the Exchange floor and what its boards show (`crate::floor`).
     pub fn floor_json(&self) -> serde_json::Value {
         let agents: Vec<u16> = self
@@ -193,7 +204,7 @@ impl GameShared {
             let rec = p.record().filter(|rec| {
                 out && p.landmarks_version == LANDMARKS_VERSION && rec.landmark < self.sector.landmarks
             });
-            match (rec, bc_auth::parse_address(&r.address)) {
+            match (rec, PlayerId::parse(&r.address)) {
                 (Some(rec), Some(address)) => left.push((p.since_unix, address, r, rec)),
                 _ => self.unpark(&mut r, "stale").await,
             }
@@ -276,7 +287,7 @@ impl GameShared {
     /// Forgets the suit a record says is left in a hide spot.
     async fn unpark(&self, r: &mut PilotRecord, why: &str) {
         r.parked = None;
-        match bc_auth::parse_address(&r.address) {
+        match PlayerId::parse(&r.address) {
             Some(a) => tracing::info!(address = %pilots::short(&a), "hidden suit not put back: {why}"),
             None => tracing::info!("hidden suit not put back: {why}"),
         }
@@ -435,7 +446,10 @@ impl GameRuntime {
                 required: cfg.require_auth,
                 wait: cfg.sign_wait,
                 waiting: Arc::new(tokio::sync::Semaphore::new(128)),
+                pass_key: cfg.elo_pubkey,
+                nonces: Arc::new(crate::elo::Nonces::default()),
             },
+            elo: cfg.elo_origin.clone().and_then(crate::elo::Items::new).map(Arc::new),
             idle: cfg.idle_timeout,
             survival,
             colony: survival && cfg.colony,
@@ -830,10 +844,30 @@ async fn read_control(rx: &mut RecvStream, pending: &mut Vec<u8>) -> anyhow::Res
                 return Ok(msg);
             }
             // A hangar message before the handshake is done means nothing yet.
-            Some((Frame::Hangar(_), used)) => {
+            Some((Frame::Hangar(_) | Frame::Pass(_), used)) => {
                 pending.drain(..used);
                 continue;
             }
+            None => {}
+        }
+        match rx.read(&mut buf).await? {
+            Some(n) => pending.extend_from_slice(&buf[..n]),
+            None => anyhow::bail!("control stream closed"),
+        }
+    }
+}
+
+/// The pass frame that follows a Hello with [`hello_flags::PASS`], as text.
+async fn read_pass(rx: &mut RecvStream, pending: &mut Vec<u8>) -> anyhow::Result<String> {
+    let mut buf = [0u8; 256];
+    loop {
+        match Frame::decode(pending).map_err(|e| anyhow::anyhow!("bad control frame: {e}"))? {
+            Some((Frame::Pass(p), used)) => {
+                let pass = String::from_utf8_lossy(p).into_owned();
+                pending.drain(..used);
+                return Ok(pass);
+            }
+            Some((_, _)) => anyhow::bail!("a Hello with a pass and no pass frame"),
             None => {}
         }
         match rx.read(&mut buf).await? {
@@ -896,7 +930,8 @@ pub(super) async fn reject(tx: &mut SendStream, reason: RejectReason) -> anyhow:
     anyhow::bail!("rejected: {reason:?}")
 }
 
-/// Who a Hello says the pilot is: a wallet proved by a signature (or a resume token), or a guest.
+/// Who a Hello says the pilot is: a wallet proved by a signature, an Elo Pros player proved by a
+/// pass (or either by a resume token), or a guest.
 #[allow(clippy::too_many_arguments)]
 async fn identify(
     game: &GameShared,
@@ -907,12 +942,31 @@ async fn identify(
     resume: &[u8; bc_proto::auth::TOKEN_BYTES],
     pilot: PilotKind,
     origin: Option<&str>,
-) -> anyhow::Result<Option<Address>> {
+) -> anyhow::Result<Option<PlayerId>> {
     let sign_in = &game.sign_in;
     if flags & hello_flags::RESUME != 0 {
         return match game.pilots.redeem(resume) {
             Some(address) => Ok(Some(address)),
             None => reject(tx, RejectReason::ResumeExpired).await.map(|_| None),
+        };
+    }
+    if flags & hello_flags::PASS != 0 {
+        let pass = match tokio::time::timeout(Duration::from_secs(5), read_pass(rx, pending)).await {
+            Ok(Ok(pass)) => pass,
+            _ => return reject(tx, RejectReason::AuthFailed).await.map(|_| None),
+        };
+        let Some(key) = sign_in.pass_key else {
+            return reject(tx, RejectReason::AuthFailed).await.map(|_| None);
+        };
+        let hosts = sign_in.domains.iter().map(|d| crate::config::host_of(d));
+        let now = pilots::unix_now();
+        return match bc_auth::verify_pass(&pass, &key, bc_auth::GAME, hosts, |n| sign_in.nonces.take(n), now)
+        {
+            Ok(passed) => Ok(Some(passed.player())),
+            Err(e) => {
+                tracing::info!("pass refused: {e:?}");
+                reject(tx, RejectReason::AuthFailed).await.map(|_| None)
+            }
         };
     }
     if flags & hello_flags::SIGN_IN == 0 {
@@ -935,13 +989,21 @@ async fn identify(
         Ok(answer) => answer?,
         Err(_) => return reject(tx, RejectReason::AuthTimeout).await.map(|_| None),
     };
-    let ControlMsg::Auth { address, signature } = answer else {
-        return reject(tx, RejectReason::BadHello).await.map(|_| None);
+    let (id, checked) = match answer {
+        ControlMsg::Auth { address, signature } => (
+            PlayerId::from(address),
+            bc_auth::verify(domain.as_str(), &nonce, issued_at, &address, &signature),
+        ),
+        ControlMsg::AuthSolana { key, signature } => (
+            PlayerId::solana(&key),
+            bc_auth::verify_solana(domain.as_str(), &nonce, issued_at, &key, &signature),
+        ),
+        _ => return reject(tx, RejectReason::BadHello).await.map(|_| None),
     };
-    match bc_auth::verify(domain.as_str(), &nonce, issued_at, &address, &signature) {
-        Ok(()) => Ok(Some(address)),
+    match checked {
+        Ok(()) => Ok(Some(id)),
         Err(e) => {
-            tracing::info!(address = %pilots::short(&address), "sign-in refused: {e:?}");
+            tracing::info!(address = %pilots::short(&id), "sign-in refused: {e:?}");
             reject(tx, RejectReason::AuthFailed).await.map(|_| None)
         }
     }
@@ -998,7 +1060,14 @@ async fn session(
     };
     // On the store's roster (`/online.json`) while this session holds the pilot.
     let _here = held.map(|(a, s)| game.online.enter(a, s, name.as_str(), pilot != PilotKind::Human));
-    let who = super::session::Who { pilot, frame, faction, name, address };
+    // Their items, read once as they come in. Never in the way: no answer in time costs the look.
+    let pill = match (&game.elo, address) {
+        (Some(elo), Some(a)) if a.is_wallet() => {
+            tokio::time::timeout(crate::elo::READ_WAIT, elo.holds_pill(&a)).await.unwrap_or(false)
+        }
+        _ => false,
+    };
+    let who = super::session::Who { pilot, frame, faction, name, address, pill };
     let result = super::session::run(conn, &game, &stats, &mut tx, &mut rx, pending, who, kicked).await;
     if let Some((address, session)) = held {
         // What was said of their suit in a hide spot while they flew, now that the session has
@@ -1175,7 +1244,7 @@ pub fn process_notes(game: &GameShared) {
 }
 
 /// Into the pilot's record, in the background.
-fn park_news(game: &GameShared, address: Address, news: ParkNews) {
+fn park_news(game: &GameShared, address: PlayerId, news: ParkNews) {
     let pilots = game.pilots.clone();
     tokio::spawn(async move { pilots.apply_park_news(address, news).await });
 }

@@ -5,6 +5,7 @@ use std::f32::consts::TAU;
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::blast::ShockMaterial;
 
@@ -18,6 +19,8 @@ pub struct Palette {
     pub field: Handle<ShockMaterial>,
     /// The soft dark under a suit on a body: its contact shadow, on every graphics tier.
     pub contact: Handle<StandardMaterial>,
+    /// The Pill, on a suit's shoulder (`suits_vis`).
+    pub pill: Handle<StandardMaterial>,
 }
 
 #[derive(Resource)]
@@ -26,6 +29,8 @@ pub struct MeshLib {
     /// A finer sphere, for shells big enough on screen to show the plain one's facets (a Corona's
     /// field).
     pub fine_sphere: Handle<Mesh>,
+    /// A unit square facing +z: a decal.
+    pub quad: Handle<Mesh>,
     /// Radius 1, 1 long along y, centred.
     pub cylinder: Handle<Mesh>,
     /// Radius 1 in the xz plane, facing +y: dark in the middle, fading out to its edge.
@@ -64,7 +69,17 @@ pub fn setup_assets(
     mut meshes: ResMut<Assets<Mesh>>,
     mut shells: ResMut<Assets<ShockMaterial>>,
     mut standard: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
+    // Raw RGBA, 128 square: the Pill's decal (`deploy/solana-items/art/pill-decal.png` in the Elo
+    // Pros repo, cropped to its pill and scaled), so nothing has to decode it.
+    let pill = images.add(Image::new(
+        Extent3d { width: 128, height: 128, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        include_bytes!("../assets/pill-decal.rgba").to_vec(),
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    ));
     commands.insert_resource(Palette {
         orrery_aura: shells.add(ShockMaterial::new(Vec3::new(2.4, 0.25, 0.45), 2.5)),
         jammer: shells.add(ShockMaterial::new(Vec3::new(0.12, 0.34, 0.75), 7.0)),
@@ -75,8 +90,15 @@ pub fn setup_assets(
             alpha_mode: AlphaMode::Blend,
             ..default()
         }),
+        pill: standard.add(StandardMaterial {
+            base_color_texture: Some(pill),
+            alpha_mode: AlphaMode::Mask(0.5),
+            perceptual_roughness: 0.55,
+            ..default()
+        }),
     });
     commands.insert_resource(MeshLib {
+        quad: meshes.add(Rectangle::new(1.0, 1.0).mesh()),
         sphere: meshes.add(Sphere::new(1.0).mesh().ico(3).expect("icosphere")),
         fine_sphere: meshes.add(Sphere::new(1.0).mesh().ico(5).expect("icosphere")),
         cylinder: meshes.add(Cylinder::new(1.0, 1.0).mesh().resolution(8)),

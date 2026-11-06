@@ -75,7 +75,9 @@ pub mod world;
 pub mod wreck;
 
 use bc_proto::ack::{AckWindow, Verdict};
-use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};
+use bc_proto::auth::{
+    Address, Domain, NONCE_BYTES, PlayerId, SOLANA_KEY_BYTES, Signature, SolanaSignature, TOKEN_BYTES,
+};
 use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::control::{ControlMsg, Frame, RejectReason, hello_flags, roster_flags, welcome_flags};
 use bc_proto::events::Event;
@@ -126,6 +128,32 @@ pub enum Identity {
     Guest,
     /// A wallet: sign in (or, with a resume token, reconnect without signing again).
     Wallet { address: Address, resume: Option<[u8; TOKEN_BYTES]> },
+    /// A Solana wallet, the same way.
+    Solana { key: [u8; SOLANA_KEY_BYTES], resume: Option<[u8; TOKEN_BYTES]> },
+    /// A pilot signed in on Elo Pros: the pass ([`ClientCore::with_pass`]) goes with the Hello. Or,
+    /// with a resume token, no pass.
+    Pass { resume: Option<[u8; TOKEN_BYTES]> },
+}
+
+impl Identity {
+    /// The resume token this identity reconnects with.
+    pub fn resume(&self) -> Option<[u8; TOKEN_BYTES]> {
+        match *self {
+            Identity::Guest => None,
+            Identity::Wallet { resume, .. } | Identity::Solana { resume, .. } | Identity::Pass { resume } => {
+                resume
+            }
+        }
+    }
+
+    /// Who a wallet identity says it is (a pass's says so itself).
+    fn player(&self) -> Option<PlayerId> {
+        match self {
+            Identity::Wallet { address, .. } => Some(PlayerId::from(*address)),
+            Identity::Solana { key, .. } => Some(PlayerId::solana(key)),
+            Identity::Guest | Identity::Pass { .. } => None,
+        }
+    }
 }
 
 /// What the server told us at the handshake.
@@ -208,6 +236,8 @@ pub struct InputContext<'a> {
 pub struct ClientCore {
     pub cfg: ClientConfig,
     pub identity: Identity,
+    /// The Elo Pros pass that goes with the Hello of an [`Identity::Pass`].
+    pub pass: Option<String>,
     pub phase: Phase,
     /// The server's goodbye reason, if it said goodbye.
     pub bye_reason: Option<u8>,
@@ -257,6 +287,7 @@ impl ClientCore {
         Self {
             cfg,
             identity: Identity::Guest,
+            pass: None,
             phase: Phase::Handshake,
             bye_reason: None,
             resume_token: None,
@@ -348,29 +379,53 @@ impl ClientCore {
         self
     }
 
-    /// The first control-stream frame.
+    /// Brings this pass (for an [`Identity::Pass`]) with the Hello.
+    pub fn with_pass(mut self, pass: Option<String>) -> Self {
+        self.pass = pass;
+        self
+    }
+
+    /// The first control-stream frames: the Hello, and the pass if one goes with it.
     pub fn hello(&self) -> Vec<u8> {
         let mut msg = ControlMsg::hello(self.cfg.pilot, self.cfg.frame, self.cfg.faction, &self.cfg.name);
         if let ControlMsg::Hello { flags, resume, .. } = &mut msg {
-            match self.identity {
-                Identity::Guest => {}
-                Identity::Wallet { resume: Some(token), .. } => {
+            match (self.identity, self.identity.resume()) {
+                (Identity::Guest, _) => {}
+                (_, Some(token)) => {
                     *flags = hello_flags::RESUME;
                     *resume = token;
                 }
-                Identity::Wallet { resume: None, .. } => *flags = hello_flags::SIGN_IN,
+                (Identity::Pass { .. }, None) => *flags = hello_flags::PASS,
+                (_, None) => *flags = hello_flags::SIGN_IN,
             }
         }
-        encode(msg)
+        let mut frames = encode(msg);
+        if let (Identity::Pass { resume: None }, Some(pass)) = (self.identity, &self.pass) {
+            let mut out = vec![0u8; pass.len() + 3];
+            if let Some(n) = bc_proto::control::encode_pass(pass.as_bytes(), &mut out) {
+                frames.extend_from_slice(&out[..n]);
+            }
+        }
+        frames
     }
 
     /// The text the wallet must sign, while [`Phase::Signing`].
     pub fn sign_in_text(&self) -> Option<String> {
-        let (Phase::Signing(c), Identity::Wallet { address, .. }) = (self.phase, self.identity) else {
-            return None;
-        };
+        let Phase::Signing(c) = self.phase else { return None };
         let mut out = [0u8; bc_auth::SIWE_MAX];
-        let n = bc_auth::siwe_message(c.domain.as_str(), &address, &c.nonce, c.issued_at, &mut out);
+        let n = match &self.identity {
+            Identity::Wallet { address, .. } => {
+                bc_auth::siwe_message(c.domain.as_str(), address, &c.nonce, c.issued_at, &mut out)
+            }
+            Identity::Solana { key, .. } => bc_auth::siws_message(
+                c.domain.as_str(),
+                PlayerId::solana(key).as_str(),
+                &c.nonce,
+                c.issued_at,
+                &mut out,
+            ),
+            Identity::Guest | Identity::Pass { .. } => return None,
+        };
         core::str::from_utf8(&out[..n]).ok().map(str::to_string)
     }
 
@@ -379,6 +434,13 @@ impl ClientCore {
         let Identity::Wallet { address, .. } = self.identity else { return Vec::new() };
         self.phase = Phase::Handshake;
         encode(ControlMsg::Auth { address, signature })
+    }
+
+    /// Answers the challenge with a Solana wallet's signature; the Welcome comes next.
+    pub fn auth_solana(&mut self, signature: SolanaSignature) -> Vec<u8> {
+        let Identity::Solana { key, .. } = self.identity else { return Vec::new() };
+        self.phase = Phase::Handshake;
+        encode(ControlMsg::AuthSolana { key, signature })
     }
 
     /// Says goodbye (the pilot is leaving on purpose).
@@ -435,6 +497,7 @@ impl ClientCore {
                 Ok(Some((frame, used))) => {
                     match frame {
                         Frame::Msg(msg) => self.handle_control(msg),
+                        Frame::Pass(_) => {}
                         Frame::Hangar(p) => {
                             if let Some(update) = bc_econ::wire::decode(p)
                                 && self.hangar.apply(update)
@@ -524,18 +587,26 @@ impl ClientCore {
                 self.phase = Phase::Closed;
             }
             ControlMsg::Challenge { nonce, issued_at, domain } => {
-                if self.phase == Phase::Handshake && matches!(self.identity, Identity::Wallet { .. }) {
+                if self.phase == Phase::Handshake && self.identity.player().is_some() {
                     self.phase = Phase::Signing(Challenge { nonce, issued_at, domain });
                 }
             }
             ControlMsg::Token { token } => {
                 self.resume_token = Some(token);
-                if let Identity::Wallet { resume, .. } = &mut self.identity {
-                    *resume = Some(token);
+                match &mut self.identity {
+                    Identity::Wallet { resume, .. }
+                    | Identity::Solana { resume, .. }
+                    | Identity::Pass { resume } => {
+                        *resume = Some(token);
+                    }
+                    Identity::Guest => {}
                 }
             }
             ControlMsg::Notice { code, name } => self.notices.push((code, name.as_str().to_string())),
-            ControlMsg::Hello { .. } | ControlMsg::Respawn { .. } | ControlMsg::Auth { .. } => {}
+            ControlMsg::Hello { .. }
+            | ControlMsg::Respawn { .. }
+            | ControlMsg::Auth { .. }
+            | ControlMsg::AuthSolana { .. } => {}
         }
     }
 
@@ -994,6 +1065,11 @@ pub fn asleep(world: &World, slot: u16) -> bool {
 /// How weathered a suit's paint is, 0 (factory fresh, or nobody's on the roster for it) to 7.
 pub fn weathering(world: &World, slot: u16) -> u8 {
     world.roster_flags.get(&slot).map_or(0, |f| roster_flags::weathering_of(*f))
+}
+
+/// Whether the pilot in `slot` shows the Pill (the server read their wallet at sign-in).
+pub fn has_pill(world: &World, slot: u16) -> bool {
+    world.roster_flags.get(&slot).is_some_and(|f| f & roster_flags::PILL != 0)
 }
 
 #[cfg(test)]

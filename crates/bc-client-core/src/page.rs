@@ -376,8 +376,9 @@ const fn yes() -> bool {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Cmd {
-    /// Launch with this callsign and frame slug, signed in with the wallet at `address` (`0x…`)
-    /// or as a guest (empty).
+    /// Launch with this callsign and frame slug, signed in as `address` (a wallet on either chain,
+    /// or an Elo Pros account) or as a guest (empty). `pass`: the Elo Pros pass that proves it, if
+    /// that's how they signed in.
     Play {
         #[serde(default)]
         name: String,
@@ -385,6 +386,8 @@ pub enum Cmd {
         frame: String,
         #[serde(default)]
         address: String,
+        #[serde(default)]
+        pass: String,
     },
     /// Dial again (after a failure, or before the next scheduled redial).
     Retry,

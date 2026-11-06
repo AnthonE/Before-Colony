@@ -1015,7 +1015,12 @@ fn drift_wreckage(vis: Res<VisTime>, mut pieces: Query<(&Wreckage, &mut Transfor
     }
 }
 
-fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>, font: Res<crate::hud::UiFont>) {
+fn spawn_showcase(
+    mut commands: Commands,
+    mut show: ResMut<Show>,
+    font: Res<crate::hud::UiFont>,
+    cfg: Res<crate::net::LaunchConfigRes>,
+) {
     let suits = cast(show.scene)
         .into_iter()
         .enumerate()
@@ -1037,6 +1042,7 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>, font: Res<crat
                 held_gun: None,
                 ground: None,
                 weathering: weathering(show.scene, i),
+                pill: cfg.0.showcase_pill,
                 doomed: false,
                 staggered: false,
             };

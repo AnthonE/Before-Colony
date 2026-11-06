@@ -119,6 +119,68 @@ pub fn build(frame: FrameId, lod: Lod) -> Model {
     build_parts(Parts::whole(frame), lod)
 }
 
+/// Where a decal sits on a suit: on a bone, in its mesh's space, on the armour's outer face.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Decal {
+    pub bone: Bone,
+    /// The decal's centre, a hair off the surface.
+    pub pos: Vec3,
+    /// The way it faces.
+    pub normal: Vec3,
+    /// Its side (m).
+    pub size: f32,
+}
+
+/// The left shoulder's outer face, whatever the frame's armour there looks like: read off the mesh
+/// by shooting a ray in from outside (some shoulders are wedges, some are hoops, some carry a block).
+pub fn shoulder_decal(m: &Model) -> Option<Decal> {
+    [Bone::ShoulderL, Bone::UpperArmL]
+        .into_iter()
+        .find_map(|bone| outer_face(bone, m.bones[bone.index()].as_ref()?))
+}
+
+fn outer_face(bone: Bone, mesh: &MeshData) -> Option<Decal> {
+    let at = |k: u32| Vec3::from(mesh.positions[k as usize]);
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for p in &mesh.positions {
+        lo = lo.min(Vec3::from(*p));
+        hi = hi.max(Vec3::from(*p));
+    }
+    let (dy, dz) = (hi.y - lo.y, hi.z - lo.z);
+    if dy <= 0.0 || dz <= 0.0 {
+        return None;
+    }
+    // The first face met coming in along +x (the suit's left is -x) at a point of the shoulder's
+    // side: its middle if there's anything there, else a little off it.
+    let spots = [(0.5, 0.5), (0.5, 0.35), (0.5, 0.65), (0.35, 0.5), (0.65, 0.5), (0.3, 0.3), (0.7, 0.7)];
+    spots.into_iter().find_map(|(fy, fz)| {
+        let (y, z) = (lo.y + dy * fy, lo.z + dz * fz);
+        let mut best: Option<(f32, Vec3)> = None;
+        for tri in mesh.indices.as_chunks::<3>().0 {
+            let (a, b, c) = (at(tri[0]), at(tri[1]), at(tri[2]));
+            let n = (b - a).cross(c - a);
+            // Facing out, and steep enough to read as a side.
+            if n.length_squared() < 1e-10 || n.normalize().x > -0.5 {
+                continue;
+            }
+            // Where the ray meets its plane, and whether that's inside it (in y, z).
+            let x = a.x - (n.y * (y - a.y) + n.z * (z - a.z)) / n.x;
+            let side = |p: Vec3, q: Vec3| (q.y - p.y) * (z - p.z) - (q.z - p.z) * (y - p.y);
+            let (s0, s1, s2) = (side(a, b), side(b, c), side(c, a));
+            let inside = (s0 >= 0.0 && s1 >= 0.0 && s2 >= 0.0) || (s0 <= 0.0 && s1 <= 0.0 && s2 <= 0.0);
+            if inside && best.is_none_or(|(bx, _)| x < bx) {
+                best = Some((x, n.normalize()));
+            }
+        }
+        best.map(|(x, normal)| Decal {
+            bone,
+            pos: Vec3::new(x, y, z) + normal * 0.02,
+            normal,
+            size: (dy.min(dz) * 0.55).clamp(0.3, 1.6),
+        })
+    })
+}
+
 /// A section of a suit: the bones a part swap takes from one frame together.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Section {
@@ -477,6 +539,17 @@ pub fn near_eye_bones(m: &Model, r: f32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_frame_has_a_place_for_a_shoulder_decal() {
+        for frame in FrameId::ALL {
+            let d = shoulder_decal(&build(frame, Lod::Near));
+            let d = d.unwrap_or_else(|| panic!("{frame:?} has no outer face on its left shoulder"));
+            assert!(d.normal.x < -0.5, "{frame:?} faces out: {d:?}");
+            assert!((0.3..=1.6).contains(&d.size), "{frame:?}: {d:?}");
+            assert!(d.pos.is_finite());
+        }
+    }
     use bc_proto::WeaponKind;
     use bc_sim::content::{ArmSlot, Capsule, WeaponClass, weapon};
 

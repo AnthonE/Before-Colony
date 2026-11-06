@@ -94,7 +94,7 @@ fn hidden_argo() -> ParkRecord {
 /// The record of `w`'s pilot, `name`, whose suit is out, left asleep in a hide spot in a server
 /// run before this one.
 fn left_hidden(w: &LocalWallet, name: &str, rec: &ParkRecord, landmarks_version: u16) -> PilotRecord {
-    let mut r = PilotRecord::new(&w.address());
+    let mut r = PilotRecord::new(&w.address().into());
     r.name = name.into();
     r.frame = "argo".into();
     let mut hangar = Hangar::starter();
@@ -138,7 +138,7 @@ async fn a_hidden_suit_is_restored_at_boot_and_wakes_in_place() -> anyhow::Resul
     // Out there before anyone connects: parked, and on the roster asleep.
     until("the suit back in the Aft Well", 5.0, || count(&server.status(), "sleepers_parked") == 1).await?;
     assert_eq!(sleepers(&server.status()), ["Lin"]);
-    let on_disk = store(&dir).load(&key(&w.address())).await?.expect("the record");
+    let on_disk = store(&dir).load(&key(&w.address().into())).await?.expect("the record");
     let sleeper = on_disk.sleeper.expect("asleep in this run");
     assert_ne!(sleeper.run, 1, "the sleeper of this run");
     assert!(on_disk.parked.is_some(), "kept, should the server restart again");
@@ -163,14 +163,14 @@ async fn a_hidden_suit_is_restored_at_boot_and_wakes_in_place() -> anyhow::Resul
     assert!(own.pos.distance(rec.local) < 0.01, "{} m from where it was left", own.pos.distance(rec.local));
     assert_eq!(own.cargo_kg, [80, 0, 12, 0]);
     assert!(matches!(b.core.hangar.view.as_ref().map(|v| &v.bay), Some(Bay::Out { .. })));
-    let on_disk = store(&dir).load(&key(&w.address())).await?.expect("the record");
+    let on_disk = store(&dir).load(&key(&w.address().into())).await?.expect("the record");
     assert_eq!((on_disk.sleeper, on_disk.parked), (None, None), "awake: nothing left out there");
 
     // Gone again, still in the spot: kept for the next run once more.
     b.close().await;
     let mut kept = None;
     for _ in 0..200 {
-        kept = store(&dir).load(&key(&w.address())).await?.and_then(|r| r.parked);
+        kept = store(&dir).load(&key(&w.address().into())).await?.and_then(|r| r.parked);
         if kept.is_some() {
             break;
         }
@@ -195,7 +195,7 @@ async fn a_stale_parked_record_is_towed_home() -> anyhow::Result<()> {
     store(&dir).save(left_hidden(&w, "Rafi", &hidden_argo(), LANDMARKS_VERSION + 1)).await?;
 
     let server = bc_server::start(config(&dir)?).await?;
-    let on_disk = store(&dir).load(&key(&w.address())).await?.expect("the record");
+    let on_disk = store(&dir).load(&key(&w.address().into())).await?.expect("the record");
     assert_eq!(on_disk.parked, None, "forgotten at boot");
     tokio::time::sleep(Duration::from_millis(200)).await;
     let status = server.status();
@@ -229,7 +229,7 @@ async fn a_restored_sleeper_destroyed_is_not_restored_again() -> anyhow::Result<
     let game = boot()?;
     let shared = game.shared();
     assert_eq!(shared.restore_parked(cfg.max_sleepers).await, 1);
-    let sleeper = store(&dir).load(&key(&w.address())).await?.and_then(|r| r.sleeper).expect("asleep");
+    let sleeper = store(&dir).load(&key(&w.address().into())).await?.and_then(|r| r.sleeper).expect("asleep");
     // Hunted down while its pilot is away: the sector tells the server so, as it does for any
     // sleeper destroyed.
     let gone = Gone::Destroyed { killer: 7 };
@@ -237,7 +237,7 @@ async fn a_restored_sleeper_destroyed_is_not_restored_again() -> anyhow::Result<
     shared.sector.notes.push(fate).expect("room for the news");
     let mut cleared = false;
     for _ in 0..200 {
-        let r = store(&dir).load(&key(&w.address())).await?.expect("the record");
+        let r = store(&dir).load(&key(&w.address().into())).await?.expect("the record");
         if r.parked.is_none() {
             assert_eq!(r.sleeper, Some(sleeper), "the rest of the record stands");
             assert!(matches!(r.hangar.map(|h| h.bay), Some(Bay::Out { .. })));
@@ -298,7 +298,7 @@ async fn a_hidden_suit_comes_back_as_it_was_left_by_its_hunters() -> anyhow::Res
     let game = boot()?;
     let shared = game.shared();
     assert_eq!(shared.restore_parked(cfg.max_sleepers).await, 1);
-    let sleeper = store(&dir).load(&key(&w.address())).await?.and_then(|r| r.sleeper).expect("asleep");
+    let sleeper = store(&dir).load(&key(&w.address().into())).await?.and_then(|r| r.sleeper).expect("asleep");
     // Found while its pilot is away, and its arms shot off: the sector says what's left of it.
     let mut hit = rec;
     hit.home.parts[Part::ArmL as usize] = 0.0;
@@ -308,7 +308,11 @@ async fn a_hidden_suit_comes_back_as_it_was_left_by_its_hunters() -> anyhow::Res
     shared.sector.reparked.push(Reparked { suit, generation, tick: 900, rec: hit }).expect("room");
     let mut kept = None;
     for _ in 0..200 {
-        kept = store(&dir).load(&key(&w.address())).await?.and_then(|r| r.parked).filter(|p| p.tick == 900);
+        kept = store(&dir)
+            .load(&key(&w.address().into()))
+            .await?
+            .and_then(|r| r.parked)
+            .filter(|p| p.tick == 900);
         if kept.is_some() {
             break;
         }
@@ -321,7 +325,7 @@ async fn a_hidden_suit_comes_back_as_it_was_left_by_its_hunters() -> anyhow::Res
     // The next run puts it back as its hunters left it: the arms aren't there to take again.
     let game = boot()?;
     assert_eq!(game.shared().restore_parked(cfg.max_sleepers).await, 1);
-    let again = store(&dir).load(&key(&w.address())).await?.and_then(|r| r.parked).expect("kept");
+    let again = store(&dir).load(&key(&w.address().into())).await?.and_then(|r| r.parked).expect("kept");
     assert_eq!((again.parts, again.mounts, again.tick), (hit.home.parts, 0, 0));
     game.stop();
     let _ = std::fs::remove_dir_all(&dir);

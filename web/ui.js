@@ -127,6 +127,7 @@
   const WALLET_PICK = "elo.wallet";
   const SIGNED_OUT = "elo.signedout";
   const PHONE = "walletconnect"; // the remembered pick for a phone wallet
+  const SOLANA = "solana"; // the remembered pick for a Solana wallet
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const stored = (key) => {
     try {
@@ -214,7 +215,16 @@
       }))
       : window.ethereum ? [{ name: legacyName(window.ethereum), icon: "", rdns: "", provider: window.ethereum }] : [];
     if (phoneOn()) out.push({ name: "Phone wallet", icon: "", rdns: PHONE, provider: null, phone: true });
+    if (solana()) out.push({ name: `${solana().isPhantom ? "Phantom" : "Wallet"} (Solana)`, icon: "", rdns: SOLANA, provider: null, solana: true });
     return out;
+  }
+
+  // A Solana wallet: Phantom's own object, or the one in `window.solana` (Backpack, Solflare…). It has
+  // no EIP-1193 side, so it signs through `signSolana`; the Ethereum account in the same extension
+  // is its own row above.
+  function solana() {
+    const s = (window.phantom && window.phantom.solana) || window.solana;
+    return s && typeof s.signMessage === "function" && typeof s.connect === "function" ? s : null;
   }
 
   let provider = null; // the EIP-1193 provider this page signs with
@@ -251,7 +261,7 @@
     const kept = stored(WALLET_PICK);
     const known = kept && all.find((w) => w.rdns === kept);
     if (known) return known;
-    if (all.length === 1 && all[0].provider) return all[0];
+    if (all.length === 1 && (all[0].provider || all[0].solana)) return all[0];
     if (!all.length) return null;
     return askWhich(all);
   }
@@ -313,6 +323,14 @@
       const w = await pickWallet();
       if (!w && wallet.has()) throw Object.assign(new Error("no wallet picked"), { cancelled: true });
       if (!w) throw new Error("this browser has no wallet extension");
+      if (w.solana) {
+        const got = await solana().connect();
+        const a = String((got && got.publicKey) || solana().publicKey || "");
+        if (!a) throw new Error("the wallet gave no account");
+        provider = null;
+        store(WALLET_PICK, SOLANA);
+        return a;
+      }
       const p = w.phone ? await (await phone()).connect(phoneOpts()) : w.provider;
       const a = await p.request({ method: "eth_requestAccounts" });
       if (!a || !a[0]) throw new Error("the wallet gave no account");
@@ -354,13 +372,81 @@
       }
       return sig;
     },
+    // A Solana wallet signs the text's bytes as they are; the answer is 64 bytes, in `0x…` hex.
+    // Base58 addresses are compared as written: case is part of them.
+    async signSolana(message) {
+      const s = solana();
+      if (!s) throw new Error("no Solana wallet is connected. Connect one, then try again.");
+      try {
+        if (!s.publicKey) await s.connect();
+        const have = String(s.publicKey || "");
+        if (address && have !== address) {
+          throw new Error(`your wallet is on ${short(have)}, and this asks ${short(address)} to sign. ` +
+            "Switch the wallet to that account and try again.");
+        }
+        const got = await s.signMessage(new TextEncoder().encode(message));
+        const bytes = got && got.signature ? got.signature : got;
+        return "0x" + Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+      } catch (err) {
+        throw new Error(walletSaid(err));
+      }
+    },
   };
   window.bcWallet = wallet;
 
-  let address = null; // the connected wallet, or null: a guest
+  let address = null; // who they sign in as, or null: a guest
+  let viaElo = false; // `address` came from an Elo Pros pass, not a wallet here
   function setAddress(a) {
     address = a ? String(a) : null;
+    viaElo = false;
+    pass = "";
     showWallet();
+  }
+
+  // --- Sign in with Elo Pros (`elo-signin-1.js`): Steam, Discord, Google, GitHub or a wallet on
+  // either chain. The server hands out a nonce (`/nonce`), Elo Pros signs a pass naming it, and the
+  // pass goes with the Hello; the server checks it offline (`bc_auth::verify_pass`). The popup has
+  // to open on the click itself, so a nonce is fetched ahead and kept fresh. ---
+  const NONCE_EVERY_MS = 4 * 60 * 1000;
+  const ACCOUNT = /^acct_[0-9a-f]{20}$/;
+  const SERVER_HTTP = query.get("http") || (window.BC_SERVER && window.BC_SERVER.http) || "";
+  let passNonce = "";
+  let pass = ""; // a pass in hand, good for one join
+  async function freshNonce() {
+    try {
+      passNonce = (await (await fetch(SERVER_HTTP + "nonce")).json()).nonce || "";
+    } catch {
+      passNonce = "";
+    }
+    show($("elo-button"), !!passNonce);
+  }
+  async function signInWithElo() {
+    const sdk = window.EloSignIn;
+    if (!sdk || !passNonce) return showWallet("Sign-in with Elo Pros is unavailable right now.");
+    try {
+      const res = await sdk.popup({ game: "before-colony", nonce: passNonce });
+      const text = atob(res.pass.split(".")[0].replace(/-/g, "+").replace(/_/g, "/"));
+      const line = (name) => (new RegExp(`\\n${name}: (\\S+)`).exec(text) || [])[1];
+      const wallet = line("wallet");
+      provider = null;
+      store(SIGNED_OUT, "");
+      setAddress(wallet && wallet !== "none" ? wallet : line("id"));
+      pass = res.pass;
+      viaElo = true;
+      showWallet();
+    } catch (e) {
+      if (!e || e.code !== "cancelled") showWallet((e && e.message) || "Sign-in with Elo Pros didn't finish.");
+    } finally {
+      freshNonce();
+    }
+  }
+  // The token a reload comes back on (`bc_client::session`), and whose it is.
+  function kept() {
+    try {
+      return String(sessionStorage.getItem("bc.resume") || "").split(" ")[0];
+    } catch {
+      return "";
+    }
   }
 
   function showWallet(note) {
@@ -368,18 +454,19 @@
     const button = $("wallet-button");
     if (!account || !button) return;
     button.disabled = !wallet.has();
-    if (!wallet.has()) {
-      account.textContent = note || "No wallet extension here: you can fly as a guest (your suit is lost when you leave).";
-    } else if (address) {
-      account.textContent = note || `${short(address)} · signed in, your suit stays in the sector when you leave`;
+    if (address) {
+      const who = ACCOUNT.test(address) ? "Your Elo Pros account" : short(address);
+      account.textContent = note || `${who} · signed in, your suit stays in the sector when you leave`;
       button.textContent = "CHANGE WALLET";
+    } else if (!wallet.has()) {
+      account.textContent = note || "No wallet extension here: sign in with Elo Pros, or fly as a guest (your suit is lost when you leave).";
     } else {
       account.textContent = note || "Flying as a guest: your suit is lost when you leave.";
       button.textContent = "CONNECT WALLET";
     }
     account.classList.toggle("error", !!note);
     show($("guest-button"), !!address);
-    $("acct-who").textContent = address ? short(address) : "GUEST";
+    $("acct-who").textContent = address ? (ACCOUNT.test(address) ? "ELO PROS" : short(address)) : "GUEST";
     $("acct").classList.toggle("in", !!address);
   }
 
@@ -389,6 +476,20 @@
   // may run at once (a late wallet starts its own), so each re-checks `address` after every await.
   async function resume() {
     if (signedOut()) return;
+    // Signed in with no wallet here, on a token this tab kept: nothing to ask anyone.
+    const back = kept();
+    if (back && !address && !back.startsWith("0x") && (ACCOUNT.test(back) || !solana())) {
+      setAddress(back);
+      viaElo = true;
+      return;
+    }
+    if (stored(WALLET_PICK) === SOLANA && solana()) {
+      try {
+        const got = await solana().connect({ onlyIfTrusted: true });
+        const a = String((got && got.publicKey) || solana().publicKey || "");
+        if (a && !address && !signedOut()) return setAddress(a);
+      } catch {} // not trusted yet: Connect asks
+    }
     if (stored(WALLET_PICK) === PHONE && phoneOn()) {
       try {
         const p = await (await phone()).restore(phoneOpts());
@@ -457,8 +558,15 @@
   function launch(e) {
     if (e) e.preventDefault();
     if (!ready) return;
+    // An Elo Pros sign-in is one pass, and a used one is gone. With no token to come back on, it's
+    // asked for again rather than dialled and refused.
+    if (viaElo && !pass && kept() !== address) {
+      setAddress(null);
+      return showWallet("Your Elo Pros sign-in ran out: sign in again.");
+    }
     send("sfx", { cue: "confirm" });
-    send("play", { name: $("callsign").value.trim(), frame: chosen, address: address || "" });
+    send("play", { name: $("callsign").value.trim(), frame: chosen, address: address || "", pass });
+    pass = "";
     canvas()?.focus();
   }
 
@@ -731,7 +839,7 @@
       : hidden ? "LEAVE SUIT HIDDEN"
       : v.parkable ? "PARK & DISCONNECT"
       : "SLEEP & DISCONNECT";
-    const who = address ? `Signed in as ${short(address)}. ` : "Signed in. ";
+    const who = address && !ACCOUNT.test(address) ? `Signed in as ${short(address)}. ` : "Signed in. ";
     if (afoot) {
       $("pause-who").textContent = v.signedIn
         ? who + "Your hangar is kept while you're away: its stores, its suit, its jobs, your orders on the exchange." +
@@ -2467,6 +2575,9 @@
   document.addEventListener("DOMContentLoaded", () => {
     $("launch").addEventListener("submit", launch);
     $("wallet-button").addEventListener("click", connectWallet);
+    $("elo-button").addEventListener("click", signInWithElo);
+    freshNonce();
+    setInterval(freshNonce, NONCE_EVERY_MS);
     $("guest-button").addEventListener("click", flyAsGuest);
     $("wallet-cancel").addEventListener("click", () => $("wallet-pick").close());
     store("bc.wallet", ""); // the pick this page kept before the platform's key

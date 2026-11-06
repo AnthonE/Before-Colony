@@ -84,6 +84,11 @@ pub fn pick_domain<'a>(domains: &'a [String], origin: Option<&str>) -> &'a str {
         .map_or("", String::as_str)
 }
 
+/// A domain as a pass names it: the host, with no port.
+pub fn host_of(domain: &str) -> &str {
+    domain.rsplit_once(':').map_or(domain, |(h, _)| h)
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub mode: Mode,
@@ -113,6 +118,10 @@ pub struct Config {
     /// warn about a mismatch; one whose page is also served from another site (the store at
     /// elopros.com) lists both.
     pub siwe_domains: Vec<String>,
+    /// Elo Pros' account key (`GET /api/account/pubkey`). None: no pass is taken, and `/nonce` says so.
+    pub elo_pubkey: Option<[u8; 32]>,
+    /// Where a wallet's items are read at sign-in. None: nobody shows any.
+    pub elo_origin: Option<String>,
     /// A CA-issued certificate chain and its key (PEM files) for WebTransport. None: the server
     /// self-signs for 14 days and browsers pin the certificate's hash (`/cert-hash`).
     pub tls: Option<(PathBuf, PathBuf)>,
@@ -161,6 +170,8 @@ impl Default for Config {
             jev_key: None,
             jev_url: None,
             siwe_domains: Vec::new(),
+            elo_pubkey: None,
+            elo_origin: None,
             tls: None,
             cors_origins: vec![STORE_ORIGIN.to_string()],
             require_auth: false,

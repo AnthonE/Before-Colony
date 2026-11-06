@@ -20,7 +20,7 @@ fn pilot(k: u8) -> String {
     let mut secret = [0u8; 32];
     secret[31] = k;
     let wallet = LocalWallet::from_secret(&secret).expect("a valid test key");
-    bc_server::pilots::key(&wallet.address())
+    bc_server::pilots::key(&wallet.address().into())
 }
 
 /// The first building of flats on strip 0 with two flats to let side by side on its ground floor.

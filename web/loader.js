@@ -100,6 +100,7 @@ async function main() {
     name: params.get("name") || "",
     frame: params.get("frame") || "",
     showcase,
+    pill: params.get("pill") || "",
     t: Number(params.get("t") || 0),
     cam: Number(params.get("cam") || 1),
     realtime: params.get("realtime") === "1",

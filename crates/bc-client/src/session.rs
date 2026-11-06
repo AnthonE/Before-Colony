@@ -18,7 +18,7 @@ use std::rc::Rc;
 use bc_client_core::session::{Link, LinkAction, LinkError, LinkState};
 use bc_client_core::{Identity, Phase};
 use bc_proto::FrameId;
-use bc_proto::auth::{Address, TOKEN_BYTES};
+use bc_proto::auth::{PlayerId, PlayerKind, TOKEN_BYTES};
 use bc_proto::control::{RejectReason, notice};
 use bevy::prelude::*;
 use js_sys::{Function, Promise, Reflect};
@@ -37,30 +37,41 @@ use crate::transport::Transport;
 pub struct Pilot {
     pub name: String,
     pub frame: FrameId,
-    /// The wallet (`None`: a guest).
-    pub address: Option<Address>,
+    /// Who they signed in as: a wallet, or an Elo Pros account (`None`: a guest).
+    pub address: Option<PlayerId>,
     /// The latest resume token and whose it is: the next dial as that wallet comes back on it
     /// rather than asking the wallet to sign again.
-    pub resume: Option<(Address, [u8; TOKEN_BYTES])>,
+    pub resume: Option<(PlayerId, [u8; TOKEN_BYTES])>,
+    /// An Elo Pros pass not yet used: good for one join (the next dial takes it).
+    pub pass: Option<String>,
 }
 
 impl Pilot {
     /// A guest, with the resume token this tab kept (a reload signs back in on it).
     pub fn new(name: String, frame: FrameId) -> Self {
-        Self { name, frame, address: None, resume: load_token() }
+        Self { name, frame, address: None, resume: load_token(), pass: None }
     }
 
     fn identity(&self) -> Identity {
-        match self.address {
-            Some(address) => Identity::Wallet {
-                address,
-                resume: self.resume.filter(|(a, _)| *a == address).map(|(_, t)| t),
-            },
-            None => Identity::Guest,
+        let Some(id) = self.address else { return Identity::Guest };
+        let resume = self.resume.filter(|(a, _)| *a == id).map(|(_, t)| t);
+        // A pass in hand is what they just signed in with, whichever wallet it names.
+        if resume.is_none() && self.pass.is_some() {
+            return Identity::Pass { resume };
+        }
+        match (id.kind(), id.address(), id.solana_key()) {
+            (PlayerKind::Evm, Some(address), _) => Identity::Wallet { address, resume },
+            (PlayerKind::Solana, _, Some(key)) => Identity::Solana { key, resume },
+            _ => Identity::Pass { resume },
         }
     }
 
-    fn keep_token(&mut self, token: Option<(Address, [u8; TOKEN_BYTES])>) {
+    /// Whether a new sign-in can be asked for with nothing from the player but a wallet's prompt.
+    fn can_sign(&self) -> bool {
+        self.pass.is_some() || self.address.is_some_and(|id| id.is_wallet())
+    }
+
+    fn keep_token(&mut self, token: Option<(PlayerId, [u8; TOKEN_BYTES])>) {
         if self.resume != token {
             self.resume = token;
             save_token(token);
@@ -75,29 +86,31 @@ fn session_storage() -> Option<web_sys::Storage> {
     web_sys::window()?.session_storage().ok()?
 }
 
-fn load_token() -> Option<(Address, [u8; TOKEN_BYTES])> {
+fn load_token() -> Option<(PlayerId, [u8; TOKEN_BYTES])> {
     let text = session_storage()?.get_item(TOKEN_KEY).ok()??;
     let (address, token) = text.split_once(' ')?;
     let token = crate::config::decode_hex(token)?.try_into().ok()?;
-    Some((bc_auth::parse_address(address)?, token))
+    Some((PlayerId::parse(address)?, token))
 }
 
-fn save_token(token: Option<(Address, [u8; TOKEN_BYTES])>) {
+fn save_token(token: Option<(PlayerId, [u8; TOKEN_BYTES])>) {
     let Some(store) = session_storage() else { return };
     let _ = match token {
         Some((address, token)) => {
             let hex: String = token.iter().map(|b| format!("{b:02x}")).collect();
-            store.set_item(TOKEN_KEY, &format!("{} {hex}", short_hex(&address, false)))
+            store.set_item(TOKEN_KEY, &format!("{address} {hex}"))
         }
         None => store.remove_item(TOKEN_KEY),
     };
 }
 
-/// An address as `0x…` hex (`short`: `0x1234…abcd`).
-pub fn short_hex(address: &Address, short: bool) -> String {
-    let hex = bc_auth::checksum_hex(address);
-    let s = core::str::from_utf8(&hex).unwrap_or_default();
-    if short { format!("{}…{}", &s[..6], &s[s.len() - 4..]) } else { s.to_string() }
+/// A player id for people and wallets: an `0x` wallet checksummed (`short`: `0x1234…abcd`).
+pub fn short_hex(id: &PlayerId, short: bool) -> String {
+    let s = match id.address() {
+        Some(a) => core::str::from_utf8(&bc_auth::checksum_hex(&a)).unwrap_or_default().to_string(),
+        None => id.as_str().to_string(),
+    };
+    if short { format!("{}…{}", &s[..6], &s[s.len() - 4..]) } else { s }
 }
 
 /// The link's state machine.
@@ -158,7 +171,7 @@ pub fn js_text(e: &JsValue) -> String {
 }
 
 /// Hands the sign-in text to the page's wallet; its answer lands in `dialer.signature`.
-fn ask_wallet(dialer: &Dialer, text: Option<String>, address: Option<Address>) {
+fn ask_wallet(dialer: &Dialer, text: Option<String>, address: Option<PlayerId>) {
     let generation = dialer.generation;
     let slot = dialer.signature.clone();
     wasm_bindgen_futures::spawn_local(async move {
@@ -170,11 +183,12 @@ fn ask_wallet(dialer: &Dialer, text: Option<String>, address: Option<Address>) {
     });
 }
 
-/// `window.bcWallet.sign(text, address)`.
-async fn sign(text: &str, address: &Address) -> Result<String, String> {
+/// `window.bcWallet.sign(text, address)` (a Solana wallet: `signSolana`), its `0x…` answer.
+async fn sign(text: &str, address: &PlayerId) -> Result<String, String> {
     let w = web_sys::window().ok_or("no window")?;
     let wallet = Reflect::get(&w, &JsValue::from_str("bcWallet")).map_err(|e| js_text(&e))?;
-    let f = Reflect::get(&wallet, &JsValue::from_str("sign"))
+    let method = if address.solana_key().is_some() { "signSolana" } else { "sign" };
+    let f = Reflect::get(&wallet, &JsValue::from_str(method))
         .ok()
         .and_then(|f| f.dyn_into::<Function>().ok())
         .ok_or("this browser has no wallet")?;
@@ -212,7 +226,7 @@ fn act(
     net: &NetState,
     dialer: &mut Dialer,
     game: &GameClient,
-    pilot: &Pilot,
+    pilot: &mut Pilot,
     cfg: &LaunchConfigRes,
     controls: &mut Controls,
     aim: &mut Aim,
@@ -223,6 +237,8 @@ fn act(
     *controls = Controls::default();
     aim.initialized_for = None;
     if action == LinkAction::Dial {
+        // A pass is good for one join.
+        game.borrow_mut().core.pass = pilot.pass.take();
         start_dial(dialer, cfg);
     }
 }
@@ -255,12 +271,13 @@ pub fn drive_link(
     }
     for cmd in &cmds.0 {
         match cmd {
-            UiCmd::Play { name, frame, address } => {
+            UiCmd::Play { name, frame, address, pass } => {
                 pilot.name = name.trim().chars().take(bc_proto::control::MAX_NAME).collect();
                 if let Some(f) = parse_frame(frame) {
                     pilot.frame = f;
                 }
-                pilot.address = bc_auth::parse_address(address);
+                pilot.address = PlayerId::parse(address);
+                pilot.pass = Some(pass.clone()).filter(|p| !p.is_empty() && pilot.address.is_some());
                 if pilot.address.is_none() && !address.trim().is_empty() {
                     web_sys::console::warn_1(&format!("not a wallet address: {address}").into());
                 }
@@ -309,12 +326,19 @@ pub fn drive_link(
         && generation == dialer.generation
         && matches!(link.0.state, LinkState::Signing { .. })
     {
-        let signature = answer.and_then(|s| {
-            bc_auth::parse_signature(&s).ok_or_else(|| "its answer isn't a signature".to_string())
+        let solana = matches!(game.borrow().core.identity, Identity::Solana { .. });
+        let frame = answer.and_then(|s| {
+            let bad = || "its answer isn't a signature".to_string();
+            let mut g = game.borrow_mut();
+            if solana {
+                bc_auth::parse_solana_signature(&s).map(|sig| g.core.auth_solana(sig)).ok_or_else(bad)
+            } else {
+                bc_auth::parse_signature(&s).map(|sig| g.core.auth(sig)).ok_or_else(bad)
+            }
         });
-        match (signature, net.get()) {
-            (Ok(signature), Some(t)) => {
-                t.send_control(game.borrow_mut().core.auth(signature));
+        match (frame, net.get()) {
+            (Ok(frame), Some(t)) => {
+                t.send_control(frame);
                 link.0.signed(now);
             }
             (Ok(_), None) => {}
@@ -326,7 +350,7 @@ pub fn drive_link(
     if let Some(t) = net.get() {
         let (phase, used_token, bye_reason) = {
             let g = game.borrow();
-            let used_token = matches!(g.core.identity, Identity::Wallet { resume: Some(_), .. });
+            let used_token = g.core.identity.resume().is_some();
             (g.core.phase, used_token, g.core.bye_reason.unwrap_or(0))
         };
         match phase {
@@ -351,7 +375,10 @@ pub fn drive_link(
             // wallet on them; it stops and says why.
             Phase::Rejected(RejectReason::ResumeExpired) if used_token => {
                 pilot.keep_token(None);
-                if link.0.attempt() == 0 {
+                // An account with no pass left has nothing to sign with: back to the page.
+                if !pilot.can_sign() {
+                    actions.extend(link.0.rejected(now, RejectReason::AuthFailed));
+                } else if link.0.attempt() == 0 {
                     actions.extend(link.0.redial(now));
                 } else {
                     actions.extend(link.0.rejected(now, RejectReason::ResumeExpired));
@@ -385,7 +412,7 @@ pub fn drive_link(
     }
     actions.extend(link.0.tick(now));
     for a in actions {
-        act(a, &net, &mut dialer, &game, &pilot, &cfg, &mut controls, &mut aim);
+        act(a, &net, &mut dialer, &game, &mut pilot, &cfg, &mut controls, &mut aim);
     }
 
     // What the page shows.

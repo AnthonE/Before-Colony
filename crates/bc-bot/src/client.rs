@@ -6,6 +6,7 @@ use anyhow::{Context, bail};
 use bc_auth::LocalWallet;
 use bc_client_core::{ClientConfig, ClientCore, Identity, InputContext, Phase, World};
 use bc_econ::wire::{Place, Request};
+use bc_proto::auth::SolanaSignature;
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use tokio::sync::mpsc;
 use wtransport::{Connection, SendStream};
@@ -34,6 +35,14 @@ pub struct BotClient {
     epoch: Instant,
 }
 
+/// What answers a challenge.
+#[derive(Clone, Copy)]
+enum Signer<'a> {
+    None,
+    Evm(&'a LocalWallet),
+    Solana(&'a (dyn Fn(&[u8]) -> SolanaSignature + Send + Sync)),
+}
+
 impl BotClient {
     /// Connects as a guest, sends the handshake (as [`PilotKind::Agent`]) and waits for the Welcome.
     pub async fn connect(cfg: &BotConfig) -> anyhow::Result<Self> {
@@ -55,6 +64,31 @@ impl BotClient {
         identity: Identity,
         wallet: Option<&LocalWallet>,
     ) -> anyhow::Result<Self> {
+        Self::connect_signing(cfg, identity, None, wallet.map_or(Signer::None, Signer::Evm)).await
+    }
+
+    /// Connects signed in with an Elo Pros pass (a test's; agents with a wallet sign for themselves).
+    pub async fn connect_pass(cfg: &BotConfig, pass: &str) -> anyhow::Result<Self> {
+        Self::connect_signing(cfg, Identity::Pass { resume: None }, Some(pass.to_string()), Signer::None)
+            .await
+    }
+
+    /// Connects signed in with the Solana wallet `key`, whose `sign` answers a challenge's text.
+    pub async fn connect_solana(
+        cfg: &BotConfig,
+        key: [u8; 32],
+        resume: Option<[u8; 32]>,
+        sign: &(dyn Fn(&[u8]) -> SolanaSignature + Send + Sync),
+    ) -> anyhow::Result<Self> {
+        Self::connect_signing(cfg, Identity::Solana { key, resume }, None, Signer::Solana(sign)).await
+    }
+
+    async fn connect_signing(
+        cfg: &BotConfig,
+        identity: Identity,
+        pass: Option<String>,
+        signer: Signer<'_>,
+    ) -> anyhow::Result<Self> {
         let info = if cfg.server.starts_with("http://") {
             discover(&cfg.server).await.context("discovering the server")?
         } else {
@@ -68,7 +102,8 @@ impl BotClient {
             frame: cfg.frame,
             faction: cfg.faction,
         })
-        .with_identity(identity);
+        .with_identity(identity)
+        .with_pass(pass);
         tx.write_all(&core.hello()).await?;
         let (ctrl_in, ctrl_rx) = mpsc::unbounded_channel();
         tokio::spawn(async move {
@@ -85,11 +120,20 @@ impl BotClient {
             if Instant::now() > deadline {
                 bail!("no Welcome within 5 s");
             }
-            if let (Phase::Signing(c), Some(w)) = (bot.core.phase, wallet) {
-                let signature = w.sign_in(c.domain.as_str(), &c.nonce, c.issued_at);
-                let auth = bot.core.auth(signature);
-                bot.ctrl_tx.write_all(&auth).await?;
-                continue;
+            if let Phase::Signing(c) = bot.core.phase {
+                let auth = match signer {
+                    Signer::Evm(w) => {
+                        Some(bot.core.auth(w.sign_in(c.domain.as_str(), &c.nonce, c.issued_at)))
+                    }
+                    Signer::Solana(sign) => {
+                        bot.core.sign_in_text().map(|t| sign(t.as_bytes())).map(|s| bot.core.auth_solana(s))
+                    }
+                    Signer::None => None,
+                };
+                if let Some(auth) = auth {
+                    bot.ctrl_tx.write_all(&auth).await?;
+                    continue;
+                }
             }
             match tokio::time::timeout(Duration::from_millis(100), bot.ctrl_rx.recv()).await {
                 Ok(Some(bytes)) => bot.core.on_control(&bytes),

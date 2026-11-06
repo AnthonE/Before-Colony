@@ -53,6 +53,13 @@ struct Args {
     /// one its page came from. Default: --http.
     #[arg(long)]
     siwe_domain: Vec<String>,
+    /// Elo Pros' account key, standard base64 (`GET /api/account/pubkey`). With it a pilot can sign
+    /// in with an Elo Pros pass: any login, or a wallet on either chain. Without it, wallets only.
+    #[arg(long)]
+    elo_pubkey: Option<String>,
+    /// Where a wallet's items are read at sign-in (`none`: nobody shows any).
+    #[arg(long, default_value = bc_server::config::STORE_ORIGIN)]
+    elo_origin: String,
     /// Origins whose pages may read /status, /status.json and /cert-hash from another site (CORS).
     /// Repeat it or separate with commas.
     #[arg(long, default_value = bc_server::config::STORE_ORIGIN)]
@@ -133,6 +140,13 @@ fn main() -> anyhow::Result<()> {
         jev_key: std::env::var("TYPESAFE_API_KEY").ok().filter(|k| !k.is_empty()),
         jev_url: std::env::var("TYPESAFE_BASE_URL").ok().filter(|u| !u.is_empty()),
         siwe_domains: bc_server::config::split_list(&args.siwe_domain),
+        elo_pubkey: args.elo_pubkey.as_deref().map(|k| {
+            bc_server::elo::parse_pubkey(k).unwrap_or_else(|| {
+                eprintln!("--elo-pubkey is standard base64 of 32 bytes");
+                std::process::exit(2);
+            })
+        }),
+        elo_origin: (args.elo_origin != "none").then(|| args.elo_origin.clone()),
         tls: args.cert.zip(args.key),
         cors_origins: bc_server::config::split_list(&args.cors_origin),
         require_auth: args.require_auth,
