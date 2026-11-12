@@ -94,8 +94,9 @@ The e2e suites run nightly (`.github/workflows/e2e.yml`).
    (`--test determinism`).
 5. **The colony and the town are closed forms** of the tick and of where you
    ask: deterministic, allocation-free, never stored or sent. Their goldens
-   are `CITY_GOLDEN`, `TRAFFIC_GOLDEN`, `WALKERS_GOLDEN`, `HALL_GOLDEN` and
-   `TOWN_GOLDEN`. A layout change bumps `content::city::CITY_VERSION` or
+   are `CITY_GOLDEN`, `TRAFFIC_GOLDEN`, `WALKERS_GOLDEN`, `HALL_GOLDEN`,
+   `TOWN_GOLDEN` and `STREET_GOLDEN` (the town's traffic and people,
+   `colony::street`). A layout change bumps `content::city::CITY_VERSION` or
    `content::town::TOWN_VERSION` with the protocol. People cross only where
    no car drives (`tests/life.rs`).
 6. **Shaders paint, they never re-implement the layout** (`bc::city`'s block
@@ -143,7 +144,11 @@ it).
   Wake it (`window.__bcWake`), or a waiting shooter hangs.
 - **`scripts/pt showcase` needs `scripts/pt up` first.**
 - **Some e2e suites pass `--colony`.** `hangar`, `colony`, `inside` and
-  `home` walk the retired cylinder; `base` runs with it closed.
+  `home` walk the retired cylinder; `base` and `town` run with it closed.
+- **The ring's town is reached from the bay:** Q at the airlock rides a
+  spoke's lift down (`scripts/pt cmd '{"cmd":"hangar","req":{"t":"enter_town"}}'`,
+  then `walk lift|boulevard|car`); `scripts/pt showcase town <1-8>` is its
+  look at High.
 
 ## Fresh box
 

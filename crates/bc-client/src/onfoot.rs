@@ -31,9 +31,11 @@ use bc_client_core::dock;
 use bc_client_core::homes as homes_on_foot;
 use bc_client_core::markab::{self, Chase, Markab};
 use bc_client_core::sights;
+use bc_client_core::town as town_foot;
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
 use bc_client_core::vehicle::{Drive, DriverPose, Kind, Vehicle};
 use bc_client_core::walker::{Guide, Stride, Walker};
+use bc_client_core::watch::{self, Heat, Offence, Pursuit};
 use bc_econ::item::thousands;
 use bc_econ::wire::{HomesView, Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
@@ -42,7 +44,7 @@ use bc_sim::colony::city::{
     AVENUE as AVENUE_WIDTH, CityBox, KERB, LIFT_TOP, Stage, TERMINAL_HEIGHT, arrival_seats, district_at,
     place_door, seat_near, terminal_rect,
 };
-use bc_sim::colony::deck::{BASE, DeckPos, local_frame as deck_frame};
+use bc_sim::colony::deck::{BASE, DeckPos, RING, local_frame as deck_frame};
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hall;
 use bc_sim::colony::homes::{self, Home, HomeId, Overlay, OverlayHome};
@@ -68,6 +70,7 @@ use crate::page::{Panel, Ui, UiCmd, UiCmds};
 use crate::pointer::PointerRes;
 use crate::settings::SettingsRes;
 use crate::terminal::TerminalLog;
+use crate::town::{TownAt, TownCars, TownView};
 use crate::view::ViewPrefs;
 
 const SENSITIVITY: f32 = 0.0022;
@@ -994,6 +997,155 @@ impl DeckFoot {
     }
 }
 
+/// On foot or at the wheel in the ring's town (`bc_client_core::town`, `docs/FREE_ROAM.md`): the
+/// pilot's body in the ring's deck's frame (`(x, h, −s)`), where they're being walked to, the lift
+/// whose door they could use, a car at hand, and the car they drive.
+#[derive(Clone, Debug)]
+pub struct TownFoot {
+    pub walker: Walker,
+    guide: Option<Guide>,
+    pub lift: Option<u16>,
+    /// A car at hand to take: where it stands, and which of the ones they left it is (if one).
+    pub car: Option<(Vehicle, Option<usize>)>,
+    pub drive: Option<Vehicle>,
+    /// The chase camera's heading behind the car, rad, and the eye's own turn off it (round, up).
+    cam_yaw: f32,
+    orbit: Vec2,
+    /// Looking out from the driver's seat (Tab), not from behind the car.
+    seat_view: bool,
+    /// The district they were last in (its name is said on the way into the next).
+    district: Option<u16>,
+    /// The cars near them: what their car and their legs run into.
+    cars: town_foot::Obstacles,
+    /// How much the Watch wants them, and its cars after them (`bc_client_core::watch`).
+    pub heat: Heat,
+    pub pursuit: Pursuit,
+    /// How long they've driven where people walk since it last counted against them, s; and how
+    /// long till a knock counts again.
+    reckless: f32,
+    knock_wait: f32,
+}
+
+/// The chase camera behind a car in the town: how far back and up it sits, m, and how fast its
+/// heading comes round to the car's (1/s).
+const TOWN_CHASE: (f32, f32) = (7.5, 2.7);
+const TOWN_CHASE_TURN: f32 = 3.5;
+/// A driver gets out only this slow, m/s.
+const TOWN_GET_OUT: f32 = 4.0;
+/// The cars a pilot leaves about that are kept (the oldest goes), and the kerbs' they've taken.
+const TOWN_LEFT: usize = 6;
+const TOWN_TAKEN: usize = 48;
+
+impl TownFoot {
+    /// Just out of lift `k`'s door.
+    fn out(k: u16) -> Self {
+        Self {
+            walker: town_foot::out_of_the_lift(k),
+            guide: None,
+            lift: None,
+            car: None,
+            drive: None,
+            cam_yaw: 0.0,
+            orbit: Vec2::ZERO,
+            seat_view: false,
+            district: None,
+            cars: town_foot::Obstacles::default(),
+            heat: Heat::default(),
+            pursuit: Pursuit::default(),
+            reckless: 0.0,
+            knock_wait: 0.0,
+        }
+    }
+
+    /// Where on the ring's floor they are: their feet, or their car.
+    pub fn feet(&self) -> DeckPos {
+        match &self.drive {
+            Some(v) => DeckPos::new(RING, v.x, v.s, 0.0).wrapped(),
+            None => town_foot::feet(&self.walker),
+        }
+    }
+
+    /// The eye and where it looks, in the frame the town is drawn in (upright where they are,
+    /// `town::TownAt`: +x across the ring, +y up, −z the way `s` grows).
+    fn view(&self) -> (Vec3, Vec3) {
+        let Some(v) = &self.drive else {
+            return (
+                Vec3::new(self.walker.feet.x, self.walker.feet.y + bc_sim::foot::EYE, 0.0),
+                self.walker.look(),
+            );
+        };
+        let heading = |yaw: f32| Vec3::new(yaw.sin(), 0.0, yaw.cos());
+        let car = Vec3::new(v.x, 0.0, 0.0);
+        if self.seat_view {
+            let yaw = v.yaw + self.orbit.x;
+            let look = (heading(yaw) * self.orbit.y.cos() + Vec3::Y * self.orbit.y.sin()).normalize();
+            return (car + Vec3::Y * v.spec().eye + heading(v.yaw) * 0.2, look);
+        }
+        let back = heading(self.cam_yaw + self.orbit.x);
+        let pitch = (0.3 - self.orbit.y).clamp(0.05, 1.2);
+        let target = car + Vec3::Y * 1.3;
+        let boom =
+            (-back * pitch.cos() + Vec3::Y * pitch.sin()) * TOWN_CHASE.0 + Vec3::Y * (TOWN_CHASE.1 - 2.2);
+        // Pulled in ahead of anything between the car and the eye.
+        let mut reach = 1.0;
+        for k in 1..=8 {
+            let u = k as f32 / 8.0;
+            let p = target + boom * u;
+            let w = Vec3::new(p.x, p.y, p.z - v.s);
+            if bc_sim::colony::deck::solid(RING, w - Vec3::splat(0.35), w + Vec3::splat(0.35)) {
+                reach = (u - 0.15).max(0.12);
+                break;
+            }
+        }
+        let eye = target + boom * reach;
+        (eye, (target + back * 3.0 - eye).normalize())
+    }
+
+    /// One frame at the wheel: the car driven on, kept in the ring's round, and the camera brought
+    /// round behind it. True if it knocked another car hard.
+    fn drive_on(&mut self, d: &Drive, look: Vec2, dt: f32, cam_dt: f32) -> bool {
+        let Some(v) = self.drive.as_mut() else { return false };
+        let mut left = dt;
+        let mut knocked = false;
+        while left > 1e-4 {
+            let h = left.min(0.05);
+            left -= h;
+            let speed = v.speed.abs();
+            knocked |= town_foot::drive(v, d, h, &self.cars) && speed > 4.0;
+        }
+        v.s = DeckPos::new(RING, v.x, v.s, 0.0).wrapped().s;
+        // The eye's own turn, eased back behind the car while it's moving.
+        self.orbit.x -= look.x;
+        self.orbit.y = (self.orbit.y - look.y).clamp(-0.9, 0.5);
+        if v.speed.abs() > 2.0 && look == Vec2::ZERO {
+            self.orbit *= (-1.2 * cam_dt).exp();
+        }
+        let off = (v.yaw - self.cam_yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        self.cam_yaw += off * (1.0 - (-TOWN_CHASE_TURN * cam_dt).exp());
+        knocked
+    }
+
+    /// Into `car`'s seat.
+    fn take(&mut self, car: Vehicle) {
+        self.cam_yaw = car.yaw;
+        self.orbit = Vec2::ZERO;
+        self.drive = Some(car);
+        self.guide = None;
+        self.car = None;
+    }
+
+    /// Out of the car, beside it, facing the way it does: the car, to leave where it stands.
+    fn get_out(&mut self) -> Option<Vehicle> {
+        let v = self.drive.take()?;
+        let (x, s) = v.door_spot();
+        let (fx, fs) = v.forward();
+        self.walker = Walker::at(DeckPos::new(RING, x, s, 0.0).walker(), Vec3::new(fx, 0.0, -fs));
+        self.walker.grounded = true;
+        Some(Vehicle { speed: 0.0, wheel: 0.0, ..v })
+    }
+}
+
 /// The pilot on foot.
 #[derive(Resource)]
 pub struct OnFoot {
@@ -1024,6 +1176,8 @@ pub struct OnFoot {
     pub city: Option<CityFoot>,
     /// On foot on the base's deck, out of the airlock.
     pub deck: Option<DeckFoot>,
+    /// In the ring's town, down a spoke's lift.
+    pub town: Option<TownFoot>,
 }
 
 impl Default for OnFoot {
@@ -1045,6 +1199,7 @@ impl Default for OnFoot {
             lift: Lift::default(),
             city: None,
             deck: None,
+            town: None,
         }
     }
 }
@@ -1206,7 +1361,7 @@ fn verb(spot: Spot, bay: Option<&Bay>, colony: bool, lift: Lift) -> String {
         (Spot::Cockpit, Some(Bay::Out { .. })) => "COCKPIT: YOUR SUIT IS OUT".into(),
         (Spot::Cockpit, _) => "COCKPIT: THE GANTRY IS EMPTY".into(),
         (Spot::Airlock, _) if colony => lift.prompt(),
-        (Spot::Airlock, _) => "AIRLOCK: OUT ONTO BAY ROW".into(),
+        (Spot::Airlock, _) => "AIRLOCK: OUT ONTO BAY ROW · Q  THE SPOKE LIFT DOWN TO THE TOWN".into(),
         (spot, _) => spot.name().into(),
     }
 }
@@ -1225,7 +1380,7 @@ fn city_verb(p: &PlaceDef) -> String {
 
 /// Once a frame, in game mode: the hangar's news, where the pilot is, their legs and eyes, what
 /// they use, and the sequences; then what the bay and the page show.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn drive_onfoot(
     keys: Res<ButtonInput<KeyCode>>,
     motion: Res<AccumulatedMouseMotion>,
@@ -1242,7 +1397,14 @@ pub fn drive_onfoot(
     mut log: ResMut<TerminalLog>,
     mut curtain: Query<&mut BackgroundColor, With<Curtain>>,
     mut city_view: ResMut<CityView>,
-    (map, enter, mut base_view): (Res<crate::map::MapOpen>, Res<crate::chat::Enter>, ResMut<BaseView>),
+    (map, enter, mut base_view, mut town_view, mut town_at, mut town_cars): (
+        Res<crate::map::MapOpen>,
+        Res<crate::chat::Enter>,
+        ResMut<BaseView>,
+        ResMut<TownView>,
+        ResMut<TownAt>,
+        ResMut<TownCars>,
+    ),
 ) {
     let now = now_s();
     let dt = time.delta_secs().min(0.1);
@@ -1320,7 +1482,18 @@ pub fn drive_onfoot(
             (_, Some(Place::Hangar)) => {
                 me.city = None;
                 me.deck = None;
+                me.town = None;
                 me.enter(now);
+            }
+            // Down a spoke's lift to the ring's town: a cut, the screen fading back in at Hub
+            // Gate's lift's door.
+            (_, Some(Place::Town)) => {
+                if me.town.is_none() {
+                    me.town = Some(TownFoot::out(0));
+                    *town_cars = TownCars::default();
+                }
+                me.done(now);
+                ui.news("DOWN THE SPOKE · HUB GATE · CHARTER SQUARE", false);
             }
             // Out of the airlock onto Bay Row: a cut, the screen fading back in there.
             (_, Some(Place::Base)) => {
@@ -1391,7 +1564,8 @@ pub fn drive_onfoot(
     if g.bay_hold && !holds_the_bay(me.seq, me.t(now)) {
         g.bay_hold = false;
     }
-    let inside = me.seq.indoors() || matches!(place, Some(Place::Hangar | Place::City | Place::Base));
+    let inside =
+        me.seq.indoors() || matches!(place, Some(Place::Hangar | Place::City | Place::Base | Place::Town));
     if indoors.0 != inside {
         indoors.0 = inside;
     }
@@ -1400,7 +1574,8 @@ pub fn drive_onfoot(
     let on_foot = me.seq == Seq::Walking && place == Some(Place::Hangar) && me.city.is_none();
     let in_city = me.seq == Seq::Walking && place == Some(Place::City) && me.city.is_some();
     let on_deck = me.seq == Seq::Walking && place == Some(Place::Base) && me.deck.is_some();
-    let live = (on_foot || in_city || on_deck) && ui.playing() && !ui.panel_open();
+    let in_town = me.seq == Seq::Walking && place == Some(Place::Town) && me.town.is_some();
+    let live = (on_foot || in_city || on_deck || in_town) && ui.playing() && !ui.panel_open();
     let colony = g.core.welcome.as_ref().is_some_and(|w| w.colony);
     // The pilot's own legs and eyes this frame: keys and the mouse.
     let mut own = Stride::default();
@@ -1780,7 +1955,176 @@ pub fn drive_onfoot(
         me.airlock_until = now + 1.5;
         ask(&net, &g, &Request::LeaveBase);
     }
-    if !in_city && !on_deck {
+    // In the ring's town: walked as on Bay Row, on the ring's floor, all the way round it; E at a
+    // car's side takes it (W/S the throttle and the brake, A/D the wheel, Space the handbrake, Tab
+    // the driver's seat's view, E out again), and at a lift's door rides back up to the bay.
+    let mut up_the_lift = false;
+    if in_town && let Some(t) = me.town.as_mut() {
+        for cmd in &cmds.0 {
+            if let UiCmd::WalkTo { spot } = cmd
+                && t.drive.is_none()
+                && let Some((route, facing)) = town_foot::route(spot, t.walker.feet)
+            {
+                t.guide = Some(Guide::new(route, Some(facing)));
+            }
+        }
+        // The cars round them this frame: the kerbs', the ones they left, the traffic's.
+        {
+            let left: Vec<Vehicle> = town_cars.left.iter().map(|(v, _)| *v).collect();
+            let at = t.feet();
+            t.cars.gather(at, 45.0, &town_cars.taken, &left, g.core.colony_tick(now));
+        }
+        let mut got_out = false;
+        // What they've done that the Watch minds, this frame.
+        let mut offences: Vec<Offence> = Vec::new();
+        t.knock_wait = (t.knock_wait - dt).max(0.0);
+        if t.drive.is_some() {
+            let drive = Drive { throttle: own.forward, steer: -own.right, handbrake: own.jump };
+            if t.drive_on(&drive, look, walk_dt(false), dt) && t.knock_wait <= 0.0 {
+                t.knock_wait = 1.5;
+                offences.push(Offence::Knock);
+            }
+            // At speed where people walk: a second of it at a time.
+            let fast = t.drive.is_some_and(|v| v.speed.abs() > 9.0);
+            if fast && watch::where_people_walk(t.feet()) {
+                t.reckless += dt;
+                if t.reckless >= 1.0 {
+                    t.reckless = 0.0;
+                    offences.push(Offence::Reckless);
+                }
+            }
+            if live && keys.just_pressed(KeyCode::Tab) {
+                t.seat_view = !t.seat_view;
+                t.orbit = Vec2::ZERO;
+            }
+            let slow = t.drive.is_some_and(|v| v.speed.abs() < TOWN_GET_OUT);
+            if used_key
+                && slow
+                && let Some(car) = t.get_out()
+            {
+                // Left where it stands (the oldest of those left goes back to the colony).
+                if town_cars.left.len() >= TOWN_LEFT {
+                    town_cars.left.remove(0);
+                }
+                let seed = town_cars.driving.take().map_or(0, |(_, seed)| seed);
+                town_cars.left.push((car, seed));
+                got_out = true;
+            }
+        } else {
+            if look != Vec2::ZERO {
+                t.walker.turn(-look.x, -look.y);
+            }
+            if own != Stride::default() {
+                t.guide = None;
+            }
+            let mut left = walk_dt(t.guide.is_some());
+            while left > 1e-4 {
+                let h = left.min(0.1);
+                left -= h;
+                let stride = match t.guide.as_mut() {
+                    Some(guide) => {
+                        let stride = guide.steer(&mut t.walker, h);
+                        if guide.arrived() && guide.facing.is_none_or(|f| t.walker.heading().dot(f) > 0.97) {
+                            t.guide = None;
+                        }
+                        stride
+                    }
+                    None => own,
+                };
+                t.walker.step(&town_foot::Street(&t.cars), &stride, h);
+            }
+            // On round the ring: where its `s` wraps, a guide's way is a turn off.
+            if town_foot::keep_round(&mut t.walker) {
+                t.guide = None;
+            }
+        }
+        let at = t.feet();
+        // Where the car they drive is, for whoever draws it.
+        if let (Some(v), Some((car, _))) = (t.drive.as_ref(), town_cars.driving.as_mut())
+            && *car != *v
+        {
+            *car = *v;
+        }
+        t.lift = if t.drive.is_none() { town_foot::lift_in_view(&t.walker) } else { None };
+        t.car = if t.drive.is_none() && t.lift.is_none() {
+            let left: Vec<Vehicle> = town_cars.left.iter().map(|(v, _)| *v).collect();
+            town_foot::car_at_hand(at, &town_cars.taken, &left)
+        } else {
+            None
+        };
+        if used_key && !got_out && !ui.panel_open() && t.drive.is_none() {
+            if t.lift.is_some() {
+                up_the_lift = true;
+            } else if let Some((car, left)) = t.car {
+                // It keeps its look: the one it had at the kerb, or where it was left.
+                let seed = match left {
+                    Some(k) if k < town_cars.left.len() => town_cars.left.remove(k).1,
+                    _ => {
+                        if town_cars.taken.len() >= TOWN_TAKEN {
+                            town_cars.taken.remove(0);
+                        }
+                        town_cars.taken.push(town_foot::parked_id(&car));
+                        // Somebody's car: worse in sight of one of the Watch's own.
+                        let seen = watch::watch_car_near(at, 120.0, g.core.colony_tick(now));
+                        offences.push(if seen { Offence::TookACarInSight } else { Offence::TookACar });
+                        crate::town::parked_seed(&car)
+                    }
+                };
+                town_cars.driving = Some((car, seed));
+                t.take(car);
+                ui.toast("A CAR FROM THE KERB · W/S THROTTLE AND BRAKE · A/D THE WHEEL · SPACE HANDBRAKE · TAB THE VIEW");
+            }
+        }
+        // The Watch: the heat up with what they've done and down with time, its cars after them,
+        // and its fine when one has them stopped at its side (their car goes with it).
+        for o in offences {
+            if t.heat.offend(o) {
+                ui.news(format!("THE WATCH WANTS YOU · {}", watch::stars(t.heat.level())), true);
+            }
+        }
+        if t.heat.cool(dt) {
+            ui.toast(match t.heat.level() {
+                0 => "THE WATCH HAS LOST INTEREST".to_string(),
+                l => format!("THE WATCH · {}", watch::stars(l)),
+            });
+        }
+        let level = t.heat.level();
+        let speed = t.drive.map_or(Vec3::new(t.walker.vel.x, 0.0, t.walker.vel.z).length(), |v| v.speed);
+        if t.pursuit.step(level, t.feet(), speed, dt.max(1e-3), &t.cars) && level > 0 {
+            ask(&net, &g, &Request::Fine { heat: level });
+            t.heat.clear();
+            t.pursuit.call_off();
+            if t.get_out().is_some() {
+                town_cars.driving = None;
+            }
+        }
+        let watch: Vec<Vehicle> = t.pursuit.cars().copied().collect();
+        if town_cars.watch != watch {
+            town_cars.watch = watch;
+        }
+        // A district's name on the way into it.
+        let (district, name) = town_foot::district_at(at.s);
+        if t.district.is_some_and(|d| d != district) {
+            ui.toast(name);
+        }
+        t.district = Some(district);
+        let pose = match &t.drive {
+            Some(v) => town_foot::pose_driving(v),
+            None => town_foot::pose_of(&t.walker),
+        };
+        g.core.set_pose(Some(pose));
+        if let (Some(tr), Some(p)) = (net.get(), g.core.poll_pose(now)) {
+            tr.send_datagram(&p);
+        }
+    } else if let Some(t) = me.town.as_mut() {
+        t.guide = None;
+        t.lift = None;
+        t.car = None;
+    }
+    if up_the_lift {
+        ask(&net, &g, &Request::LeaveTown);
+    }
+    if !in_city && !on_deck && !in_town {
         g.core.set_pose(None);
     }
     let hangar_bay = g.core.hangar.view.as_ref().map(|v| v.bay.clone());
@@ -1837,6 +2181,17 @@ pub fn drive_onfoot(
             me.lift = Lift::default();
         } else if colony && live && keys.just_pressed(KeyCode::KeyQ) {
             me.lift = me.lift.next();
+        }
+
+        // Q at the airlock (the old inside closed): the spoke's lift down to the ring's town.
+        if !colony
+            && live
+            && keys.just_pressed(KeyCode::KeyQ)
+            && me.focus == Some(Spot::Airlock)
+            && !ui.panel_open()
+        {
+            me.airlock_until = now + 1.5;
+            ask(&net, &g, &Request::EnterTown);
         }
 
         // Using what's in view.
@@ -1966,10 +2321,14 @@ pub fn drive_onfoot(
         Some(Place::Space) => "space",
         Some(Place::City) => "city",
         Some(Place::Base) => "base",
+        Some(Place::Town) => "town",
         None => "",
     };
-    ui.on_foot = on_foot || in_city || on_deck;
+    ui.on_foot = on_foot || in_city || on_deck || in_town;
     ui.driving = me.city.as_ref().and_then(|c| c.drive).filter(|_| in_city).map_or("", |w| w.name());
+    if in_town && me.town.as_ref().is_some_and(|t| t.drive.is_some()) {
+        ui.driving = "car";
+    }
     // The map (M), and where the pilot stands on it.
     ui.map &= me.city.is_some();
     let map_at = me.city.as_ref().filter(|_| ui.map).map(|c| {
@@ -1997,6 +2356,18 @@ pub fn drive_onfoot(
         .map_or(BaseView { active: false, ..*base_view }, |d| BaseView { active: true, s: d.feet().s });
     if *base_view != base_now {
         *base_view = base_now;
+    }
+    // In the ring's town: the town drawn round where they stand (or drive).
+    let town_now = TownView { active: me.town.is_some(), sync: false };
+    if *town_view != town_now {
+        *town_view = town_now;
+    }
+    if let Some(t) = &me.town {
+        let at = t.feet();
+        let here = TownAt { s: at.s, x: at.x };
+        if *town_at != here {
+            *town_at = here;
+        }
     }
     ui.sequence = me.seq != Seq::Walking;
     ui.prompt = match me.seq {
@@ -2057,6 +2428,19 @@ pub fn drive_onfoot(
             Some(d) if d.at_door => "E  AIRLOCK: BACK INTO YOUR BAY".into(),
             _ => String::new(),
         },
+        Seq::Walking if in_town => match me.town.as_ref() {
+            Some(TownFoot { drive: Some(v), .. }) => {
+                let kmh = (v.speed.abs() * 3.6).round();
+                if v.speed.abs() < TOWN_GET_OUT {
+                    format!("{kmh:.0} KM/H · E  GET OUT")
+                } else {
+                    format!("{kmh:.0} KM/H")
+                }
+            }
+            Some(t) if t.lift.is_some() => "E  THE SPOKE LIFT, UP TO YOUR BAY".into(),
+            Some(t) if t.car.is_some() => "E  TAKE THE CAR".into(),
+            _ => String::new(),
+        },
         s if s.skippable() => "SPACE  SKIP".into(),
         _ => String::new(),
     };
@@ -2064,7 +2448,12 @@ pub fn drive_onfoot(
     // the server has said. Flying, the HUD has the corner.
     ui.bay_line = if inside {
         let fed = g.core.hangar.fed().map_or(String::new(), |f| format!(" · {}", f.tag()));
-        format!("BAY {:02} · {} CR{fed}", g.core.hangar.bay, thousands(g.core.hangar.credits()))
+        // In the town, wanted: the Watch's heat.
+        let heat = match me.town.as_ref().map_or(0, |t| t.heat.level()) {
+            0 => String::new(),
+            l => format!(" · WATCH {}", watch::stars(l)),
+        };
+        format!("BAY {:02} · {} CR{fed}{heat}", g.core.hangar.bay, thousands(g.core.hangar.credits()))
     } else {
         String::new()
     };
@@ -2100,6 +2489,7 @@ pub fn onfoot_camera(
     if !matches!(ui.panel, Panel::Terminal(_))
         || me.city.is_some()
         || me.deck.is_some()
+        || me.town.is_some()
         || me.seq != Seq::Walking
     {
         refit.0.on = false;
@@ -2107,13 +2497,13 @@ pub fn onfoot_camera(
     refit.0.step(time.delta_secs());
     let Ok((mut tf, mut projection)) = cam.single_mut() else { return };
     // Walls come close on foot (in the city, a little less close: the far wall is 6 km off).
-    let near = match (&me.city, indoors.0) {
-        (Some(_), true) => 0.15,
-        (None, true) => 0.05,
+    let near = match (me.city.is_some() || me.town.is_some(), indoors.0) {
+        (true, true) => 0.15,
+        (false, true) => 0.05,
         _ => 0.5,
     };
     let fov = prefs.fov.clamp(40.0, 120.0);
-    let in_bay = me.city.is_none() && me.deck.is_none();
+    let in_bay = me.city.is_none() && me.deck.is_none() && me.town.is_none();
     let fov = if in_bay { refit.0.blended((Vec3::ZERO, Vec3::Z), fov).2 } else { fov };
     if let Projection::Perspective(p) = &mut *projection {
         if p.near != near {
@@ -2141,6 +2531,12 @@ pub fn onfoot_camera(
             *origin = moved;
         }
         *tf = Transform::from_translation(origin.place(eye)).looking_to(look, up);
+        return;
+    }
+    // In the ring's town: the town is drawn in the frame upright where the pilot is (`town.rs`).
+    if let Some(t) = &me.town {
+        let (eye, look) = t.view();
+        *tf = Transform::from_translation(eye).looking_to(look, Vec3::Y);
         return;
     }
     // On the base's deck: drawn round the pilot, upright to its floor (`base::frame`).
@@ -2197,6 +2593,39 @@ pub fn publish_onfoot(
         None => {
             dev.set("deck_feet", "");
             dev.set("deck_walking_to", false);
+        }
+    }
+    // In the ring's town: where on its floor (across the ring, round it, up), the district, being
+    // walked, a lift's door or a car at hand, and at the wheel how fast.
+    match &me.town {
+        Some(t) => {
+            let at = t.feet();
+            dev.set("town_feet", format!("{:.1},{:.1},{:.1}", at.x, at.s, at.h));
+            dev.set("town_walking_to", t.guide.is_some());
+            dev.set("town_district", town_foot::district_at(at.s).1);
+            dev.set("town_driving", t.drive.is_some());
+            dev.set("town_speed", t.drive.map_or(0.0, |v| f64::from(v.speed)));
+            dev.set("town_heat", u32::from(t.heat.level()));
+            dev.set("town_watch", t.pursuit.units.len() as u32);
+            if me.seq == Seq::Walking {
+                let focus = if t.lift.is_some() {
+                    "lift"
+                } else if t.car.is_some() {
+                    "car"
+                } else {
+                    ""
+                };
+                dev.set("focus", focus);
+            }
+        }
+        None => {
+            dev.set("town_feet", "");
+            dev.set("town_walking_to", false);
+            dev.set("town_district", "");
+            dev.set("town_driving", false);
+            dev.set("town_speed", 0.0);
+            dev.set("town_heat", 0u32);
+            dev.set("town_watch", 0u32);
         }
     }
     // In the colony: the strip, where on it (along, across, up) and the place at hand.

@@ -7,7 +7,9 @@
 //! from the strip's edge, `h` up), where the city stands still: about 8 mm steps over the whole
 //! colony. The base's deck in the hub (`docs/RING.md`) is one more floor, [`BASE_DECK`], its places
 //! (`bc_sim::colony::deck::DeckPos`: `x` along the axis, `s` round the deck, `h` up) in the same
-//! fields. Nothing here allocates.
+//! fields; and the ring's floor, the town (`docs/FREE_ROAM.md`), is another, [`RING_DECK`]: 18.85 km
+//! round and 2 km across, so on the wire its `s` goes in the long field and its `x` in the short one
+//! ([`PoseCodes`]). Nothing here allocates.
 
 use crate::{BitReader, BitWriter, DecodeError, MAX_DATAGRAM, PACKET_KIND_BITS, PacketKind, SLOT_BITS};
 
@@ -16,10 +18,19 @@ pub const STRIPS: u8 = 3;
 /// The floor after them: the base's deck in the hub's drum (`bc_sim::colony::deck::BASE`), Bay Row
 /// and the Muster's buildings.
 pub const BASE_DECK: u8 = STRIPS;
-/// The floors a pose can be on: the strips and the base's deck.
-pub const FLOORS: u8 = STRIPS + 1;
+/// And the ring's floor, where the town is (`bc_sim::colony::deck::RING`).
+pub const RING_DECK: u8 = STRIPS + 1;
+/// The floors a pose can be on: the strips, the base's deck and the ring's floor.
+pub const FLOORS: u8 = STRIPS + 2;
+/// A strip, in the tick's records of people on foot (`crate::foot`: the strips only).
 pub(crate) const STRIP_BITS: u32 = 2;
-const _: () = assert!(FLOORS as u32 <= 1 << STRIP_BITS);
+/// A floor, in the plaza's packets.
+pub(crate) const FLOOR_BITS: u32 = 3;
+const _: () = assert!(FLOORS as u32 <= 1 << FLOOR_BITS && STRIPS as u32 <= 1 << STRIP_BITS);
+/// On the ring's floor a pose's `s` (round the ring, 0 to 18,850 m) travels in `x`'s field, less
+/// this, and its `x` (across it, ±1,000 m) in `s`'s, plus [`RING_X`]: both at the same 8 mm steps.
+const RING_S: f32 = 8_192.0;
+const RING_X: f32 = 2_048.0;
 /// `x` along: [−`X_HALF`, `X_HALF`) m.
 const X_HALF: f32 = 16_384.0;
 pub(crate) const X_BITS: u32 = 22;
@@ -71,7 +82,7 @@ pub const VISITORS: u16 = 32;
 /// Their slots: the top of the slot range, above every session's, so a client knows one of the
 /// store's traders by the slot alone (they wear an avatar, not a flight suit).
 pub const VISITOR_BASE: u16 = (1 << SLOT_BITS) - VISITORS;
-const PLAZA_HEADER_BITS: u32 = PACKET_KIND_BITS + 32 + 1 + STRIP_BITS;
+const PLAZA_HEADER_BITS: u32 = PACKET_KIND_BITS + 32 + 1 + FLOOR_BITS;
 
 /// One pilot on foot in the city.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -182,9 +193,11 @@ pub struct PoseCodes {
 impl PoseCodes {
     /// The codes `p` travels as.
     pub fn of(p: &PersonPose) -> Self {
+        // On the ring's floor, the long way round goes in the long field.
+        let (x, s) = if p.strip == RING_DECK { (p.s - RING_S, p.x + RING_X) } else { (p.x, p.s) };
         Self {
-            x: unit(p.x, -X_HALF, 2.0 * X_HALF, X_BITS),
-            s: unit(p.s, 0.0, S_SPAN, S_BITS),
+            x: unit(x, -X_HALF, 2.0 * X_HALF, X_BITS),
+            s: unit(s, 0.0, S_SPAN, S_BITS),
             h: unit(p.h, H_MIN, H_SPAN, H_BITS),
             // Round the circle: a heading just short of τ goes as 0.
             yaw: ((wrap(p.yaw) / TAU * (1u32 << YAW_BITS) as f32 + 0.5) as u32) & ((1 << YAW_BITS) - 1),
@@ -200,10 +213,12 @@ impl PoseCodes {
 
     /// What the codes say, on strip `strip`.
     pub fn pose(&self, strip: u8) -> PersonPose {
+        let (x, s) = (ununit(self.x, -X_HALF, 2.0 * X_HALF, X_BITS), ununit(self.s, 0.0, S_SPAN, S_BITS));
+        let (x, s) = if strip == RING_DECK { (s - RING_X, x + RING_S) } else { (x, s) };
         PersonPose {
             strip,
-            x: ununit(self.x, -X_HALF, 2.0 * X_HALF, X_BITS),
-            s: ununit(self.s, 0.0, S_SPAN, S_BITS),
+            x,
+            s,
             h: ununit(self.h, H_MIN, H_SPAN, H_BITS),
             yaw: ununit(self.yaw, 0.0, TAU, YAW_BITS),
             pitch: ununit(self.pitch, -HALF_PI, 2.0 * HALF_PI, PITCH_BITS),
@@ -271,7 +286,7 @@ impl PosePacket {
         let mut w = BitWriter::new(buf);
         w.write_bits(PacketKind::Pose as u32, PACKET_KIND_BITS);
         w.write_u16(self.seq);
-        w.write_bits(u32::from(self.pose.strip.min(FLOORS - 1)), STRIP_BITS);
+        w.write_bits(u32::from(self.pose.strip.min(FLOORS - 1)), FLOOR_BITS);
         self.pose.write_body(&mut w);
         (!w.overflowed()).then(|| w.bytes_written())
     }
@@ -282,7 +297,7 @@ impl PosePacket {
             return Err(DecodeError::WrongKind);
         }
         let seq = r.read_u16();
-        let strip = r.read_bits(STRIP_BITS) as u8;
+        let strip = r.read_bits(FLOOR_BITS) as u8;
         let pose = PersonPose::read_body(&mut r, strip);
         if r.overflowed() {
             return Err(DecodeError::Truncated);
@@ -302,14 +317,14 @@ pub struct PlazaWriter<'a> {
 }
 
 impl<'a> PlazaWriter<'a> {
-    /// `tick`: the sector's last tick; `strip`: the viewer's floor, if they're on foot in the city
-    /// or on the base's deck ([`BASE_DECK`]).
+    /// `tick`: the sector's last tick; `strip`: the viewer's floor, if they're on foot in the city,
+    /// on the base's deck ([`BASE_DECK`]) or in the ring's town ([`RING_DECK`]).
     pub fn new(buf: &'a mut [u8], tick: u32, strip: Option<u8>) -> Self {
         let mut w = BitWriter::with_limit(buf, MAX_DATAGRAM);
         w.write_bits(PacketKind::Plaza as u32, PACKET_KIND_BITS);
         w.write_u32(tick);
         w.write_bool(strip.is_some());
-        w.write_bits(u32::from(strip.unwrap_or(0).min(FLOORS - 1)), STRIP_BITS);
+        w.write_bits(u32::from(strip.unwrap_or(0).min(FLOORS - 1)), FLOOR_BITS);
         Self { w, count: 0 }
     }
 
@@ -354,7 +369,7 @@ impl<'a> PlazaReader<'a> {
         }
         let tick = r.read_u32();
         let city = r.read_bool();
-        let strip = r.read_bits(STRIP_BITS) as u8;
+        let strip = r.read_bits(FLOOR_BITS) as u8;
         if r.overflowed() {
             return Err(DecodeError::Truncated);
         }
@@ -479,6 +494,32 @@ mod tests {
         let (id, _, p) = r.next_person().unwrap();
         assert_eq!((id, p.strip), (3, BASE_DECK));
         close(&p, &on_deck);
+    }
+
+    #[test]
+    fn the_rings_floor_is_a_floor_all_the_way_round_it() {
+        // The town: x across the ring (±1,000 m), s round it (18.85 km), at the strips' own steps.
+        for (i, (x, s)) in
+            [(-999.0f32, 0.5f32), (0.0, 10_995.6), (37.5, 18_849.0), (998.2, 9_424.8)].into_iter().enumerate()
+        {
+            let in_town = PersonPose { strip: RING_DECK, x, s, h: 0.0, ride: RIDE_CAR, ..pose(i as u32) };
+            let mut buf = [0u8; 64];
+            let n = PosePacket { seq: 3, pose: in_town }.encode(&mut buf).unwrap();
+            assert_eq!(n, 15, "a pose is 15 bytes");
+            let q = PosePacket::decode(&buf[..n]).unwrap();
+            assert_eq!(q.pose.strip, RING_DECK);
+            // (Swapped on the wire: each within half of the other field's step.)
+            let [dx, ds, ..] = PersonPose::STEP;
+            assert!((q.pose.x - x).abs() <= ds * 0.5 + 1e-3 && (q.pose.s - s).abs() <= dx * 0.5 + 1e-3);
+            let mut buf = [0u8; MAX_DATAGRAM];
+            let mut w = PlazaWriter::new(&mut buf, 5, Some(RING_DECK));
+            assert!(w.push(3, 0.02, &in_town));
+            let n = w.finish();
+            let mut r = PlazaReader::new(&buf[..n]).unwrap();
+            assert_eq!(r.strip, Some(RING_DECK));
+            let (_, _, p) = r.next_person().unwrap();
+            assert!((p.x - x).abs() < 0.01 && (p.s - s).abs() < 0.01 && p.ride == RIDE_CAR, "{p:?}");
+        }
     }
 
     #[test]

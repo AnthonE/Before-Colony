@@ -55,10 +55,17 @@ pub fn blend(a: &PersonPose, b: &PersonPose, u: f32) -> PersonPose {
     } else {
         (lerp_angle(a.yaw, b.yaw, u), l(a.pitch, b.pitch), lerp_angle(a.roll, b.roll, u))
     };
+    // Round the ring's floor the short way: across where its `s` wraps, not back round the town.
+    let s = if a.strip == bc_proto::presence::RING_DECK && b.strip == a.strip {
+        use bc_sim::colony::deck::{DeckPos, RING, round_from};
+        DeckPos::new(RING, 0.0, a.s + round_from(RING, a.s, b.s) * u, 0.0).wrapped().s
+    } else {
+        l(a.s, b.s)
+    };
     PersonPose {
         strip: b.strip,
         x: l(a.x, b.x),
-        s: l(a.s, b.s),
+        s,
         h: l(a.h, b.h),
         yaw,
         pitch,

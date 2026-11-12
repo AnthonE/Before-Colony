@@ -8,12 +8,21 @@
 //! in [`SUBSTEPS`] fixed substeps.
 //!
 //! Headings are the walker's yaw (0 faces −s, across the strip; τ/4 faces +x, along it).
+//!
+//! On the ring's floor (`docs/FREE_ROAM.md`), the same car in the deck's coordinates (`colony::deck`:
+//! `x` across the ring, `s` round it, any turn of it): its `strip` is [`RING_FLOOR`], and what it
+//! drives against is the town (`deck::solid`), its canal the water it doesn't drive into.
 
 use glam::Vec3;
 
 use crate::colony::city::{Stage, ground, solid};
+use crate::colony::deck;
 use crate::colony::frame::CityPos;
+use crate::colony::town;
 use crate::math::{cos, sin, tan, wrap_tau};
+
+/// A vehicle's `strip` on the ring's floor (the plaza's floor for it, `bc_proto::presence`).
+pub const RING_FLOOR: u8 = bc_proto::presence::RING_DECK;
 
 /// Substeps in a tick ([`Vehicle::tick`]), each `DT / SUBSTEPS`: a frame's worth at 60 Hz.
 pub const SUBSTEPS: u32 = 2;
@@ -122,7 +131,7 @@ impl Vehicle {
             let (cx, cs) = (x + fx * along, s + fs * along);
             let min = Vec3::new(cx - half, 0.35, -cs - half);
             let max = Vec3::new(cx + half, sp.height, -cs + half);
-            if solid(self.strip, min, max, Stage(0)) {
+            if self.hits(min, max) {
                 return false;
             }
         }
@@ -130,8 +139,27 @@ impl Vehicle {
         [(1.0f32, 1.0f32), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)].iter().all(|(a, b)| {
             let px = x + fx * a * 0.5 * sp.length + rx * b * half;
             let ps = s + fs * a * 0.5 * sp.length + rs * b * half;
-            ground(self.strip, ps, px, Stage(0)) > -0.5
+            self.ground_at(ps, px) > -0.5
         })
+    }
+
+    /// Whether the box `min..max` (the walker's frame where it drives) touches anything: the
+    /// strip's city, or the ring's town.
+    fn hits(&self, min: Vec3, max: Vec3) -> bool {
+        if self.strip == RING_FLOOR {
+            deck::solid(deck::RING, min, max)
+        } else {
+            solid(self.strip, min, max, Stage(0))
+        }
+    }
+
+    /// The ground's height at `(s, x)` where it drives, m: a canal's bed is well under it.
+    fn ground_at(&self, s: f32, x: f32) -> f32 {
+        if self.strip == RING_FLOOR {
+            if town::ground_at(x, town::town_t(s)) == town::Ground::Water { -3.0 } else { 0.0 }
+        } else {
+            ground(self.strip, s, x, Stage(0))
+        }
     }
 
     /// Drives one tick on: [`SUBSTEPS`] steps of `DT / SUBSTEPS`.
@@ -196,12 +224,18 @@ impl Vehicle {
 
     /// Where its wheels stand, m (the kerb when it's up one).
     pub fn ground(&self) -> f32 {
-        ground(self.strip, self.s, self.x, Stage(0)).max(0.0)
+        self.ground_at(self.s, self.x).max(0.0)
     }
 
     /// Where its driver gets out: beside it on the left, or, if something stands there (a lamp post,
     /// a tree), on the right, or behind it.
     pub fn door(&self) -> CityPos {
+        let (x, s) = self.door_spot();
+        CityPos::new(self.strip, x, s, 0.0)
+    }
+
+    /// [`Vehicle::door`], as `(x, s)` where it drives (the ring's floor has no strip).
+    pub fn door_spot(&self) -> (f32, f32) {
         let (fx, fs) = self.forward();
         let side = 0.5 * self.spec().width + 0.7;
         let back = 0.5 * self.spec().length + 0.7;
@@ -209,16 +243,13 @@ impl Vehicle {
         let spots = [(fs * side, -fx * side), (-fs * side, fx * side), (-fx * back, -fs * back)];
         let free = |(dx, ds): (f32, f32)| {
             let (x, s) = (self.x + dx, self.s + ds);
-            let h = ground(self.strip, s, x, Stage(0)).max(0.0) + 0.05;
-            !solid(
-                self.strip,
-                Vec3::new(x - 0.3, h, -s - 0.3),
-                Vec3::new(x + 0.3, h + 1.8, -s + 0.3),
-                Stage(0),
-            )
+            let h = self.ground_at(s, x).max(0.0) + 0.05;
+            // (On the ring, never out into the canal: its bed isn't walked.)
+            (self.strip != RING_FLOOR || self.ground_at(s, x) > -0.5)
+                && !self.hits(Vec3::new(x - 0.3, h, -s - 0.3), Vec3::new(x + 0.3, h + 1.8, -s + 0.3))
         };
         let (dx, ds) = spots.into_iter().find(|d| free(*d)).unwrap_or(spots[0]);
-        CityPos::new(self.strip, self.x + dx, self.s + ds, 0.0)
+        (self.x + dx, self.s + ds)
     }
 }
 
@@ -332,6 +363,42 @@ mod tests {
         }
         let face = post.solid.rect.x0;
         assert!(most <= face + 1e-3 && most > face - 1.0, "it stopped short of the post: {most} vs {face}");
+    }
+
+    #[test]
+    fn a_car_drives_the_rings_boulevard_round_the_seam_and_stops_at_the_towns_walls() {
+        use crate::colony::deck::{DECKS, RING};
+        let round = DECKS[RING as usize].round();
+        // On the boulevard's carriageway a little short of where the deck's `s` wraps, heading the
+        // way `s` grows (yaw π: −z is +s).
+        let mut v = Vehicle::new(Kind::Car, RING_FLOOR, round - 60.0, 20.0, PI);
+        for _ in 0..(12.0 / DT) as u32 {
+            v.step(&Drive { throttle: 1.0, ..Drive::default() }, DT);
+        }
+        assert!(v.s > round + 60.0 && v.speed > 20.0, "on past the seam: s {} at {} m/s", v.s, v.speed);
+        assert!((v.x - 20.0).abs() < 0.01, "straight: {}", v.x);
+        // Across the boulevard into a block's building: stopped at its wall, never inside it.
+        let b = {
+            let mut first = None;
+            town::each_block_box(town::BlockId::new(31, 7), &mut |b| first = first.or(Some(b)));
+            first.expect("a building")
+        };
+        let s = town::deck_s(0.5 * (b.t0 + b.t1));
+        let mut v = Vehicle::new(Kind::Car, RING_FLOOR, s, 20.0, FRAC_PI_2);
+        for _ in 0..(15.0 / DT) as u32 {
+            v.step(&Drive { throttle: 1.0, ..Drive::default() }, DT);
+        }
+        assert!(v.x + 0.5 * v.spec().length <= b.x0 + 1e-3 && v.x > b.x0 - 6.0, "at the wall: {v:?} {b:?}");
+        // Its driver gets out on the floor beside it; and it doesn't drive into the canal.
+        let (dx, ds) = v.door_spot();
+        assert!((libm::hypotf(dx - v.x, ds - v.s) - 1.6).abs() < 0.01);
+        let mid = 0.5 * (town::CANAL.0 + town::CANAL.1);
+        let mut v =
+            Vehicle::new(Kind::Car, RING_FLOOR, town::deck_s(town::CELL * 30.5), mid - 30.0, FRAC_PI_2);
+        for _ in 0..(10.0 / DT) as u32 {
+            v.step(&Drive { throttle: 1.0, ..Drive::default() }, DT);
+        }
+        assert!(v.x < town::CANAL.0, "short of the water: {}", v.x);
     }
 
     #[test]

@@ -65,10 +65,13 @@ pub mod station;
 pub mod surface;
 pub mod tags;
 pub mod terminal;
+pub mod town;
+pub mod town_mesh;
 pub mod tram;
 pub mod upright;
 pub mod vehicle;
 pub mod walker;
+pub mod watch;
 #[cfg(test)]
 mod wgsl;
 pub mod world;

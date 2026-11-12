@@ -285,6 +285,20 @@ impl BotClient {
         self.wait_until(10.0, "the bay", |c| c.hangar.in_hangar()).await
     }
 
+    /// Survival: down a spoke's lift to the ring's town, and returns once there (where it stands is
+    /// the step out of Hub Gate's lift, `bc_sim::colony::town::out_of_the_lift`, until it says
+    /// otherwise with [`BotClient::set_pose`]).
+    pub async fn enter_town(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::EnterTown).await?;
+        self.wait_until(10.0, "the town", |c| c.hangar.in_town()).await
+    }
+
+    /// Back up a spoke's lift to the bay (from a lift's door).
+    pub async fn leave_town(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::LeaveTown).await?;
+        self.wait_until(10.0, "the bay", |c| c.hangar.in_hangar()).await
+    }
+
     /// Where the agent stands in the city: sent 15 times a second as it steps.
     pub fn set_pose(&mut self, pose: bc_proto::presence::PersonPose) {
         self.core.set_pose(Some(pose));

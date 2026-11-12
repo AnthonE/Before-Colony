@@ -149,6 +149,11 @@ impl HangarState {
         self.place == Some(Place::Base)
     }
 
+    /// On foot (or driving) in the ring's town, down a spoke's lift (`docs/FREE_ROAM.md`).
+    pub fn in_town(&self) -> bool {
+        self.place == Some(Place::Town)
+    }
+
     /// Credits, as last told.
     pub fn credits(&self) -> u64 {
         self.view.as_ref().map_or(0, |v| v.credits)

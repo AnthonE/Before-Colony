@@ -214,7 +214,7 @@ fn apply_light_tier(
     mut floods: Query<(&mut SpotLight, &crate::hangar::Flood)>,
     city: Res<crate::city::CityView>,
     set: Res<crate::hangar::IndoorSet>,
-    base: Res<crate::base::BaseView>,
+    (base, town): (Res<crate::base::BaseView>, Res<crate::town::TownView>),
 ) {
     if !gfx.is_changed()
         && added.is_empty()
@@ -222,12 +222,13 @@ fn apply_light_tier(
         && !city.is_changed()
         && !set.is_changed()
         && !base.is_changed()
+        && !town.is_changed()
     {
         return;
     }
     // Inside the colony, its own light (`city::light_city`); on the base's deck, the base's
-    // (`base::light_base`).
-    if city.active || base.active {
+    // (`base::light_base`); in the ring's town, the town's (`town::light_town`).
+    if city.active || base.active || town.active {
         return;
     }
     let s = gfx.settings;
@@ -317,12 +318,12 @@ fn sun_visibility(p: Vec3) -> f32 {
 fn eclipse(
     time: Res<VisTime>,
     indoors: Res<crate::hangar::Indoors>,
-    (city, base): (Res<crate::city::CityView>, Res<crate::base::BaseView>),
+    (city, base, town): (Res<crate::city::CityView>, Res<crate::base::BaseView>, Res<crate::town::TownView>),
     cams: Query<&Transform, With<MainCamera>>,
     mut suns: Query<&mut DirectionalLight, With<Sun>>,
     mut vis: Local<Option<f32>>,
 ) {
-    if city.active || base.active {
+    if city.active || base.active || town.active {
         *vis = None;
         return;
     }

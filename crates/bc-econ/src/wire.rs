@@ -94,6 +94,16 @@ pub enum Request {
     EnterBase,
     /// Back in through the bay's airlock from Bay Row (standing at its door).
     LeaveBase,
+    /// Down a spoke's lift from the bay to the ring's town (`docs/FREE_ROAM.md`): on foot at Hub
+    /// Gate's lift, in its square.
+    EnterTown,
+    /// Back up the lift to the bay, from the door of any of the town's lifts.
+    LeaveTown,
+    /// Caught by the Watch in the ring's town, wanted at `heat` (1 to 5, `docs/OPEN_CITY.md`): its
+    /// fine ([`watch_fine`]) is paid from the bay's credits, as much of it as there is.
+    Fine {
+        heat: u8,
+    },
     /// On foot at the Blast Hall's gantry in the colony's city: board one of the Charter Board's
     /// trainers and fly it from there (the inside's sector, weapons free in the hall). Nothing of
     /// the pilot's own is taken; `dock`, at rest on the gantry, puts them back on foot there.
@@ -296,6 +306,9 @@ impl Request {
             | Request::LeaveCity
             | Request::EnterBase
             | Request::LeaveBase
+            | Request::EnterTown
+            | Request::LeaveTown
+            | Request::Fine { .. }
             | Request::BoardTrainer
             | Request::Withdraw { .. }
             | Request::Deliver { .. }
@@ -398,6 +411,12 @@ pub fn clean_line(text: &str) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
+/// The Watch's fine for a pilot caught wanted at `heat` (1 to 5), credits.
+pub fn watch_fine(heat: u8) -> u64 {
+    let l = u64::from(heat.min(5));
+    150 * l * l
+}
+
 /// Where the pilot is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -410,6 +429,8 @@ pub enum Place {
     City,
     /// On foot on the base's deck in the hub, out of the bay's airlock (`docs/RING.md`).
     Base,
+    /// On foot (or driving) in the ring's town, down a spoke's lift (`docs/FREE_ROAM.md`).
+    Town,
 }
 
 /// Where a pilot waking at home gets up: the home, and the spot beside its bed (dm from the home's
@@ -727,6 +748,9 @@ pub fn apply(
         | Request::LeaveCity
         | Request::EnterBase
         | Request::LeaveBase
+        | Request::EnterTown
+        | Request::LeaveTown
+        | Request::Fine { .. }
         | Request::WatchBoard { .. }
         | Request::UseKit { .. }
         | Request::Eject { .. }
@@ -997,6 +1021,9 @@ mod tests {
             (Request::LeaveCity, None),
             (Request::EnterBase, None),
             (Request::LeaveBase, None),
+            (Request::EnterTown, None),
+            (Request::LeaveTown, None),
+            (Request::Fine { heat: 2 }, None),
             (Request::BoardTrainer, None),
             (Request::Withdraw { id: 1 }, None),
             (Request::Deliver { id: 1, qty: 1 }, None),

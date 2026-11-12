@@ -34,7 +34,7 @@ use bc_proto::auth::PlayerId;
 use bc_proto::control::{
     self, ControlMsg, Frame, Name, RejectReason, bye, notice, roster_flags, welcome_flags,
 };
-use bc_proto::presence::{BASE_DECK, PlazaWriter, PosePacket};
+use bc_proto::presence::{BASE_DECK, PlazaWriter, PosePacket, RING_DECK};
 use bc_proto::{
     Faction, FrameId, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind,
 };
@@ -258,6 +258,8 @@ const HATCH_REACH: f32 = 12.0;
 /// How near the spot before their bay's airlock door a pilot on Bay Row goes back in from, m (a
 /// pose a moment behind still counts).
 const AIRLOCK_REACH: f32 = 6.0;
+/// How near a lift's door in the town a pilot rides it back up from, m.
+const LIFT_REACH: f32 = 8.0;
 
 /// Whether `at` (the colony's own frame) is at the Blast Hall's gantry: by its hatch, or round its
 /// pad (where the trainer stands).
@@ -632,7 +634,10 @@ impl Session<'_> {
                         // On foot in the city: where the pilot is.
                         Some(PacketKind::Pose) => {
                             match PosePacket::decode(&d) {
-                                Ok(p) if rate.allow() && matches!(self.place, Place::City | Place::Base) => {
+                                Ok(p)
+                                    if rate.allow()
+                                        && matches!(self.place, Place::City | Place::Base | Place::Town) =>
+                                {
                                     let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
                                     self.game.plaza.accept(self.slot, p.seq, p.pose, Instant::now(), tick);
                                 }
@@ -855,9 +860,11 @@ impl Session<'_> {
         self.ticks = self.ticks.wrapping_add(1);
         let city = self.place == Place::City;
         let base = self.place == Place::Base;
+        let town = self.place == Place::Town;
         let suit = self.suit_inside();
         if !city
             && !base
+            && !town
             && suit.is_none()
             && !(self.place == Place::Hangar && self.ticks.is_multiple_of(HEARTBEAT_TICKS))
         {
@@ -869,11 +876,14 @@ impl Session<'_> {
         let strip = match suit {
             _ if city => Some(self.strip),
             _ if base => Some(BASE_DECK),
+            _ if town => Some(RING_DECK),
             at => at.map(|at| crate::plaza::strip_under(at).0),
         };
         let mut w = PlazaWriter::new(&mut buf, tick, strip);
         match suit {
-            _ if city || base => self.game.plaza.fill(self.slot, Instant::now(), tick, &mut w, &mut shown),
+            _ if city || base || town => {
+                self.game.plaza.fill(self.slot, Instant::now(), tick, &mut w, &mut shown)
+            }
             Some(at) => self.game.plaza.fill_around(at, Instant::now(), tick, &mut w, &mut shown),
             None => {}
         }
@@ -1033,6 +1043,7 @@ impl Session<'_> {
                 Place::Space => "space",
                 Place::City => "city",
                 Place::Base => "base",
+                Place::Town => "town",
             },
             credits: h.credits,
             bay,
@@ -1121,6 +1132,21 @@ impl Session<'_> {
             Request::LeaveCity => self.leave_city().await,
             Request::EnterBase => self.enter_base().await,
             Request::LeaveBase => self.leave_base().await,
+            Request::EnterTown => self.enter_town().await,
+            Request::LeaveTown => self.leave_town().await,
+            Request::Fine { heat } => {
+                // Caught by the Watch in the town: its fine, as much of it as the bay has.
+                if self.place != Place::Town || heat == 0 {
+                    return self.note("the Watch has nothing on you", false).await;
+                }
+                let fine = wire::watch_fine(heat).min(self.hangar.credits);
+                self.hangar.credits -= fine;
+                tracing::info!(slot = self.slot, name = %self.callsign, heat, fine, "fined by the Watch");
+                self.note(format!("THE WATCH HAS YOU · FINED {fine} CR"), true).await?;
+                self.send_hangar().await?;
+                self.save().await;
+                Ok(())
+            }
             Request::Watch { item } => {
                 self.watching = item.filter(|i| i.valid());
                 self.send_market().await
@@ -1421,6 +1447,43 @@ impl Session<'_> {
         Ok(())
     }
 
+    /// Down a spoke's lift from the bay to the ring's town, to Hub Gate's square
+    /// (`docs/FREE_ROAM.md`).
+    async fn enter_town(&mut self) -> anyhow::Result<()> {
+        if !self.survival() {
+            return self.note("there's no town under these rules", false).await;
+        }
+        if self.place != Place::Hangar || self.suit.is_some() {
+            return self.note("the spoke lifts run from the bays", false).await;
+        }
+        self.place = Place::Town;
+        self.game.plaza.enter_town(self.slot, &self.callsign);
+        self.named.clear();
+        tracing::info!(slot = self.slot, name = %self.callsign, "down the spoke to the town");
+        self.send_place().await?;
+        self.publish_hangar();
+        Ok(())
+    }
+
+    /// Back up a spoke's lift to the bay: from the door of any of the town's lifts (where the plaza
+    /// last had them, on foot).
+    async fn leave_town(&mut self) -> anyhow::Result<()> {
+        if self.place != Place::Town {
+            return self.note("you're not down in the town", false).await;
+        }
+        if !self.game.plaza.at_a_lift(self.slot, LIFT_REACH) {
+            return self
+                .note("the lifts up to the bays are under the spokes: on foot, at a lift's door", false)
+                .await;
+        }
+        self.game.plaza.leave(self.slot);
+        self.place = Place::Hangar;
+        self.send_place().await?;
+        self.send_hangar().await?;
+        self.publish_hangar();
+        Ok(())
+    }
+
     /// Boards the suit in the bay and launches it.
     async fn launch(&mut self) -> anyhow::Result<()> {
         if self.suit.is_some() || self.place == Place::Space {
@@ -1428,6 +1491,11 @@ impl Session<'_> {
         }
         if self.place == Place::Base {
             return self.note("you're out on Bay Row: back in through your airlock to board", false).await;
+        }
+        if self.place == Place::Town {
+            return self
+                .note("you're down in the town: ride a spoke's lift back up to your bay to board", false)
+                .await;
         }
         if self.place == Place::City {
             return self
@@ -1871,19 +1939,19 @@ impl Session<'_> {
             if changed && self.suit.is_some() && !self.lost {
                 self.push_fed_flying().await;
             }
-            let on_foot = matches!(self.place, Place::Hangar | Place::City | Place::Base);
+            let on_foot = matches!(self.place, Place::Hangar | Place::City | Place::Base | Place::Town);
             if changed || (on_foot && self.body_sent.1.elapsed() >= BODY_EVERY) {
                 self.send_body().await?;
             }
         }
-        if matches!(self.place, Place::Hangar | Place::City | Place::Base)
+        if matches!(self.place, Place::Hangar | Place::City | Place::Base | Place::Town)
             && self.game.market.version() != self.market_seen
             && self.market_sent.elapsed() >= MARKET_EVERY
         {
             self.send_market().await?;
         }
         if self.board
-            && matches!(self.place, Place::Hangar | Place::City | Place::Base)
+            && matches!(self.place, Place::Hangar | Place::City | Place::Base | Place::Town)
             && self.game.charter.version() != self.board_seen
             && self.board_sent.elapsed() >= MARKET_EVERY
         {

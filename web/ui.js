@@ -826,14 +826,15 @@
     // Signed in, leaving puts the pilot to sleep in the cockpit: in a hide spot the suit is left
     // hidden (and under survival rules it outlasts a restart), at rest on a body it's parked, in
     // the air in a body's grip it comes down and parks; a guest's suit goes with them. On foot (in
-    // the bay, out on Bay Row, or down in the city) nothing is out, and they wake in their bay. Flying inside the
+    // the bay, out on Bay Row, down in the city or in the ring's town) nothing is out, and they wake in their bay. Flying inside the
     // colony, nothing sleeps there: its tugs bring the suit home to the bay (a trainer goes back to
     // its gantry, and the pilot's own suit never left the bay).
-    const afoot = v.place === "hangar" || v.place === "city" || v.place === "base";
+    const afoot = v.place === "hangar" || v.place === "city" || v.place === "base" || v.place === "town";
     const hidden = v.signedIn && v.hideSpot && v.survival;
     $("disconnect-button").textContent = v.place === "hangar" ? "LEAVE THE BAY"
       : v.place === "city" ? "LEAVE THE CITY"
       : v.place === "base" ? "LEAVE BAY ROW"
+      : v.place === "town" ? "LEAVE THE TOWN"
       : !v.signedIn ? "DISCONNECT"
       : v.inside ? "DOCK & DISCONNECT"
       : hidden ? "LEAVE SUIT HIDDEN"
@@ -844,7 +845,8 @@
       $("pause-who").textContent = v.signedIn
         ? who + "Your hangar is kept while you're away: its stores, its suit, its jobs, your orders on the exchange." +
           (v.place === "city" ? " You wake in your bay next time, not down here."
-            : v.place === "base" ? " You wake in your bay next time, not out on the row." : "")
+            : v.place === "base" ? " You wake in your bay next time, not out on the row."
+            : v.place === "town" ? " You wake in your bay next time, not down in the town." : "")
         : "Playing as a guest: your hangar, and everything in it, is gone when you leave. Connect a wallet to keep it.";
     } else if (v.inside) {
       $("pause-who").textContent = !v.signedIn
@@ -874,7 +876,7 @@
     if (v.help && !helpWas && s === "playing") {
       const title = v.driving === "car" || v.driving === "markab" ? "DRIVING"
         : v.place === "hangar" || v.place === "base" ? "IN THE HANGAR"
-        : v.place === "city" ? "IN THE COLONY"
+        : v.place === "city" || v.place === "town" ? "IN THE COLONY"
         : "FLIGHT";
       const h = [...document.querySelectorAll("#controls-list h3")].find((e) => e.textContent === title);
       h?.closest("section")?.scrollIntoView({ block: "start" });

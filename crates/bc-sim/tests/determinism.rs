@@ -1723,3 +1723,66 @@ fn town_golden_native() {
 fn town_golden_wasm() {
     assert_eq!(town_hash(), TOWN_GOLDEN);
 }
+
+/// Hash of the town's street life (`colony::street`, `docs/FREE_ROAM.md`, P1): every lane, and every
+/// car and everyone on foot round the whole ring at a few ticks.
+const STREET_GOLDEN: u64 = 0xbeda_4c88_7fb4_c18a;
+
+fn street_hash() -> u64 {
+    use bc_sim::colony::street::{self, Kind, LANES, Pose};
+    use bc_sim::colony::town::ROUND;
+    use bc_sim::world::COLONY_HALF_WIDTH as HALF;
+
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for k in 0..LANES {
+        let l = street::lane(k).expect("a lane");
+        for v in [l.x.to_bits(), l.dir.to_bits(), l.lap, l.slots, l.fill.to_bits()] {
+            fnv(&mut h, v);
+        }
+    }
+    for (tick, frac) in [(0u32, 0.0f32), (1, 0.5), (86_399, 0.25), (3_000_000_007, 0.75)] {
+        street::each_car(-HALF, HALF, 0.0, ROUND, tick, frac, &mut |c| {
+            for v in [c.id, c.x.to_bits(), c.t.to_bits(), c.yaw.to_bits(), c.speed.to_bits(), c.seed] {
+                fnv(&mut h, v);
+            }
+            fnv(
+                &mut h,
+                match c.kind {
+                    Kind::Car => 0,
+                    Kind::Van => 1,
+                    Kind::Taxi => 2,
+                    Kind::Watch => 3,
+                },
+            );
+        });
+        street::each_person(-HALF, HALF, -500.0, ROUND - 500.0, tick, frac, &mut |p| {
+            for v in [
+                p.id,
+                p.x.to_bits(),
+                p.t.to_bits(),
+                p.yaw.to_bits(),
+                p.speed.to_bits(),
+                p.stride.to_bits(),
+                p.seed,
+            ] {
+                fnv(&mut h, v);
+            }
+            fnv(&mut h, u32::from(p.pose == Pose::Stand));
+        });
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn street_golden_native() {
+    let h = street_hash();
+    assert_eq!(h, street_hash(), "must be reproducible within a process");
+    assert_eq!(h, STREET_GOLDEN, "the street's hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn street_golden_wasm() {
+    assert_eq!(street_hash(), STREET_GOLDEN);
+}

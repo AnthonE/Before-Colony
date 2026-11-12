@@ -13,7 +13,7 @@ use bc_client_core::figure::{self, Paint, Piece};
 use bc_client_core::markab::attitude;
 use bc_client_core::markab_mesh::{self, Paint as Coat};
 use bc_client_core::plaza::suit_colour;
-use bc_proto::presence::{BASE_DECK, JET_BOOST, JET_LIFT, PersonPose, RIDE_CAR, RIDE_SCOOTER};
+use bc_proto::presence::{BASE_DECK, JET_BOOST, JET_LIFT, PersonPose, RIDE_CAR, RIDE_SCOOTER, RING_DECK};
 use bc_sim::colony::frame::{CityPos, local_frame};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -149,7 +149,7 @@ fn setup_benches(
 }
 
 /// A car (facing +z, wheels on the ground): its body, its glass, its tyres.
-fn car_meshes() -> [Mesh; 3] {
+pub(crate) fn car_meshes() -> [Mesh; 3] {
     use bc_client_core::vehicle::{Kind, spec};
     let sp = spec(Kind::Car);
     let (hl, hw) = (0.5 * sp.length, 0.5 * sp.width);
@@ -511,7 +511,12 @@ fn draw_people(
     mut commands: Commands,
     vis: Res<crate::view::VisTime>,
     crowd: Res<Crowd>,
-    (view, base): (Res<CityView>, Res<crate::base::BaseView>),
+    (view, base, town, town_at): (
+        Res<CityView>,
+        Res<crate::base::BaseView>,
+        Res<crate::town::TownView>,
+        Res<crate::town::TownAt>,
+    ),
     scene: Option<Res<PeopleScene>>,
     font: Res<UiFont>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -520,7 +525,7 @@ fn draw_people(
     (assets, mut lib, mut graphs): (Res<AssetServer>, ResMut<AvatarLib>, ResMut<Assets<AnimationGraph>>),
 ) {
     let Some(scene) = scene else { return };
-    let want: HashMap<u16, (&str, &PersonPose)> = if view.active || base.active {
+    let want: HashMap<u16, (&str, &PersonPose)> = if view.active || base.active || town.active {
         crowd.0.iter().map(|(id, n, p)| (*id, (n.as_str(), p))).collect()
     } else {
         HashMap::new()
@@ -543,13 +548,21 @@ fn draw_people(
         if pose.strip == BASE_DECK {
             // On the base's deck, drawn round the view as the deck is.
             (tf.translation, tf.rotation) = crate::base::place_pose(pose, turned, base.s);
+        } else if pose.strip == RING_DECK {
+            // In the ring's town, likewise.
+            (tf.translation, tf.rotation) = crate::town::place_pose(pose, turned, &town_at);
         } else {
             placed.0 = colony_point(CityPos::new(pose.strip, pose.x, pose.s, pose.h));
             tf.rotation = local_frame(pose.strip, pose.s) * turned;
         }
         // Stride by how far they went.
         if let Some((x, s, _)) = f.last {
-            let d = (pose.x - x).hypot(pose.s - s).min(2.0);
+            let ds = if pose.strip == RING_DECK {
+                bc_sim::colony::deck::round_from(bc_sim::colony::deck::RING, s, pose.s)
+            } else {
+                pose.s - s
+            };
+            let d = (pose.x - x).hypot(ds).min(2.0);
             f.phase = (f.phase + figure::stride_phase(d, pose.running)) % std::f32::consts::TAU;
         }
         f.last = Some((pose.x, pose.s, pose.h));
@@ -659,8 +672,8 @@ fn name_tags(
         if text.0 != want {
             text.0 = want;
         }
-        // (The base's deck is drawn where its figures stand, round the view.)
-        let on_deck = f.floor == BASE_DECK;
+        // (The base's deck and the ring's town are drawn where their figures stand, round the view.)
+        let on_deck = f.floor >= BASE_DECK;
         let head =
             if on_deck { tf.translation } else { origin.place(placed.0) } + tf.rotation * Vec3::Y * 2.05;
         let seen = on_deck
@@ -701,7 +714,7 @@ pub fn fill_crowd(
     let (tick, frac) = g.core.colony_tick(crate::net::now_s());
     *trams = crate::trams::TramClock(tick, frac);
     let mut people: Vec<(u16, String, PersonPose)> =
-        if g.core.hangar.in_city() || g.core.hangar.in_base() || g.core.inside() {
+        if g.core.hangar.in_city() || g.core.hangar.in_base() || g.core.hangar.in_town() || g.core.inside() {
             g.core
                 .people(crate::net::now_s())
                 .into_iter()
@@ -714,6 +727,7 @@ pub fn fill_crowd(
     if let Some(v) = me.city.as_ref().and_then(|c| c.drive) {
         people.push((OWN, g.core.cfg.name.clone(), v.pose(0.0)));
     }
+    // (In the ring's town their car keeps the look it had at the kerb: `town::draw_life` draws it.)
     if crowd.0 != people {
         crowd.0 = people;
     }
