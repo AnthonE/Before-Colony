@@ -735,6 +735,14 @@ html.front-up #boot { display: none; }
   top: auto;
   bottom: 12%;
 }
+.radar {
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  width: 168px;
+  height: 168px;
+  pointer-events: none;
+}
 .bay-line.backed {
   top: 8px;
   left: 8px;

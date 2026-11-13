@@ -118,6 +118,67 @@ pub fn way_to_lift(at: DeckPos, yaw: f32, k: Option<u16>) -> (f32, char) {
     (best, ARROWS[k])
 }
 
+/// How far the radar sees, m.
+pub const RADAR: f32 = 190.0;
+
+/// The radar of a pilot at `at` facing `yaw`: the blocks, the canal and the lifts within
+/// [`RADAR`], the Watch's cars `after` them, and where they're bound (their fare's lift `fare`,
+/// else the nearest lift). Everything from the pilot, to the half metre.
+pub fn radar(at: DeckPos, yaw: f32, after: &[Vehicle], fare: Option<u16>) -> crate::page::Radar {
+    use town::BlockUse;
+    let t = town::town_t(at.s);
+    let q = |v: f32| (v * 2.0).round() * 0.5;
+    let mut blocks = Vec::new();
+    let (first, last) =
+        (((t - RADAR) / town::CELL).floor() as i32, ((t + RADAR) / town::CELL).floor() as i32);
+    for c in first..=last {
+        let cell = c.rem_euclid(i32::from(town::CELLS)) as u16;
+        // (The cell's own `t` to the pilot's turn of the ring.)
+        let turn = (c - i32::from(cell)) as f32 * town::CELL - t;
+        for column in 0..town::COLUMNS {
+            let id = town::BlockId::new(cell, column);
+            let r = town::block_rect(id);
+            if r.x1 < at.x - RADAR || r.x0 > at.x + RADAR {
+                continue;
+            }
+            let kind = match town::block_use(id) {
+                BlockUse::Built => 0.0,
+                BlockUse::Park => 1.0,
+                BlockUse::Square => 2.0,
+                BlockUse::Frames | BlockUse::Place(_) => 3.0,
+            };
+            blocks.push([q(r.x0 - at.x), q(r.x1 - at.x), q(r.t0 + turn), q(r.t1 + turn), kind]);
+        }
+        // The canal's water, between the cross streets' bridges.
+        if town::CANAL.1 > at.x - RADAR && town::CANAL.0 < at.x + RADAR {
+            let r = town::block_rect(town::BlockId::new(cell, 0));
+            blocks.push([
+                q(town::CANAL.0 - at.x),
+                q(town::CANAL.1 - at.x),
+                q(r.t0 + turn),
+                q(r.t1 + turn),
+                4.0,
+            ]);
+        }
+    }
+    let from = |x: f32, s: f32| [q(x - at.x), q(deck::round_from(RING, at.s, s))];
+    let door = |k: u16| {
+        let (x, lt) = town::out_of_the_lift(k);
+        from(x, town::deck_s(lt))
+    };
+    let far = |p: &[f32; 2]| p[0].hypot(p[1]);
+    let lifts: Vec<[f32; 2]> = (0..town::LIFTS).map(door).filter(|p| far(p) <= RADAR * 1.2).collect();
+    let nearest = (0..town::LIFTS).map(door).min_by(|a, b| far(a).total_cmp(&far(b))).unwrap_or_default();
+    crate::page::Radar {
+        yaw: (yaw * 50.0).round() / 50.0,
+        blocks,
+        lifts,
+        watch: after.iter().map(|v| from(v.x, v.s)).filter(|p| far(p) <= RADAR * 2.0).collect(),
+        goal: fare.map_or(nearest, door),
+        fare: fare.is_some(),
+    }
+}
+
 /// The district round the ring at `s`, and its name on the signs.
 pub fn district_at(s: f32) -> (u16, &'static str) {
     let d = town::cell_at(town::town_t(s)) / town::CELLS_PER_DISTRICT;
@@ -594,6 +655,32 @@ mod tests {
         assert!(
             both.posts.iter().any(|p| p.1 < seam.s - 10.0) && both.posts.iter().any(|p| p.1 > seam.s + 10.0)
         );
+    }
+
+    #[test]
+    fn the_radar_has_the_blocks_round_a_pilot_the_lift_they_stepped_out_of_and_whos_after_them() {
+        let (x, t) = town::out_of_the_lift(0);
+        let at = DeckPos::new(RING, x, town::deck_s(t), 0.0);
+        let r = radar(at, 0.4, &[], None);
+        // Home is the lift at their back; its square and the site across the line are both in it.
+        assert_eq!((r.goal, r.fare), ([0.0, 0.0], false));
+        assert!(r.lifts.contains(&[0.0, 0.0]) && r.lifts.len() == 1, "{:?}", r.lifts);
+        let kinds: Vec<u32> = r.blocks.iter().map(|b| b[4] as u32).collect();
+        assert!(kinds.contains(&2) && kinds.contains(&3) && kinds.contains(&0), "{kinds:?}");
+        assert!(r.blocks.len() < 60, "{} blocks", r.blocks.len());
+        // The square's at their feet, either side of the seam; nothing's further off than it sees.
+        let by = |b: &&[f32; 5]| b[0] <= 30.0 && b[1] >= -30.0 && b[2] <= 30.0 && b[3] >= -30.0;
+        let at_hand: Vec<&[f32; 5]> = r.blocks.iter().filter(by).collect();
+        assert!(at_hand.iter().any(|b| b[4] == 2.0), "{at_hand:?}");
+        assert!(r.blocks.iter().all(|b| b[2] <= RADAR && b[3] >= -RADAR && b[0] <= RADAR && b[1] >= -RADAR));
+        // A fare for the next gate is a long way round; a car of the Watch's 30 m off is on it.
+        let after = Vehicle::new(Kind::Car, RING_FLOOR, at.s + 30.0, at.x - 4.0, 0.0);
+        let r = radar(at, 0.4, &[after], Some(1));
+        assert!(r.fare && r.goal[1].abs() > 2_000.0, "{:?}", r.goal);
+        assert_eq!(r.watch, vec![[-4.0, 30.0]]);
+        // By the canal, its water's on it.
+        let quay = DeckPos::new(RING, town::CANAL.0 - 3.0, at.s + 300.0, 0.0);
+        assert!(radar(quay, 0.0, &[], None).blocks.iter().any(|b| b[4] == 4.0));
     }
 
     #[test]

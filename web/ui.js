@@ -901,6 +901,9 @@
     // (Under the town's sky the line needs something dark behind it.)
     bayLine.classList.toggle("backed", v.place === "town");
     show(bayLine, playing && !!v.bayLine && v.panel === "none");
+    const radar = playing && !!v.radar && v.panel === "none" && !v.help;
+    show($("radar"), radar);
+    if (radar) drawRadar(v.radar);
     show($("dot"), playing && v.onFoot && !v.driving && !v.map && !v.help && v.panel === "none");
     const use = $("use");
     keyed(use, v.prompt || "");
@@ -1000,6 +1003,69 @@
     }
     return c.getContext("2d");
   }
+  // The town's radar: the blocks round the pilot (the way they face up), the lifts' doors, the
+  // Watch's cars after them, and where they're bound, held at the rim when it's further off.
+  const RADAR_M = 190;
+  function drawRadar(r) {
+    const c = $("radar");
+    const dpr = window.devicePixelRatio || 1;
+    const size = Math.round(168 * dpr);
+    if (c.width !== size) { c.width = size; c.height = size; }
+    const g = c.getContext("2d");
+    const R = size / 2, k = (R - 2 * dpr) / RADAR_M;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, size, size);
+    g.save();
+    g.beginPath();
+    g.arc(R, R, R - dpr, 0, Math.PI * 2);
+    g.clip();
+    g.fillStyle = "rgba(4, 10, 18, 0.72)";
+    g.fillRect(0, 0, size, size);
+    // The floor from above: x to the right, s up; turned so the way they face is up.
+    g.translate(R, R);
+    g.rotate(Math.PI + r.yaw);
+    const fills = ["rgba(159,198,230,0.30)", "rgba(110,200,140,0.30)", "rgba(159,232,255,0.14)",
+      "rgba(255,181,71,0.24)", "rgba(70,170,190,0.45)"];
+    for (const [x0, x1, s0, s1, kind] of r.blocks) {
+      g.fillStyle = fills[kind] || fills[0];
+      g.fillRect(x0 * k, -s1 * k, (x1 - x0) * k, (s1 - s0) * k);
+    }
+    g.fillStyle = "#9fe8ff";
+    for (const [x, s] of r.lifts) g.fillRect(x * k - 3 * dpr, -s * k - 3 * dpr, 6 * dpr, 6 * dpr);
+    // The Watch's: red, blinking.
+    if (Math.floor(performance.now() / 300) % 2 === 0 || r.watch.length === 0) g.fillStyle = "#ff5b4f";
+    else g.fillStyle = "#ffd0cc";
+    for (const [x, s] of r.watch) {
+      const far = Math.hypot(x, s), cap = Math.min(1, (RADAR_M - 6) / Math.max(far, 1));
+      g.beginPath();
+      g.arc(x * cap * k, -s * cap * k, 3.2 * dpr, 0, Math.PI * 2);
+      g.fill();
+    }
+    // Where they're bound: a diamond, at the rim when it's off the radar.
+    const [gx, gs] = r.goal;
+    const far = Math.hypot(gx, gs), cap = Math.min(1, (RADAR_M - 10) / Math.max(far, 1));
+    g.save();
+    g.translate(gx * cap * k, -gs * cap * k);
+    g.rotate(Math.PI / 4);
+    g.fillStyle = r.fare ? "#ffb547" : "#9fe8ff";
+    if (far > 6) g.fillRect(-3.5 * dpr, -3.5 * dpr, 7 * dpr, 7 * dpr);
+    g.restore();
+    g.restore();
+    // The pilot: a wedge, nose up.
+    g.fillStyle = "#ffffff";
+    g.beginPath();
+    g.moveTo(R, R - 6 * dpr);
+    g.lineTo(R + 4 * dpr, R + 5 * dpr);
+    g.lineTo(R - 4 * dpr, R + 5 * dpr);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = "rgba(159, 198, 230, 0.55)";
+    g.lineWidth = dpr;
+    g.beginPath();
+    g.arc(R, R, R - dpr, 0, Math.PI * 2);
+    g.stroke();
+  }
+
   function drawMap(at, goal, found) {
     if (!city) return;
     const strip = city.strips[at.strip] || city.strips[0];

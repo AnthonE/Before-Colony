@@ -2661,6 +2661,16 @@ pub fn drive_onfoot(
     } else {
         String::new()
     };
+    // In the town: the radar (the blocks round them, the lifts, the Watch's cars after them, and
+    // where they're bound).
+    let radar = me.town.as_ref().filter(|_| in_town && me.seq == Seq::Walking).map(|t| {
+        let yaw = t.drive.map_or(t.walker.yaw, |v| v.yaw);
+        let after: Vec<Vehicle> = t.pursuit.cars().copied().collect();
+        town_foot::radar(t.feet(), yaw, &after, g.core.hangar.fare.map(|(to, _)| to))
+    });
+    if ui.radar != radar {
+        ui.radar = radar;
+    }
     // Leaving from inside the colony, the suit is brought home (`page`'s menu says so).
     ui.inside = flying_inside;
     ui.trainer = flying_inside && g.core.hangar.trainer;
