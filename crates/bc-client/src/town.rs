@@ -125,6 +125,13 @@ pub struct TownCars {
     pub movers: Vec<town_foot::Mover>,
     /// The town's people knocked down: the server's word, and the pilot's own hits till it comes.
     pub down: Vec<bc_econ::wire::Down>,
+    /// The traffic within `traffic_reach` m of the pilot as this client has it (held back by
+    /// what's in its lanes: `bc_client_core::traffic`), and the cars taken out of it, by id.
+    pub traffic: Vec<bc_client_core::traffic::Shown>,
+    pub traffic_reach: f32,
+    pub gone: Vec<u32>,
+    /// The cars taken from the traffic, by their seeds: what kind each was (it keeps its look).
+    pub jacked: Vec<(u32, street::Kind)>,
 }
 
 /// The seed a parked car's look comes from.
@@ -580,7 +587,17 @@ fn draw_life(
     let reach = tier.mid_cars.reach;
     let cars = &mut life.cars;
     if gfx.life {
+        // Near the pilot the traffic's where this client has it; past that, where the tick does.
+        let held = own.traffic.iter().map(|c| (c.car, at.s + round_from(RING, at.s, c.s)));
+        let mut near_ones: Vec<(street::Car, f32)> = held.collect();
+        let clear = (own.traffic_reach - 8.0).max(0.0);
         street::each_car(at.x - reach, at.x + reach, t - reach, t + reach, tick, frac, &mut |c| {
+            let theirs = own.traffic_reach > 0.0 && ((c.t - t).abs() <= clear && (c.x - at.x).abs() <= clear);
+            if !theirs && !own.gone.contains(&c.id) && !own.traffic.iter().any(|h| h.car.id == c.id) {
+                near_ones.push((*c, at.s + (c.t - t)));
+            }
+        });
+        for (c, s) in &near_ones {
             let look = CarLook {
                 livery: livery(c.kind, c.seed, district),
                 lights: Lights {
@@ -591,19 +608,21 @@ fn draw_life(
                 seed: c.seed,
             };
             cars.push(Seen {
-                d2: near(c.x, c.t - t),
+                d2: near(c.x, s - at.s),
                 id: u64::from(c.id),
                 x: c.x,
-                s: at.s + (c.t - t),
+                s: *s,
                 yaw: c.yaw,
                 what: look,
                 lie: false,
             });
-        });
+        }
     }
     let standing = |v: &Vehicle, seed: u32, id: u64, lit: bool| {
+        // (One taken from the traffic keeps the look it had there.)
+        let kind = own.jacked.iter().find(|j| j.0 == seed).map_or(street::Kind::Car, |j| j.1);
         let look = CarLook {
-            livery: livery(street::Kind::Car, seed, district),
+            livery: livery(kind, seed, district),
             lights: Lights { parked: !lit, lamps: lit && lamps > 0.15, ..Lights::default() },
             seed,
         };

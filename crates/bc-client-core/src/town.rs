@@ -243,14 +243,15 @@ pub struct Obstacles {
 const CAR_CIRCLE: (f32, f32) = (0.95, 1.3);
 
 impl Obstacles {
-    /// The cars within `reach` m of `at` at tick `tick` plus `frac`.
+    /// The cars within `reach` m of `at`: the kerbs' (but those `taken`), the ones `left` about, and
+    /// the `traffic`'s where this client has them (`crate::traffic`).
     pub fn gather(
         &mut self,
         at: DeckPos,
         reach: f32,
         taken: &[(i32, i32)],
         left: &[Vehicle],
-        (tick, frac): (u32, f32),
+        traffic: &[crate::traffic::Shown],
     ) {
         self.cars.clear();
         let cars = &mut self.cars;
@@ -282,17 +283,12 @@ impl Obstacles {
                 }
             });
         }
-        bc_sim::colony::street::each_car(
-            at.x - reach,
-            at.x + reach,
-            t - reach,
-            t + reach,
-            tick,
-            frac,
-            &mut |c| {
-                cars.push((c.x, at.s + (c.t - t), c.yaw, true));
-            },
-        );
+        for c in traffic {
+            let s = at.s + deck::round_from(RING, at.s, c.s);
+            if (c.car.x - at.x).abs() <= reach && (s - at.s).abs() <= reach {
+                cars.push((c.car.x, s, c.car.yaw, true));
+            }
+        }
     }
 
     fn circles(x: f32, s: f32, yaw: f32) -> [(f32, f32); 3] {
@@ -585,7 +581,7 @@ mod tests {
         let (x, t, _) = posts[0];
         let s = town::deck_s(t);
         let mut o = Obstacles::default();
-        o.gather(DeckPos::new(RING, x + 3.0, s + 2.0, 0.0), 30.0, &[], &[], (0, 0.0));
+        o.gather(DeckPos::new(RING, x + 3.0, s + 2.0, 0.0), 30.0, &[], &[], &[]);
         let body = |x: f32| (Vec3::new(x - 0.2, 0.0, -s - 0.2), Vec3::new(x + 0.2, 1.8, -s + 0.2));
         let ((a0, a1), (b0, b1)) = (body(x), body(x + 1.0));
         assert!(o.hits(a0, a1) && !o.hits(b0, b1));
@@ -594,7 +590,7 @@ mod tests {
         // And across the seam, where the ring's `s` starts again.
         let seam = DeckPos::new(RING, 33.0, 4.0, 0.0);
         let mut both = Obstacles::default();
-        both.gather(seam, 60.0, &[], &[], (0, 0.0));
+        both.gather(seam, 60.0, &[], &[], &[]);
         assert!(
             both.posts.iter().any(|p| p.1 < seam.s - 10.0) && both.posts.iter().any(|p| p.1 > seam.s + 10.0)
         );
@@ -733,7 +729,7 @@ mod tests {
         let target = near[0];
         let here = DeckPos::new(RING, target.x, target.s, 0.0);
         let mut cars = Obstacles::default();
-        cars.gather(here, 40.0, &[], &[], (0, 0.0));
+        cars.gather(here, 40.0, &[], &[], &[]);
         assert!(!cars.is_empty());
         // A walker walked at its side from the pavement stops short of it; with it taken, walks on.
         let (fx, fs) = target.forward();
@@ -750,7 +746,7 @@ mod tests {
         let stopped = walk(&cars);
         assert!((1.0..1.6).contains(&stopped), "stopped {stopped} m from its middle");
         let mut gone = Obstacles::default();
-        gone.gather(here, 40.0, &[parked_id(&target)], &[], (0, 0.0));
+        gone.gather(here, 40.0, &[parked_id(&target)], &[], &[]);
         assert!(walk(&gone) > 3.0, "through where it stood");
         // A car left out on Hub Gate's square (nothing else about): one driven at it from behind
         // knocks against it and stops; never inside it.
@@ -758,7 +754,7 @@ mod tests {
             Vehicle::new(Kind::Car, RING_FLOOR, town::deck_s(60.0), -100.0, std::f32::consts::FRAC_PI_2);
         let by = DeckPos::new(RING, left.x, left.s, 0.0);
         let mut square = Obstacles::default();
-        square.gather(by, 25.0, &[], &[left], (0, 0.0));
+        square.gather(by, 25.0, &[], &[left], &[]);
         assert_eq!(square.len(), 1);
         let mut v = Vehicle::new(Kind::Car, RING_FLOOR, left.s, left.x - 22.0, left.yaw);
         let mut knocked = false;
@@ -779,7 +775,9 @@ mod tests {
         let c = on_the_boulevard.expect("a car on the boulevard");
         let by = DeckPos::new(RING, c.x, at.s + (c.t - t), 0.0);
         let mut cars = Obstacles::default();
-        cars.gather(by, 30.0, &[], &[], (900, 0.0));
+        let mut traffic = crate::traffic::Traffic::default();
+        traffic.step(by, 30.0, (900, 0.0), bc_sim::DT, &[]);
+        cars.gather(by, 30.0, &[], &[], traffic.cars());
         assert!(cars.blocks_car(&Vehicle::new(Kind::Car, RING_FLOOR, by.s + 1.0, by.x, c.yaw)));
         assert!(!cars.blocks_car(&Vehicle::new(Kind::Car, RING_FLOOR, by.s, by.x + 6.0, c.yaw)));
         let w = by.walker();

@@ -32,6 +32,7 @@ use bc_client_core::homes as homes_on_foot;
 use bc_client_core::markab::{self, Chase, Markab};
 use bc_client_core::sights;
 use bc_client_core::town as town_foot;
+use bc_client_core::traffic::{InTheWay, Traffic};
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
 use bc_client_core::vehicle::{Drive, DriverPose, Kind, Vehicle};
 use bc_client_core::walker::{Guide, Stride, Walker};
@@ -1017,6 +1018,10 @@ pub struct TownFoot {
     district: Option<u16>,
     /// Told what the Watch's heat means (the first time it rises).
     told_watch: bool,
+    /// The town's traffic as this client has it: held back by what's in its lanes.
+    traffic: Traffic,
+    /// A car of the traffic stopped at the pilot's hand, for the taking.
+    jack: Option<bc_client_core::traffic::Shown>,
     /// The cars near them: what their car and their legs run into.
     cars: town_foot::Obstacles,
     /// How much the Watch wants them, and its cars after them (`bc_client_core::watch`).
@@ -1047,6 +1052,8 @@ const TOWN_GET_OUT: f32 = 4.0;
 /// The cars a pilot leaves about that are kept (the oldest goes), and the kerbs' they've taken.
 const TOWN_LEFT: usize = 6;
 const TOWN_TAKEN: usize = 48;
+/// How far round a pilot the town's traffic minds what's in its lanes, m (`traffic::Traffic`).
+const TOWN_TRAFFIC: f32 = 230.0;
 
 impl TownFoot {
     /// Just out of lift `k`'s door.
@@ -1062,6 +1069,8 @@ impl TownFoot {
             seat_view: false,
             district: None,
             told_watch: false,
+            traffic: Traffic::default(),
+            jack: None,
             cars: town_foot::Obstacles::default(),
             heat: Heat::default(),
             pursuit: Pursuit::default(),
@@ -1988,11 +1997,37 @@ pub fn drive_onfoot(
                 t.guide = Some(Guide::new(route, Some(facing)));
             }
         }
+        // The traffic round them, braking for whoever and whatever's in its lanes: the pilot and
+        // their car, the other pilots near, the cars left about, the Watch's.
+        {
+            let at = t.feet();
+            let mut way: Vec<InTheWay> = Vec::new();
+            way.push(t.drive.as_ref().map_or(InTheWay::on_foot(at.x, at.s), InTheWay::car));
+            way.extend(town_cars.left.iter().map(|(v, _)| InTheWay::car(v)));
+            way.extend(t.pursuit.cars().chain(t.others.values().flat_map(|p| p.cars())).map(InTheWay::car));
+            for (_, _, p) in
+                g.core.people(now).iter().filter(|(_, _, p)| p.strip == bc_proto::presence::RING_DECK)
+            {
+                way.push(if p.driving() {
+                    InTheWay::car(&Vehicle::new(Kind::Car, bc_sim::car::RING_FLOOR, p.s, p.x, p.yaw))
+                } else {
+                    InTheWay::on_foot(p.x, p.s)
+                });
+            }
+            t.traffic.step(at, TOWN_TRAFFIC, g.core.colony_tick(now), walk_dt(false), &way);
+            if town_cars.traffic != t.traffic.cars() {
+                town_cars.traffic = t.traffic.cars().to_vec();
+            }
+            if town_cars.gone != t.traffic.taken() {
+                town_cars.gone = t.traffic.taken().to_vec();
+            }
+            town_cars.traffic_reach = TOWN_TRAFFIC;
+        }
         // The cars round them this frame: the kerbs', the ones they left, the traffic's.
         {
             let left: Vec<Vehicle> = town_cars.left.iter().map(|(v, _)| *v).collect();
             let at = t.feet();
-            t.cars.gather(at, 45.0, &town_cars.taken, &left, g.core.colony_tick(now));
+            t.cars.gather(at, 45.0, &town_cars.taken, &left, t.traffic.cars());
         }
         let mut got_out = false;
         // What they've done that the Watch minds, this frame.
@@ -2113,6 +2148,12 @@ pub fn drive_onfoot(
         } else {
             None
         };
+        // Or one of the traffic's, stopped in the road beside them.
+        t.jack = if t.drive.is_none() && t.lift.is_none() && t.car.is_none() {
+            t.traffic.at_hand(at, town_foot::CAR_USE)
+        } else {
+            None
+        };
         if used_key && !got_out && !ui.panel_open() && t.drive.is_none() {
             if t.lift.is_some() {
                 up_the_lift = true;
@@ -2135,6 +2176,23 @@ pub fn drive_onfoot(
                 town_cars.driving = Some((car, seed));
                 t.take(car);
                 ui.toast("A CAR FROM THE KERB · W/S THROTTLE AND BRAKE · A/D THE WHEEL · SPACE HANDBRAKE · TAB THE VIEW");
+            } else if let Some(c) = t.jack.take() {
+                // Out of the traffic and theirs: its driver's left standing, and says so.
+                t.traffic.take(c.car.id);
+                let seen = watch::watch_car_sees(at, 80.0, g.core.colony_tick(now));
+                offences.push(match c.car.kind {
+                    bc_sim::colony::street::Kind::Watch => Offence::TookTheWatchs,
+                    _ if seen => Offence::JackedInSight,
+                    _ => Offence::Jacked,
+                });
+                if town_cars.jacked.len() >= TOWN_TAKEN {
+                    town_cars.jacked.remove(0);
+                }
+                town_cars.jacked.push((c.car.seed, c.car.kind));
+                let car = c.vehicle();
+                town_cars.driving = Some((car, c.car.seed));
+                t.take(car);
+                ui.toast("TAKEN FROM ITS DRIVER · W/S THROTTLE AND BRAKE · A/D THE WHEEL · SPACE HANDBRAKE · TAB THE VIEW");
             }
         }
         // The Watch: the heat up with what they've done and down with time, its cars after them,
@@ -2240,6 +2298,7 @@ pub fn drive_onfoot(
         t.guide = None;
         t.lift = None;
         t.car = None;
+        t.jack = None;
     }
     if up_the_lift {
         ask(&net, &g, &Request::LeaveTown);
@@ -2566,6 +2625,7 @@ pub fn drive_onfoot(
             }
             Some(t) if t.lift.is_some() => "E  THE SPOKE LIFT, UP TO YOUR BAY".into(),
             Some(t) if t.car.is_some() => "E  TAKE THE CAR".into(),
+            Some(t) if t.jack.is_some() => "E  TAKE THE CAR FROM ITS DRIVER".into(),
             _ => String::new(),
         },
         s if s.skippable() => "SPACE  SKIP".into(),
@@ -2750,6 +2810,8 @@ pub fn publish_onfoot(
             dev.set("town_driving", t.drive.is_some());
             dev.set("town_speed", t.drive.map_or(0.0, |v| f64::from(v.speed)));
             dev.set("town_heat", u32::from(t.heat.level()));
+            dev.set("town_held", t.traffic.held() as u32);
+            dev.set("town_jack", t.jack.is_some());
             dev.set("town_hail", t.hail.is_some());
             // The lift whose square the fare aboard asked for (-1: none).
             dev.set("town_fare", h.fare.map_or(-1.0, |(to, _)| f64::from(to)));

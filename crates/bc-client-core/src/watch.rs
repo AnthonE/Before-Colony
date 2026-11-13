@@ -29,6 +29,11 @@ pub enum Offence {
     TookACar,
     /// The same, in sight of one of the Watch's own cars.
     TookACarInSight,
+    /// A car taken from its driver, stopped in the road; the same in the Watch's sight; and one
+    /// of the Watch's own.
+    Jacked,
+    JackedInSight,
+    TookTheWatchs,
     /// A knock against another car.
     Knock,
     /// A second of driving at speed where people walk.
@@ -44,6 +49,10 @@ impl Offence {
             // (Nobody much minds a car borrowed from a kerb, till there's more.)
             Offence::TookACar => 0.6,
             Offence::TookACarInSight => 1.2,
+            // (Its driver's there to say so.)
+            Offence::Jacked => 1.2,
+            Offence::JackedInSight => 3.0,
+            Offence::TookTheWatchs => 6.0,
             Offence::Knock => 1.0,
             Offence::Reckless => 0.8,
             Offence::HitSomeone => 4.0,

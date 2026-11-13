@@ -67,6 +67,7 @@ pub mod tags;
 pub mod terminal;
 pub mod town;
 pub mod town_mesh;
+pub mod traffic;
 pub mod tram;
 pub mod upright;
 pub mod vehicle;
