@@ -300,15 +300,25 @@ impl Obstacles {
         [-1.0f32, 0.0, 1.0].map(|k| (x + fx * k * CAR_CIRCLE.1, s + fs * k * CAR_CIRCLE.1))
     }
 
-    /// Whether a car at `v` runs into any of them.
+    /// Whether a car at `v` runs into any of them: a car, or a post.
     pub fn blocks_car(&self, v: &Vehicle) -> bool {
+        self.meets_a_post(v) || self.meets_a_car(v)
+    }
+
+    /// Whether a car at `v` is in a lamp's post or a tree's trunk.
+    fn meets_a_post(&self, v: &Vehicle) -> bool {
         let mine = Self::circles(v.x, v.s, v.yaw);
-        let reach = 2.0 * CAR_CIRCLE.0;
-        let post = self.posts.iter().any(|(x, s, r)| {
+        self.posts.iter().any(|(x, s, r)| {
             let s = v.s + deck::round_from(RING, v.s, *s);
             mine.iter().any(|(mx, ms)| (x - mx).hypot(s - ms) < CAR_CIRCLE.0 + r)
-        });
-        post || self.cars.iter().any(|(x, s, yaw, _)| {
+        })
+    }
+
+    /// Whether a car at `v` is in another car.
+    pub fn meets_a_car(&self, v: &Vehicle) -> bool {
+        let mine = Self::circles(v.x, v.s, v.yaw);
+        let reach = 2.0 * CAR_CIRCLE.0;
+        self.cars.iter().any(|(x, s, yaw, _)| {
             // (The asker's turn of the ring, whichever the car's `s` is in.)
             let s = v.s + deck::round_from(RING, v.s, *s);
             (x - v.x).abs() < 6.0
@@ -362,18 +372,19 @@ impl bc_sim::foot::Solid for Street<'_> {
     }
 }
 
-/// Drives `v` on `dt` s among `cars`: as `Vehicle::step`, but a step into another car is a knock,
-/// as a wall is (it stops dead, bounced back a little). One already in another (the traffic drove
-/// into it) drives on out. True if it knocked a car.
+/// Drives `v` on `dt` s among `cars`: as `Vehicle::step`, but a step into another car, a lamp's
+/// post or a tree is a knock, as a wall square on is (it stops dead, bounced back a little). One
+/// already in another (the traffic drove into it) drives on out. True if it knocked a car.
 pub fn drive(v: &mut Vehicle, d: &bc_sim::car::Drive, dt: f32, cars: &Obstacles) -> bool {
     let before = *v;
     let was_in = cars.blocks_car(&before);
     v.step(d, dt);
     let knocked = !was_in && cars.blocks_car(v);
+    let a_car = knocked && cars.meets_a_car(v);
     if knocked {
         *v = Vehicle { speed: before.speed * -0.2, wheel: v.wheel, ..before };
     }
-    knocked
+    a_car
 }
 
 /// How near a stopped car someone standing in a lift's square is offered as a fare from, m (the

@@ -26,6 +26,13 @@ pub const RING_FLOOR: u8 = bc_proto::presence::RING_DECK;
 
 /// Substeps in a tick ([`Vehicle::tick`]), each `DT / SUBSTEPS`: a frame's worth at 60 Hz.
 pub const SUBSTEPS: u32 = 2;
+/// A car scraping along a wall loses this share of its speed a second.
+const SCRAPE: f32 = 1.5;
+/// How nearly along a wall a car must be heading to scrape along it rather than knock into it: the
+/// cosine of the angle between them (60°).
+const GLANCE: f32 = 0.5;
+/// How far a car turning out from flush against a wall is eased off it a step, m.
+const EASE: f32 = 0.06;
 
 /// What's driven.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -216,10 +223,45 @@ impl Vehicle {
         let (x, s) = (self.x + fx * self.speed * dt, self.s + fs * self.speed * dt);
         if self.fits(s, x, yaw) {
             (self.x, self.s, self.yaw) = (x, s, wrap_tau(yaw));
+        } else if let Some((x, s, yaw)) = self.slid(x, s, yaw) {
+            // A glancing touch: it scrapes along what it touched, slower for it.
+            (self.x, self.s, self.yaw) = (x, s, wrap_tau(yaw));
+            self.speed *= 1.0 - (SCRAPE * dt).min(1.0);
         } else {
             // A knock: it stops dead, bounced back a little.
             self.speed *= -0.2;
         }
+    }
+
+    /// Where a step to `(x, s)` at `yaw` that doesn't fit ends up if it's a glancing one: along
+    /// whichever of the two ways the walls run (round the floor, or across it) it's mostly going,
+    /// with the turn it asked for or, flush against the wall where that can't be had, without it or
+    /// eased a hand's breadth off the wall. None if it's driving into the thing (within
+    /// [`GLANCE`] of square on), or nothing of the kind fits: a knock.
+    fn slid(&self, x: f32, s: f32, yaw: f32) -> Option<(f32, f32, f32)> {
+        let (fx, fs) = forward(yaw);
+        // The way it's mostly going first: along `s` with `x` held, or along `x`.
+        let (round, across) = ((self.x, s, fs.abs(), true), (x, self.s, fx.abs(), false));
+        let ways = if fs.abs() >= fx.abs() { [round, across] } else { [across, round] };
+        for (nx, ns, share, along_s) in ways {
+            if share < GLANCE {
+                continue;
+            }
+            if self.fits(ns, nx, yaw) {
+                return Some((nx, ns, yaw));
+            }
+            // Turning out from flush against it: the turn, a little clear of the wall either way.
+            for off in [EASE, -EASE] {
+                let (ex, es) = if along_s { (nx + off, ns) } else { (nx, ns + off) };
+                if self.fits(es, ex, yaw) {
+                    return Some((ex, es, yaw));
+                }
+            }
+            if self.fits(ns, nx, self.yaw) {
+                return Some((nx, ns, self.yaw));
+            }
+        }
+        None
     }
 
     /// Where its wheels stand, m (the kerb when it's up one).
@@ -399,6 +441,42 @@ mod tests {
             v.step(&Drive { throttle: 1.0, ..Drive::default() }, DT);
         }
         assert!(v.x < town::CANAL.0, "short of the water: {}", v.x);
+    }
+
+    #[test]
+    fn a_car_that_touches_a_wall_at_a_glance_scrapes_along_it_and_can_steer_off() {
+        let b = {
+            let mut first = None;
+            town::each_block_box(town::BlockId::new(31, 7), &mut |b| first = first.or(Some(b)));
+            first.expect("a building")
+        };
+        // Along the building's front, nose a little into it (20° off its line), throttle down.
+        let s = town::deck_s(b.t0 + 20.0);
+        let x = b.x0 - 4.0;
+        let mut v = Vehicle::new(Kind::Car, RING_FLOOR, s, x, core::f32::consts::PI - 0.35);
+        let mut touched = None;
+        for n in 0..(6.0 / DT) as u32 {
+            let before = v;
+            v.step(&Drive { throttle: 1.0, ..Drive::default() }, DT);
+            assert!(v.fits(v.s, v.x, v.yaw), "in the wall: {v:?}");
+            // (Stopped short of where it was going: the wall.)
+            if touched.is_none() && n > 2 && (v.x - before.x).abs() < 1e-5 {
+                touched = Some(v);
+            }
+        }
+        let at = touched.expect("it never met the wall");
+        assert!(at.x > x + 0.5, "it met the wall where it was: {at:?}");
+        assert!(v.s - at.s > 6.0 && v.speed > 2.0, "wedged: {v:?} from {at:?}");
+        // The wheel over, away from the wall: it comes off it.
+        for _ in 0..(3.0 / DT) as u32 {
+            v.step(&Drive { throttle: 0.6, steer: -1.0, ..Drive::default() }, DT);
+        }
+        let off_a = (v.x - at.x).abs();
+        let mut w = Vehicle { speed: v.speed, ..at };
+        for _ in 0..(3.0 / DT) as u32 {
+            w.step(&Drive { throttle: 0.6, steer: 1.0, ..Drive::default() }, DT);
+        }
+        assert!(off_a.max((w.x - at.x).abs()) > 1.5, "it never left the wall: {v:?} {w:?}");
     }
 
     #[test]
