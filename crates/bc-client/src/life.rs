@@ -99,15 +99,18 @@ struct Pool {
     shown: Vec<bool>,
 }
 
-/// The pools and the meshes they pick from.
+/// The pools and the meshes they pick from (the ring's town draws its own life with the same
+/// meshes and material: `town.rs`).
 #[derive(Resource)]
-struct LifeScene {
+pub(crate) struct LifeScene {
     pools: [Pool; 5],
+    /// The one material all of life is drawn with.
+    pub(crate) material: Handle<LifeMaterial>,
     /// Near figures by cut, then the bank's frame (`life_mesh::bank_frame`); far figures by frame.
-    near_figures: Vec<Handle<Mesh>>,
-    mid_figures: Vec<Handle<Mesh>>,
+    pub(crate) near_figures: Vec<Handle<Mesh>>,
+    pub(crate) mid_figures: Vec<Handle<Mesh>>,
     /// Vehicles by body: near and mid.
-    vehicles: [[Handle<Mesh>; 2]; 5],
+    pub(crate) vehicles: [[Handle<Mesh>; 2]; 5],
     /// Keeps the library loaded, so `life.wgsl` can import it.
     _lib: Handle<Shader>,
 }
@@ -189,6 +192,7 @@ fn setup_life(
     });
     commands.insert_resource(LifeScene {
         pools,
+        material,
         near_figures,
         mid_figures,
         vehicles,

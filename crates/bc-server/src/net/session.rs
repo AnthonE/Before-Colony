@@ -27,6 +27,7 @@
 use std::time::{Duration, Instant};
 
 use bc_econ::body::{self, Body, BodyView};
+use bc_econ::item::thousands;
 use bc_econ::proving::{self as board, Bests, Feat};
 use bc_econ::wire::{self, HangarView, MarketView, Outcome as SortieOutcome, Place, Request, Update};
 use bc_econ::{Bay, Hangar, Item};
@@ -34,7 +35,7 @@ use bc_proto::auth::PlayerId;
 use bc_proto::control::{
     self, ControlMsg, Frame, Name, RejectReason, bye, notice, roster_flags, welcome_flags,
 };
-use bc_proto::presence::{BASE_DECK, PlazaWriter, PosePacket};
+use bc_proto::presence::{BASE_DECK, PlazaWriter, PosePacket, RING_DECK};
 use bc_proto::{
     Faction, FrameId, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind,
 };
@@ -149,6 +150,8 @@ pub(super) async fn run(
         proving_sent: Instant::now() - MARKET_EVERY,
         homes_seen: 0,
         homes_sent: Instant::now() - MARKET_EVERY,
+        street_seen: None,
+        fare: None,
         homes_near: Vec::new(),
         knocks_heard: game.homes.with(|h| h.knocks_for("", u64::MAX).1),
         waking: None,
@@ -224,6 +227,11 @@ struct Session<'a> {
     /// covered; and the last knock heard at one of their doors.
     homes_seen: u64,
     homes_sent: Instant,
+    /// The town's street as last sent (`crate::street::Street::version`; none: not yet, this time
+    /// down there).
+    street_seen: Option<u64>,
+    /// The fare in their car in the town: who, the lift whose square they asked for, their pay.
+    fare: Option<(u32, u16, u64)>,
     homes_near: Vec<(i32, i32, u8)>,
     knocks_heard: u64,
     /// Back from asleep in a bed at home: where they get up, for the next `Update::Place`.
@@ -258,6 +266,8 @@ const HATCH_REACH: f32 = 12.0;
 /// How near the spot before their bay's airlock door a pilot on Bay Row goes back in from, m (a
 /// pose a moment behind still counts).
 const AIRLOCK_REACH: f32 = 6.0;
+/// How near a lift's door in the town a pilot rides it back up from, m.
+const LIFT_REACH: f32 = 8.0;
 
 /// Whether `at` (the colony's own frame) is at the Blast Hall's gantry: by its hatch, or round its
 /// pad (where the trainer stands).
@@ -291,6 +301,9 @@ async fn push_fed(sector: &SectorShared, slot: u16, fed: Option<Fed>) {
 /// What a pilot is told the first time they wake in their bay.
 pub const ARRIVAL: &str =
     "ARRIVAL REGISTERED · THE CHARTER BOARD ADVANCES YOU 2,000 CR AND AN ARGO · WELCOME TO THE FIRST COLONY";
+
+/// And the first time they wake in the ring's town (`config::Start::Town`).
+pub const ARRIVAL_IN_TOWN: &str = "ARRIVAL REGISTERED · THE CHARTER BOARD ADVANCES YOU 2,000 CR AND AN ARGO · IT STANDS IN YOUR BAY, UP THE SPOKE'S LIFT";
 
 /// What a pilot who left while flying inside the colony is told when they're back.
 pub const TOWED_FROM_THE_GATE: &str = "THE COLONY'S TUGS BROUGHT YOUR SUIT IN FROM THE INNER GATE";
@@ -433,6 +446,17 @@ impl Session<'_> {
         self.game.egress_thread.unpark();
         if self.survival() {
             self.place = if self.suit.is_some() { Place::Space } else { Place::Hangar };
+            // A new pilot (a person: agents are sent straight to their suits) wakes on the street,
+            // in the ring's town at Hub Gate's lift (`docs/FREE_ROAM.md`, O1).
+            let in_town = arrived
+                && self.game.town_start
+                && self.pilot == PilotKind::Human
+                && self.place == Place::Hangar;
+            if in_town {
+                self.place = Place::Town;
+                self.game.plaza.enter_town(self.slot, &self.callsign);
+                self.named.clear();
+            }
             // Asleep in a bed at home when they left: they wake there.
             self.waking = self.wake_at_home().await;
             self.settle(true);
@@ -451,7 +475,8 @@ impl Session<'_> {
                 self.send(&Update::News { text }).await?;
             }
             if arrived {
-                self.send(&Update::News { text: ARRIVAL.to_string() }).await?;
+                let text = if in_town { ARRIVAL_IN_TOWN } else { ARRIVAL };
+                self.send(&Update::News { text: text.to_string() }).await?;
             }
             self.send_hangar().await?;
             self.send_body().await?;
@@ -632,7 +657,10 @@ impl Session<'_> {
                         // On foot in the city: where the pilot is.
                         Some(PacketKind::Pose) => {
                             match PosePacket::decode(&d) {
-                                Ok(p) if rate.allow() && matches!(self.place, Place::City | Place::Base) => {
+                                Ok(p)
+                                    if rate.allow()
+                                        && matches!(self.place, Place::City | Place::Base | Place::Town) =>
+                                {
                                     let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
                                     self.game.plaza.accept(self.slot, p.seq, p.pose, Instant::now(), tick);
                                 }
@@ -855,9 +883,11 @@ impl Session<'_> {
         self.ticks = self.ticks.wrapping_add(1);
         let city = self.place == Place::City;
         let base = self.place == Place::Base;
+        let town = self.place == Place::Town;
         let suit = self.suit_inside();
         if !city
             && !base
+            && !town
             && suit.is_none()
             && !(self.place == Place::Hangar && self.ticks.is_multiple_of(HEARTBEAT_TICKS))
         {
@@ -869,11 +899,14 @@ impl Session<'_> {
         let strip = match suit {
             _ if city => Some(self.strip),
             _ if base => Some(BASE_DECK),
+            _ if town => Some(RING_DECK),
             at => at.map(|at| crate::plaza::strip_under(at).0),
         };
         let mut w = PlazaWriter::new(&mut buf, tick, strip);
         match suit {
-            _ if city || base => self.game.plaza.fill(self.slot, Instant::now(), tick, &mut w, &mut shown),
+            _ if city || base || town => {
+                self.game.plaza.fill(self.slot, Instant::now(), tick, &mut w, &mut shown)
+            }
             Some(at) => self.game.plaza.fill_around(at, Instant::now(), tick, &mut w, &mut shown),
             None => {}
         }
@@ -1033,6 +1066,7 @@ impl Session<'_> {
                 Place::Space => "space",
                 Place::City => "city",
                 Place::Base => "base",
+                Place::Town => "town",
             },
             credits: h.credits,
             bay,
@@ -1121,6 +1155,95 @@ impl Session<'_> {
             Request::LeaveCity => self.leave_city().await,
             Request::EnterBase => self.enter_base().await,
             Request::LeaveBase => self.leave_base().await,
+            Request::EnterTown => self.enter_town().await,
+            Request::LeaveTown => self.leave_town().await,
+            Request::Hit { person } => {
+                // Their car hit one of the town's people: taken if that person was there.
+                if self.place == Place::Town {
+                    let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+                    if let Some(pose) = self.game.plaza.pose_of(self.slot)
+                        && self.game.street.hit(person, &pose, tick)
+                    {
+                        tracing::info!(slot = self.slot, name = %self.callsign, "knocked somebody down in the town");
+                    }
+                }
+                Ok(())
+            }
+            Request::TakeFare { person } => {
+                // Stopped by someone standing in a lift's square: a fare, to another gate's.
+                if self.place != Place::Town || self.fare.is_some() {
+                    return Ok(());
+                }
+                let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+                let from = self
+                    .game
+                    .plaza
+                    .pose_of(self.slot)
+                    .and_then(|pose| self.game.street.pick_up(person, &pose, tick));
+                let Some(from) = from else {
+                    return self.note("nobody there wants a ride", false).await;
+                };
+                let (to, pay) = crate::street::fare_for(person, from);
+                self.fare = Some((person, to, pay));
+                self.send(&Update::Fare { to: Some(to), pay }).await?;
+                self.note(format!("A FARE FOR {} · {pay} CR", crate::street::gate_name(to)), true).await
+            }
+            Request::DropFare => {
+                let Some((person, to, pay)) = self.fare else { return Ok(()) };
+                // At the wheel, in the square they asked for.
+                let (lx, lt) = bc_sim::colony::town::out_of_the_lift(to);
+                let there = self.game.plaza.pose_of(self.slot).is_some_and(|p| {
+                    p.driving()
+                        && crate::street::apart((p.x, p.s), (lx, bc_sim::colony::town::deck_s(lt)))
+                            <= crate::street::SET_DOWN
+                });
+                if self.place != Place::Town || !there {
+                    let gate = crate::street::gate_name(to);
+                    return self
+                        .note(format!("your fare asked for {gate}'s square, by its lift"), false)
+                        .await;
+                }
+                self.fare = None;
+                self.game.street.set_down(person);
+                self.hangar.credits += pay;
+                tracing::info!(slot = self.slot, name = %self.callsign, pay, "a fare set down");
+                self.send(&Update::Fare { to: None, pay: 0 }).await?;
+                self.note(format!("FARE SET DOWN · {pay} CR"), true).await?;
+                self.send_hangar().await?;
+                self.save().await;
+                Ok(())
+            }
+            Request::Fine { heat } => {
+                // Caught by the Watch in the town: its fine, as much of it as the bay has.
+                if self.place != Place::Town || heat == 0 {
+                    return self.note("the Watch has nothing on you", false).await;
+                }
+                let owed = wire::watch_fine(heat);
+                let fine = owed.min(self.hangar.credits);
+                self.hangar.credits -= fine;
+                // (Their car goes with it, and whoever was riding in it.)
+                self.lose_fare().await?;
+                tracing::info!(slot = self.slot, name = %self.callsign, heat, fine, "fined by the Watch");
+                if fine < owed {
+                    // Nothing left to fine: the Watch walks them to a lift and sends them home.
+                    self.game.plaza.leave(self.slot);
+                    self.place = Place::Hangar;
+                    self.send_place().await?;
+                    let had = if fine == 0 {
+                        "NOTHING TO FINE".to_string()
+                    } else {
+                        format!("{} CR WAS ALL YOU HAD", thousands(fine))
+                    };
+                    self.note(format!("THE WATCH HAS YOU · {had} · SENT UP TO YOUR BAY"), true).await?;
+                    self.send_hangar().await?;
+                    self.publish_hangar();
+                } else {
+                    self.note(format!("THE WATCH HAS YOU · FINED {} CR", thousands(fine)), true).await?;
+                    self.send_hangar().await?;
+                }
+                self.save().await;
+                Ok(())
+            }
             Request::Watch { item } => {
                 self.watching = item.filter(|i| i.valid());
                 self.send_market().await
@@ -1421,6 +1544,54 @@ impl Session<'_> {
         Ok(())
     }
 
+    /// Down a spoke's lift from the bay to the ring's town, to Hub Gate's square
+    /// (`docs/FREE_ROAM.md`).
+    async fn enter_town(&mut self) -> anyhow::Result<()> {
+        if !self.survival() {
+            return self.note("there's no town under these rules", false).await;
+        }
+        if self.place != Place::Hangar || self.suit.is_some() {
+            return self.note("the spoke lifts run from the bays", false).await;
+        }
+        self.place = Place::Town;
+        self.game.plaza.enter_town(self.slot, &self.callsign);
+        self.named.clear();
+        tracing::info!(slot = self.slot, name = %self.callsign, "down the spoke to the town");
+        self.send_place().await?;
+        self.publish_hangar();
+        Ok(())
+    }
+
+    /// Back up a spoke's lift to the bay: from the door of any of the town's lifts (where the plaza
+    /// last had them, on foot).
+    async fn leave_town(&mut self) -> anyhow::Result<()> {
+        if self.place != Place::Town {
+            return self.note("you're not down in the town", false).await;
+        }
+        if !self.game.plaza.at_a_lift(self.slot, LIFT_REACH) {
+            return self
+                .note("the lifts up to the bays are under the spokes: on foot, at a lift's door", false)
+                .await;
+        }
+        self.lose_fare().await?;
+        self.game.plaza.leave(self.slot);
+        self.place = Place::Hangar;
+        self.send_place().await?;
+        self.send_hangar().await?;
+        self.publish_hangar();
+        Ok(())
+    }
+
+    /// A fare left behind (the pilot's gone up the lift, or the Watch has them): back on the
+    /// street, unpaid.
+    async fn lose_fare(&mut self) -> anyhow::Result<()> {
+        if let Some((person, ..)) = self.fare.take() {
+            self.game.street.set_down(person);
+            self.send(&Update::Fare { to: None, pay: 0 }).await?;
+        }
+        Ok(())
+    }
+
     /// Boards the suit in the bay and launches it.
     async fn launch(&mut self) -> anyhow::Result<()> {
         if self.suit.is_some() || self.place == Place::Space {
@@ -1428,6 +1599,11 @@ impl Session<'_> {
         }
         if self.place == Place::Base {
             return self.note("you're out on Bay Row: back in through your airlock to board", false).await;
+        }
+        if self.place == Place::Town {
+            return self
+                .note("you're down in the town: ride a spoke's lift back up to your bay to board", false)
+                .await;
         }
         if self.place == Place::City {
             return self
@@ -1871,19 +2047,19 @@ impl Session<'_> {
             if changed && self.suit.is_some() && !self.lost {
                 self.push_fed_flying().await;
             }
-            let on_foot = matches!(self.place, Place::Hangar | Place::City | Place::Base);
+            let on_foot = matches!(self.place, Place::Hangar | Place::City | Place::Base | Place::Town);
             if changed || (on_foot && self.body_sent.1.elapsed() >= BODY_EVERY) {
                 self.send_body().await?;
             }
         }
-        if matches!(self.place, Place::Hangar | Place::City | Place::Base)
+        if matches!(self.place, Place::Hangar | Place::City | Place::Base | Place::Town)
             && self.game.market.version() != self.market_seen
             && self.market_sent.elapsed() >= MARKET_EVERY
         {
             self.send_market().await?;
         }
         if self.board
-            && matches!(self.place, Place::Hangar | Place::City | Place::Base)
+            && matches!(self.place, Place::Hangar | Place::City | Place::Base | Place::Town)
             && self.game.charter.version() != self.board_seen
             && self.board_sent.elapsed() >= MARKET_EVERY
         {
@@ -1897,6 +2073,18 @@ impl Session<'_> {
             && self.proving_sent.elapsed() >= MARKET_EVERY
         {
             self.send_proving().await?;
+        }
+        // Down in the town: its street, whenever it changes (and first on the way in).
+        if self.place == Place::Town {
+            let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            let down = self.game.street.view(tick);
+            let version = self.game.street.version();
+            if self.street_seen != Some(version) {
+                self.street_seen = Some(version);
+                self.send(&Update::Street { down }).await?;
+            }
+        } else {
+            self.street_seen = None;
         }
         self.homes_tick(settle).await
     }

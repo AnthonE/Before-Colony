@@ -46,6 +46,10 @@ pub struct HangarState {
     /// ...and the last one is kept.
     pub last_debrief: Option<Debrief>,
     /// News, oldest first. The UI takes it.
+    /// The fare in the pilot's car in the town: the lift whose square they asked for, and their pay.
+    pub fare: Option<(u16, u64)>,
+    /// The ring's town's people knocked down, as the server last said (`Update::Street`).
+    pub street: Vec<bc_econ::wire::Down>,
     pub news: Vec<String>,
     /// In the city: the names of the people seen there, by the slot the plaza knows them by.
     pub people: std::collections::HashMap<u16, String>,
@@ -104,6 +108,8 @@ impl HangarState {
             Update::Proving(view) => self.proving = Some(view),
             Update::Homes(view) => self.homes = view,
             Update::Body(view) => self.body = Some(view),
+            Update::Street { down } => self.street = down,
+            Update::Fare { to, pay } => self.fare = to.map(|k| (k, pay)),
         }
         false
     }
@@ -147,6 +153,11 @@ impl HangarState {
     /// On foot out on the base's deck, out of the bay's airlock (`docs/RING.md`).
     pub fn in_base(&self) -> bool {
         self.place == Some(Place::Base)
+    }
+
+    /// On foot (or driving) in the ring's town, down a spoke's lift (`docs/FREE_ROAM.md`).
+    pub fn in_town(&self) -> bool {
+        self.place == Some(Place::Town)
     }
 
     /// Credits, as last told.

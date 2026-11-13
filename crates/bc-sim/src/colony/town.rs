@@ -23,9 +23,11 @@
 //! The walker's frame on the ring's deck is `(x, h, −s)` (`deck::DeckPos::walker`), and [`solid`]
 //! takes its boxes: `deck::solid` asks it for the ring's deck.
 //!
-//! The seam (`deck::Deck::seam`) is still a bulkhead to the deck, at the avenue between Quayside and
-//! Lock Town: it opens when walkers wrap round the ring (`docs/FREE_ROAM.md`, P1). The town itself is
-//! periodic round the ring and has no seam.
+//! The town is periodic round the ring and has no seam: the deck's `s` runs on past either end of its
+//! round, and a walker crosses where it wraps without meeting anything (`deck::solid`).
+//!
+//! **Down from the bays.** Hub Gate's lift lets pilots out at its door ([`lift_door`]), in the fore
+//! pier of its portal on its own district's side.
 
 use core::f32::consts::TAU;
 
@@ -456,6 +458,29 @@ pub fn each_lift_box(k: u16, f: &mut impl FnMut(TownBox)) {
     f(TownBox::new(-hx, hx, t - ht, t + ht, LIFT_LINTEL, ROOF));
 }
 
+/// Lift `k`'s door, where pilots come down from the bays and go back up: in the outer face of its
+/// portal's fore pier on the side of the district it starts (Hub Gate's on Charter Square's), looking
+/// out over the square. Where its middle is at the floor, `(x, t)`, m.
+pub fn lift_door(k: u16) -> (f32, f32) {
+    (-LIFT_HALF_X, lift_t(k) + LIFT_HALF_T - 0.5 * LIFT_PIER)
+}
+
+/// Where a pilot steps out of lift `k`'s door onto its square, a pace out from it (facing fore, −x),
+/// and where they stand to ride it back up: `(x, t)`, m.
+pub fn out_of_the_lift(k: u16) -> (f32, f32) {
+    let (x, t) = lift_door(k);
+    (x - LIFT_STEP, t)
+}
+
+/// What lift `k` and its square are called on the signs: Hub Gate, or the district it opens on.
+pub fn lift_name(k: u16) -> &'static str {
+    let k = k % LIFTS;
+    if k == 0 { "HUB GATE" } else { district(2 * k).name }
+}
+
+/// How far out from its door a pilot steps out of a lift, m.
+pub const LIFT_STEP: f32 = 2.5;
+
 /// The canal's railings in cell `cell`'s length: along both its quays, and along both sides of the
 /// bridges at the cell's ends (a cross street's or an avenue's).
 pub fn each_rail(cell: u16, f: &mut impl FnMut(TownBox)) {
@@ -779,6 +804,23 @@ mod tests {
                     }
                 });
             });
+        }
+    }
+
+    #[test]
+    fn every_lift_lets_out_onto_its_square() {
+        for k in 0..LIFTS {
+            let (x, t) = out_of_the_lift(k);
+            let s = deck_s(t);
+            let w = DeckPos::new(RING, x, s, 0.0).walker();
+            let (lo, hi) = (w - Vec3::new(0.3, 0.0, 0.3), w + Vec3::new(0.3, 1.8, 0.3));
+            assert!(!crate::colony::deck::solid(RING, lo, hi), "lift {k}: its step out is in a wall");
+            // Its door is in a pier's face: a pace back from the step, a wall.
+            let (dx, dt) = lift_door(k);
+            let d = DeckPos::new(RING, dx + 0.5, deck_s(dt), 0.0).walker();
+            assert!(solid(d - Vec3::splat(0.2).with_y(0.0), d + Vec3::new(0.2, 1.8, 0.2)), "lift {k}'s door");
+            // Out on the square's own avenue, off the boulevard's carriageway.
+            assert_ne!(band_at(x), Band::Boulevard);
         }
     }
 

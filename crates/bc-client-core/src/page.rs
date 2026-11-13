@@ -112,6 +112,9 @@ pub struct View {
     pub map_goal: Option<&'static str>,
     /// The sights found, a bit each (`sights`).
     pub map_found: u32,
+    /// In the ring's town: the radar.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radar: Option<Radar>,
     /// A sortie's news, shown large when its number moves (`news_bad`: in red).
     pub news_seq: u32,
     pub news: String,
@@ -182,6 +185,25 @@ pub struct CityStrip {
     pub districts: Vec<District>,
     pub places: Vec<MapPlace>,
     pub sights: Vec<MapSight>,
+}
+
+/// The town's radar: what's round the pilot on the ring's floor, in metres from them (`x` across the
+/// ring, `s` round it). The page draws it with the way they face up.
+#[derive(Clone, Debug, PartialEq, Default, Serialize)]
+pub struct Radar {
+    /// Which way they face (the walker's yaw), rad.
+    pub yaw: f32,
+    /// The blocks round them, `[x0, x1, s0, s1, kind]`: 0 built on, 1 a park, 2 a lift's square, 3 a
+    /// site (frames going up, a key place's lot), 4 the canal's water.
+    pub blocks: Vec<[f32; 5]>,
+    /// The lifts' doors near, `[x, s]`.
+    pub lifts: Vec<[f32; 2]>,
+    /// The Watch's cars after them, `[x, s]`.
+    pub watch: Vec<[f32; 2]>,
+    /// Where they're bound, however far, `[x, s]`: their fare's square, or the nearest lift home.
+    pub goal: [f32; 2],
+    /// The goal's a fare's.
+    pub fare: bool,
 }
 
 /// The colony's city for the page's map (M): each strip's districts along it, its key places'

@@ -826,14 +826,15 @@
     // Signed in, leaving puts the pilot to sleep in the cockpit: in a hide spot the suit is left
     // hidden (and under survival rules it outlasts a restart), at rest on a body it's parked, in
     // the air in a body's grip it comes down and parks; a guest's suit goes with them. On foot (in
-    // the bay, out on Bay Row, or down in the city) nothing is out, and they wake in their bay. Flying inside the
+    // the bay, out on Bay Row, down in the city or in the ring's town) nothing is out, and they wake in their bay. Flying inside the
     // colony, nothing sleeps there: its tugs bring the suit home to the bay (a trainer goes back to
     // its gantry, and the pilot's own suit never left the bay).
-    const afoot = v.place === "hangar" || v.place === "city" || v.place === "base";
+    const afoot = v.place === "hangar" || v.place === "city" || v.place === "base" || v.place === "town";
     const hidden = v.signedIn && v.hideSpot && v.survival;
     $("disconnect-button").textContent = v.place === "hangar" ? "LEAVE THE BAY"
       : v.place === "city" ? "LEAVE THE CITY"
       : v.place === "base" ? "LEAVE BAY ROW"
+      : v.place === "town" ? "QUIT TO THE TITLE"
       : !v.signedIn ? "DISCONNECT"
       : v.inside ? "DOCK & DISCONNECT"
       : hidden ? "LEAVE SUIT HIDDEN"
@@ -844,8 +845,11 @@
       $("pause-who").textContent = v.signedIn
         ? who + "Your hangar is kept while you're away: its stores, its suit, its jobs, your orders on the exchange." +
           (v.place === "city" ? " You wake in your bay next time, not down here."
-            : v.place === "base" ? " You wake in your bay next time, not out on the row." : "")
+            : v.place === "base" ? " You wake in your bay next time, not out on the row."
+            : v.place === "town" ? " You wake in your bay next time, not down in the town." : "")
         : "Playing as a guest: your hangar, and everything in it, is gone when you leave. Connect a wallet to keep it.";
+      // (This button isn't the way home from the town: the lift is.)
+      if (v.place === "town") $("pause-who").textContent += " The way back up to your bay is a spoke's lift: E at its door.";
     } else if (v.inside) {
       $("pause-who").textContent = !v.signedIn
         ? "Flying as a guest: your hangar, and everything in it, is gone when you leave."
@@ -872,7 +876,8 @@
     // Opened in the world, the sheet starts at the section for where the pilot is (flying, the
     // hangar's came first and FLIGHT and COMBAT were below the fold).
     if (v.help && !helpWas && s === "playing") {
-      const title = v.driving === "car" || v.driving === "markab" ? "DRIVING"
+      const title = v.place === "town" ? "IN THE TOWN"
+        : v.driving === "car" || v.driving === "markab" ? "DRIVING"
         : v.place === "hangar" || v.place === "base" ? "IN THE HANGAR"
         : v.place === "city" ? "IN THE COLONY"
         : "FLIGHT";
@@ -893,10 +898,17 @@
     const playing = s === "playing";
     const bayLine = $("bay-line");
     bayLine.textContent = v.bayLine || "";
+    // (Under the town's sky the line needs something dark behind it.)
+    bayLine.classList.toggle("backed", v.place === "town");
     show(bayLine, playing && !!v.bayLine && v.panel === "none");
+    const radar = playing && !!v.radar && v.panel === "none" && !v.help;
+    show($("radar"), radar);
+    if (radar) drawRadar(v.radar);
     show($("dot"), playing && v.onFoot && !v.driving && !v.map && !v.help && v.panel === "none");
     const use = $("use");
     keyed(use, v.prompt || "");
+    // (At the wheel it sits low, clear of the car.)
+    use.classList.toggle("low", !!v.driving);
     show(use, playing && !!v.prompt && v.panel === "none" && !v.help);
     // A terminal: opened on the tab of the one used; the book stops coming when it closes. Down in
     // the city it's a desk's, and shows only what that desk does.
@@ -991,6 +1003,69 @@
     }
     return c.getContext("2d");
   }
+  // The town's radar: the blocks round the pilot (the way they face up), the lifts' doors, the
+  // Watch's cars after them, and where they're bound, held at the rim when it's further off.
+  const RADAR_M = 190;
+  function drawRadar(r) {
+    const c = $("radar");
+    const dpr = window.devicePixelRatio || 1;
+    const size = Math.round(168 * dpr);
+    if (c.width !== size) { c.width = size; c.height = size; }
+    const g = c.getContext("2d");
+    const R = size / 2, k = (R - 2 * dpr) / RADAR_M;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, size, size);
+    g.save();
+    g.beginPath();
+    g.arc(R, R, R - dpr, 0, Math.PI * 2);
+    g.clip();
+    g.fillStyle = "rgba(4, 10, 18, 0.72)";
+    g.fillRect(0, 0, size, size);
+    // The floor from above: x to the right, s up; turned so the way they face is up.
+    g.translate(R, R);
+    g.rotate(Math.PI + r.yaw);
+    const fills = ["rgba(159,198,230,0.30)", "rgba(110,200,140,0.30)", "rgba(159,232,255,0.14)",
+      "rgba(255,181,71,0.24)", "rgba(70,170,190,0.45)"];
+    for (const [x0, x1, s0, s1, kind] of r.blocks) {
+      g.fillStyle = fills[kind] || fills[0];
+      g.fillRect(x0 * k, -s1 * k, (x1 - x0) * k, (s1 - s0) * k);
+    }
+    g.fillStyle = "#9fe8ff";
+    for (const [x, s] of r.lifts) g.fillRect(x * k - 3 * dpr, -s * k - 3 * dpr, 6 * dpr, 6 * dpr);
+    // The Watch's: red, blinking.
+    if (Math.floor(performance.now() / 300) % 2 === 0 || r.watch.length === 0) g.fillStyle = "#ff5b4f";
+    else g.fillStyle = "#ffd0cc";
+    for (const [x, s] of r.watch) {
+      const far = Math.hypot(x, s), cap = Math.min(1, (RADAR_M - 6) / Math.max(far, 1));
+      g.beginPath();
+      g.arc(x * cap * k, -s * cap * k, 3.2 * dpr, 0, Math.PI * 2);
+      g.fill();
+    }
+    // Where they're bound: a diamond, at the rim when it's off the radar.
+    const [gx, gs] = r.goal;
+    const far = Math.hypot(gx, gs), cap = Math.min(1, (RADAR_M - 10) / Math.max(far, 1));
+    g.save();
+    g.translate(gx * cap * k, -gs * cap * k);
+    g.rotate(Math.PI / 4);
+    g.fillStyle = r.fare ? "#ffb547" : "#9fe8ff";
+    if (far > 6) g.fillRect(-3.5 * dpr, -3.5 * dpr, 7 * dpr, 7 * dpr);
+    g.restore();
+    g.restore();
+    // The pilot: a wedge, nose up.
+    g.fillStyle = "#ffffff";
+    g.beginPath();
+    g.moveTo(R, R - 6 * dpr);
+    g.lineTo(R + 4 * dpr, R + 5 * dpr);
+    g.lineTo(R - 4 * dpr, R + 5 * dpr);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = "rgba(159, 198, 230, 0.55)";
+    g.lineWidth = dpr;
+    g.beginPath();
+    g.arc(R, R, R - dpr, 0, Math.PI * 2);
+    g.stroke();
+  }
+
   function drawMap(at, goal, found) {
     if (!city) return;
     const strip = city.strips[at.strip] || city.strips[0];

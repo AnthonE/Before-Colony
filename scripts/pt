@@ -10,6 +10,7 @@
 # Env (the world): BC_RULES (survival|arcade; survival), BC_FLIGHT (anime|real), BC_DRONES (12),
 #   BC_HTTP_PORT (8080), BC_WT_PORT (UDP, 4433), PT_BUILD=0 (never build: run what's there),
 #   BC_COLONY=1 (open the retired cylinder's inside, closed while the ring is built: docs/RING.md),
+#   BC_START=bay (new pilots wake in their bay; by default they wake in the ring's town),
 #   PT_SERVER_ARGS (more of the server's flags, e.g. "--craft-speed 60").
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -53,6 +54,8 @@ world_up() {
   local rules="${BC_RULES:-survival}"
   local colony=""
   [ "$rules" = "survival" ] && [ "${BC_COLONY:-0}" = "1" ] && colony="--colony"
+  # Where a new pilot wakes: the ring's town (the game's own), or BC_START=bay for their bay.
+  [ -n "${BC_START:-}" ] && colony="$colony --start ${BC_START}"
   local log="$out/world-${port}.log"
   : >"$pids"
   # Detached (setsid), so the world outlives the shell that started it.

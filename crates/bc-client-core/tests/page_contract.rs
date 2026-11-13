@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use bc_client_core::gallery::gallery;
-use bc_client_core::page::{Cmd, MapAt, View};
+use bc_client_core::page::{Cmd, MapAt, Radar, View};
 use serde_json::Value;
 
 fn repo(path: &str) -> String {
@@ -86,7 +86,12 @@ fn assert_sent(what: &str, read: &BTreeSet<String>, sent: &BTreeSet<String>) {
 
 /// A view with every field set, the way the game sends it.
 fn full_view() -> Value {
-    let v = View { map: Some(MapAt::default()), map_goal: Some("exchange"), ..View::default() };
+    let v = View {
+        map: Some(MapAt::default()),
+        map_goal: Some("exchange"),
+        radar: Some(Radar::default()),
+        ..View::default()
+    };
     serde_json::to_value(v).unwrap()
 }
 
@@ -103,6 +108,9 @@ fn the_page_reads_only_what_the_view_sends_and_reads_all_of_it() {
 
     let at = reads(body(&js, "function drawMap(at, goal, found)"), "at");
     assert_sent("the map's `at`", &at, &keys(&full_view()["map"]));
+    let r = reads(body(&js, "function drawRadar(r)"), "r");
+    assert_sent("the radar", &r, &keys(&full_view()["radar"]));
+    assert_eq!(r, keys(&full_view()["radar"]), "the radar's fields, all drawn");
 }
 
 #[test]

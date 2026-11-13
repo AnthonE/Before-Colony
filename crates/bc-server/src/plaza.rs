@@ -20,17 +20,22 @@
 //! The base's deck in the hub (`docs/RING.md`, "The base") is one more floor ([`BASE_DECK`]): out of
 //! a bay's airlock onto Bay Row, the first pose near that airlock, on foot only, out of the deck's
 //! walls and its buildings' (`bc_sim::colony::deck::solid`). Its people see only each other.
+//!
+//! The ring's floor, the town (`docs/FREE_ROAM.md`), is another ([`RING_DECK`]): down a spoke's lift
+//! to Hub Gate's square, the first pose near its door, on foot or driving a car, out of the town's
+//! walls and its canal, all the way round the ring (its `s` wraps).
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use bc_proto::presence::{BASE_DECK, MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
+use bc_proto::presence::{BASE_DECK, MAX_PEOPLE, PersonPose, PlazaWriter, RIDE_CAR, RIDER_S, RING_DECK};
 use bc_sim::colony::city::{KERB, MAX_HEIGHT, Room, Stage, arrival_seats, place_door, solid};
-use bc_sim::colony::deck::{self, BASE, DeckPos};
+use bc_sim::colony::deck::{self, BASE, DeckPos, RING};
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, STRIPS, Under, from_colony, within_caps};
 use bc_sim::colony::homes;
 use bc_sim::colony::pools::pool_near;
+use bc_sim::colony::town;
 use bc_sim::colony::transit::{self, CAR_WIDTH, TRAIN_LENGTH, TRAINS};
 use bc_sim::content::city::{PLACES, PlaceKind};
 use glam::Vec3;
@@ -230,12 +235,41 @@ fn on_the_base(p: &PersonPose) -> bool {
         )
 }
 
+/// Whether a pose in the ring's town could be: on foot or driving a car (no trams, seats or Markabs
+/// there yet), within the ring's round, a thin core of its body out of the town's walls, and not out
+/// on the canal's water.
+fn in_the_town(p: &PersonPose) -> bool {
+    let e = 0.05;
+    let round = deck::DECKS[RING as usize].round();
+    let afoot = mode(p) == Mode::Foot;
+    let car = matches!(mode(p), Mode::Drive(RIDE_CAR));
+    (afoot || car)
+        && (-1.0..=round + 1.0).contains(&p.s)
+        && (-0.5..=MAX_HEIGHT + 4.0).contains(&p.h)
+        && !deck::solid(
+            RING,
+            Vec3::new(p.x - e, p.h + 0.4, -p.s - e),
+            Vec3::new(p.x + e, p.h + 1.4, -p.s + e),
+        )
+        && town::ground_at(p.x, town::town_t(p.s)) != town::Ground::Water
+}
+
+/// How far apart two poses on one floor are over the ground, m: round the ring the short way.
+fn apart(a: &PersonPose, b: &PersonPose) -> f32 {
+    let ds = if a.strip == RING_DECK { deck::round_from(RING, a.s, b.s) } else { b.s - a.s };
+    (b.x - a.x).hypot(ds)
+}
+
 /// Whether a pose could be anyone's: inside the colony, its body out of the walls (a thin core of
 /// it: a step's worth of the walker's box may brush one; a Markab's middle, which keeps 0.6 m off
-/// any face it's on, whichever way up); on the base's deck, [`on_the_base`].
+/// any face it's on, whichever way up); on the base's deck, [`on_the_base`]; in the ring's town,
+/// [`in_the_town`].
 fn possible(p: &PersonPose) -> bool {
     if p.strip == BASE_DECK {
         return on_the_base(p);
+    }
+    if p.strip == RING_DECK {
+        return in_the_town(p);
     }
     if p.riding().is_some() {
         return aboard(p);
@@ -256,7 +290,7 @@ fn possible(p: &PersonPose) -> bool {
 /// Whether a pilot on foot rode a lift from `last` to `now`: both at the lift doors of the same
 /// building, on different storeys.
 fn lifted(last: &PersonPose, now: &PersonPose) -> bool {
-    if last.strip == BASE_DECK || now.strip == BASE_DECK {
+    if last.strip >= BASE_DECK || now.strip >= BASE_DECK {
         return false;
     }
     let at = |p: &PersonPose| {
@@ -296,7 +330,7 @@ impl Plaza {
     /// after it, never the other way round).
     fn may_cross(&self, me: &Person, last: &PersonPose, now: &PersonPose) -> bool {
         let Some(reg) = &self.homes else { return true };
-        if mode(last) != Mode::Foot || mode(now) != Mode::Foot || now.strip == BASE_DECK {
+        if mode(last) != Mode::Foot || mode(now) != Mode::Foot || now.strip >= BASE_DECK {
             return true;
         }
         let home = |p: &PersonPose| homes::home_at(p.strip, p.s, p.x, p.h + 1.0);
@@ -318,11 +352,31 @@ impl Plaza {
         self.enter_at(id, name, BASE_DECK, (out.s, out.x));
     }
 
+    /// `id` came down a spoke's lift to the ring's town: out of Hub Gate's lift's door.
+    pub fn enter_town(&self, id: u16, name: &str) {
+        let (x, t) = town::out_of_the_lift(0);
+        self.enter_at(id, name, RING_DECK, (town::deck_s(t), x));
+    }
+
+    /// Whether `id`, in the town, is on foot within `reach` m of the step out of one of its lifts'
+    /// doors (where the plaza last had them; before their first pose, where they came down).
+    pub fn at_a_lift(&self, id: u16, reach: f32) -> bool {
+        let Ok(all) = self.people.lock() else { return false };
+        let Some(me) = all.get(&id).filter(|p| p.strip == RING_DECK) else { return false };
+        let Some(p) = me.pose else { return true };
+        mode(&p) == Mode::Foot
+            && (0..town::LIFTS).any(|k| {
+                let (x, t) = town::out_of_the_lift(k);
+                (p.x - x).hypot(deck::round_from(RING, town::deck_s(t), p.s)) <= reach
+            })
+    }
+
     /// `id` came into strip `strip`'s city at `(s, x)` (out of a trainer, at the Blast Hall's
-    /// gantry), or onto the base's deck ([`BASE_DECK`]): their first pose must be near there.
+    /// gantry), onto the base's deck ([`BASE_DECK`]) or into the ring's town ([`RING_DECK`]): their
+    /// first pose must be near there.
     pub fn enter_at(&self, id: u16, name: &str, strip: u8, arrival: (f32, f32)) {
         if let Ok(mut all) = self.people.lock() {
-            let strip = strip.min(BASE_DECK);
+            let strip = strip.min(RING_DECK);
             all.insert(
                 id,
                 Person {
@@ -361,8 +415,9 @@ impl Plaza {
                 let dt = banked(me, now);
                 let moved = |speed: f32| {
                     let reach = speed * dt + SLACK;
-                    (pose.x - last.x).hypot(pose.s - last.s) <= reach && (pose.h - last.h).abs() <= reach
+                    apart(&last, &pose) <= reach && (pose.h - last.h).abs() <= reach
                 };
+                let town = pose.strip == RING_DECK;
                 let check = |ok: bool, why: Why| (!ok).then_some(why);
                 match (mode(&last), mode(&pose)) {
                     // Walking, on the ground or in a car of a train; or a lift ridden.
@@ -379,9 +434,11 @@ impl Plaza {
                     // Driving: no faster than a car (or a Markab) goes; taken from a motor pool; left
                     // anywhere.
                     (Mode::Drive(a), Mode::Drive(b)) => check(a == b && moved(top(&last)), Why::Reach),
-                    (Mode::Foot, Mode::Drive(_)) => {
-                        check(pool_near(pose.strip, last.s, last.x).is_some() && moved(MAX_SPEED), Why::Pool)
-                    }
+                    // (In the ring's town a car is taken from the street: any kerb has them.)
+                    (Mode::Foot, Mode::Drive(_)) => check(
+                        (town || pool_near(pose.strip, last.s, last.x).is_some()) && moved(MAX_SPEED),
+                        Why::Pool,
+                    ),
                     (Mode::Drive(_), Mode::Foot) => check(moved(top(&last)), Why::Reach),
                     // Sitting down on a seat from beside it, staying put on it, and getting up.
                     (Mode::Foot, Mode::Seated) => check(on_seat(&pose) && moved(MAX_SPEED), Why::Seat),
@@ -396,7 +453,8 @@ impl Plaza {
             }
             None => {
                 let (s, x) = me.arrival;
-                let ok = pose.riding().is_none() && (pose.x - x).hypot(pose.s - s) <= ARRIVAL;
+                let from = PersonPose { s, x, ..pose };
+                let ok = pose.riding().is_none() && apart(&from, &pose) <= ARRIVAL;
                 (!ok).then_some(Why::Arrival)
             }
         };
@@ -409,7 +467,7 @@ impl Plaza {
             if me.said.is_none_or(|t| now.saturating_duration_since(t).as_secs_f32() > 5.0) {
                 me.said = Some(now);
                 let dt = banked(me, now);
-                let moved = me.pose.map_or(0.0, |l| (pose.x - l.x).hypot(pose.s - l.s));
+                let moved = me.pose.map_or(0.0, |l| apart(&l, &pose));
                 tracing::info!(
                     slot = id,
                     ?why,
@@ -431,7 +489,7 @@ impl Plaza {
             Some(last) => {
                 let speed = top(&last).max(top(&pose));
                 let same = last.riding() == pose.riding();
-                let d = if same { (pose.x - last.x).hypot(pose.s - last.s) } else { 0.0 };
+                let d = if same { apart(&last, &pose) } else { 0.0 };
                 (banked(me, now) - d / speed).clamp(0.0, BANK)
             }
             None => 0.0,
@@ -449,7 +507,10 @@ impl Plaza {
         let Ok(all) = self.people.lock() else { return };
         let Some(me) = all.get(&viewer) else { return };
         let (s, x) = me.pose.map_or(me.arrival, |p| place(&p, tick));
-        let d = |ps: f32, px: f32, _: f32| (px - x).hypot(ps - s);
+        let ring = me.strip == RING_DECK;
+        let d = |ps: f32, px: f32, _: f32| {
+            (px - x).hypot(if ring { deck::round_from(RING, s, ps) } else { ps - s })
+        };
         nearest(&all, Some(viewer), me.strip, now, tick, NEAR, d, w, shown);
     }
 
@@ -492,6 +553,9 @@ impl Plaza {
         if me.strip == BASE_DECK {
             return Some(DeckPos::new(BASE, x, s, h).to_colony());
         }
+        if me.strip == RING_DECK {
+            return Some(DeckPos::new(RING, x, s, h).to_colony());
+        }
         Some(CityPos::new(me.strip, x, s, h).to_colony())
     }
 
@@ -528,12 +592,13 @@ impl Plaza {
 
     /// For `/status`: how many pilots are in the city, by strip, how many poses have been refused,
     /// and how many are out on the base's deck (no positions). The store's traders standing on the
-    /// Exchange floor are not pilots, and not counted.
+    /// Exchange floor are not pilots, and not counted; nor are the pilots down in the ring's town
+    /// ([`Plaza::in_town`]).
     pub fn counts(&self) -> (usize, [usize; 3], u32, usize) {
         let Ok(all) = self.people.lock() else { return (0, [0; 3], 0, 0) };
         let mut by_strip = [0; 3];
         let (mut base, mut pilots) = (0, 0);
-        for p in all.values().filter(|p| !p.visitor) {
+        for p in all.values().filter(|p| !p.visitor && p.strip != RING_DECK) {
             pilots += 1;
             match by_strip.get_mut(p.strip as usize) {
                 Some(n) => *n += 1,
@@ -541,6 +606,11 @@ impl Plaza {
             }
         }
         (pilots - base, by_strip, all.values().map(|p| p.refused).sum(), base)
+    }
+
+    /// For `/status`: how many pilots are down in the ring's town (no positions).
+    pub fn in_town(&self) -> usize {
+        self.people.lock().map_or(0, |all| all.values().filter(|p| p.strip == RING_DECK).count())
     }
 
     /// The traders on the store's trade page now (`(key, name)`, at most [`VISITORS`]), standing in
@@ -1153,6 +1223,80 @@ mod tests {
         assert!(seen(&plaza, 1, t0 + Duration::from_secs(6)).is_empty());
         assert_eq!(plaza.name(3).as_deref(), Some("Viktor"));
         assert_eq!(plaza.counts().1, [2, 1, 0]);
+    }
+
+    #[test]
+    fn down_in_the_town_pilots_walk_and_drive_round_the_ring_and_see_each_other_across_its_seam() {
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let round = deck::DECKS[RING as usize].round();
+        let in_town = |x: f32, s: f32| PersonPose { strip: RING_DECK, ..at(0, s, x) };
+        let (x, t) = town::out_of_the_lift(0);
+        let gate = town::deck_s(t);
+        plaza.enter_town(1, "Maren");
+        plaza.enter_town(2, "Pagan");
+        plaza.enter_base(3, "Major Ines", 1);
+        // A first pose away from Hub Gate's lift isn't where they came down; by its door is.
+        assert_eq!(plaza.accept(1, 1, in_town(x, gate + 900.0), t0, 0), Verdict::Implausible);
+        assert_eq!(plaza.accept(1, 1, in_town(x, gate), t0, 0), Verdict::Taken);
+        assert_eq!(plaza.accept(2, 1, in_town(x - 3.0, gate + 2.0), t0, 0), Verdict::Taken);
+        assert!(plaza.at_a_lift(1, 8.0) && plaza.at_a_lift(2, 8.0) && !plaza.at_a_lift(3, 8.0));
+        // Each sees the other, and nobody on Bay Row; nor does Bay Row see them.
+        assert_eq!(seen(&plaza, 1, t0).iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![2]);
+        assert!(
+            plaza.accept(
+                3,
+                1,
+                PersonPose {
+                    strip: BASE_DECK,
+                    ..at(0, deck::out_of_the_airlock(1).s, deck::out_of_the_airlock(1).x)
+                },
+                t0,
+                0
+            ) == Verdict::Taken
+        );
+        assert!(seen(&plaza, 3, t0).is_empty());
+        // A walk; a teleport; a wall; the canal's water.
+        let t1 = t0 + Duration::from_secs(1);
+        assert_eq!(plaza.accept(1, 2, in_town(x - 5.0, gate), t1, 0), Verdict::Taken);
+        assert_eq!(plaza.accept(1, 3, in_town(x - 5.0, gate + 400.0), t1, 0), Verdict::Implausible);
+        assert!(!possible(&in_town(0.5 * (town::CANAL.0 + town::CANAL.1), town::deck_s(town::CELL * 30.5))));
+        let mut wall = None;
+        town::each_block_box(town::BlockId::new(31, 7), &mut |b| wall = wall.or(Some(b)));
+        let b = wall.expect("a building");
+        assert!(!possible(&in_town(0.5 * (b.x0 + b.x1), town::deck_s(0.5 * (b.t0 + b.t1)))));
+        assert!(!plaza.at_a_lift(1, 3.0), "five metres off its step");
+        // Into a car from the street (no motor pool here), and off down the boulevard at a car's
+        // pace: too fast on foot, fine at the wheel. Never a Markab or a tram.
+        let driving = |x: f32, s: f32| PersonPose { ride: RIDE_CAR, ..in_town(x, s) };
+        let t2 = t1 + Duration::from_secs(1);
+        assert_eq!(plaza.accept(2, 2, in_town(x - 3.0, gate + 62.0), t2, 0), Verdict::Implausible);
+        assert_eq!(plaza.accept(2, 2, driving(x - 3.0, gate + 4.0), t2, 0), Verdict::Taken);
+        assert!(!plaza.at_a_lift(2, 8.0), "at the wheel");
+        let t3 = t2 + Duration::from_secs(1);
+        assert_eq!(plaza.accept(2, 3, driving(20.0, gate + 20.0), t3, 0), Verdict::Taken);
+        let t4 = t3 + Duration::from_secs(1);
+        assert_eq!(plaza.accept(2, 4, driving(20.0, gate + 45.0), t4, 0), Verdict::Taken);
+        assert!(!possible(&PersonPose { ride: bc_proto::presence::RIDE_MARKAB, ..in_town(20.0, gate) }));
+        assert!(!possible(&PersonPose { ride: 1, ..in_town(20.0, gate) }));
+        // Across the deck's seam: 6 m apart either side of where `s` wraps, each sees the other, and
+        // a step across it is a step.
+        plaza.enter_at(4, "Rafi", RING_DECK, (round - 3.0, 20.0));
+        plaza.enter_at(5, "Lin", RING_DECK, (3.0, 20.0));
+        assert_eq!(plaza.accept(4, 1, in_town(20.0, round - 3.0), t4, 0), Verdict::Taken);
+        assert_eq!(plaza.accept(5, 1, in_town(20.0, 3.0), t4, 0), Verdict::Taken);
+        assert_eq!(seen(&plaza, 4, t4).iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![5]);
+        let t5 = t4 + Duration::from_secs(1);
+        assert_eq!(plaza.accept(4, 2, in_town(20.0, 1.0), t5, 0), Verdict::Taken, "across the seam");
+        // Where Maren is, in the colony's own frame, is on the ring's floor.
+        let here = plaza.where_is(1, 0).expect("in the town");
+        let back = deck::deck_at(here).expect("over the ring's floor");
+        assert_eq!(back.deck, RING);
+        assert!((back.x - (x - 5.0)).abs() < 0.05 && (back.s - gate).abs() < 0.05, "{back:?}");
+        // Counted apart from the city's and the base's.
+        assert_eq!(plaza.in_town(), 4);
+        let (city, _, _, base) = plaza.counts();
+        assert_eq!((city, base), (0, 1));
     }
 
     #[test]

@@ -83,11 +83,28 @@ impl BotClient {
         Self::connect_signing(cfg, Identity::Solana { key, resume }, None, Signer::Solana(sign)).await
     }
 
+    /// Connects as a guest who says they're a person at a keyboard ([`PilotKind::Human`]), as the
+    /// browser does: for tests of what the server does for people and not for agents (a new pilot
+    /// waking in the ring's town).
+    pub async fn connect_person(cfg: &BotConfig) -> anyhow::Result<Self> {
+        Self::connect_kind(cfg, Identity::Guest, None, Signer::None, PilotKind::Human).await
+    }
+
     async fn connect_signing(
         cfg: &BotConfig,
         identity: Identity,
         pass: Option<String>,
         signer: Signer<'_>,
+    ) -> anyhow::Result<Self> {
+        Self::connect_kind(cfg, identity, pass, signer, PilotKind::Agent).await
+    }
+
+    async fn connect_kind(
+        cfg: &BotConfig,
+        identity: Identity,
+        pass: Option<String>,
+        signer: Signer<'_>,
+        pilot: PilotKind,
     ) -> anyhow::Result<Self> {
         let info = if cfg.server.starts_with("http://") {
             discover(&cfg.server).await.context("discovering the server")?
@@ -98,7 +115,7 @@ impl BotClient {
         let (mut tx, mut rx) = conn.open_bi().await?.await?;
         let core = ClientCore::new(ClientConfig {
             name: cfg.name.clone(),
-            pilot: PilotKind::Agent,
+            pilot,
             frame: cfg.frame,
             faction: cfg.faction,
         })
@@ -282,6 +299,20 @@ impl BotClient {
     /// Back in through the bay's airlock (from its door).
     pub async fn leave_base(&mut self) -> anyhow::Result<()> {
         self.request(&Request::LeaveBase).await?;
+        self.wait_until(10.0, "the bay", |c| c.hangar.in_hangar()).await
+    }
+
+    /// Survival: down a spoke's lift to the ring's town, and returns once there (where it stands is
+    /// the step out of Hub Gate's lift, `bc_sim::colony::town::out_of_the_lift`, until it says
+    /// otherwise with [`BotClient::set_pose`]).
+    pub async fn enter_town(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::EnterTown).await?;
+        self.wait_until(10.0, "the town", |c| c.hangar.in_town()).await
+    }
+
+    /// Back up a spoke's lift to the bay (from a lift's door).
+    pub async fn leave_town(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::LeaveTown).await?;
         self.wait_until(10.0, "the bay", |c| c.hangar.in_hangar()).await
     }
 

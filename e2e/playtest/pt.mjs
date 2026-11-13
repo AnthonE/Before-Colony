@@ -56,7 +56,8 @@ Doing
   turn <yaw> [pitch]       turn the eyes, degrees (right, up): flying or on foot
   walk <spot>              walk there and wait to arrive: bay: airlock cockpit suit fabricator stores
                            exchange; city: proving_ground exchange_floor charter_board bar hub_gate_1..3
-                           tram seat pool gantry sight_0..9
+                           tram seat pool gantry sight_0..9; Bay Row: airlock hall; the town: lift
+                           boulevard car
   use                      use what's in view (E)
   cmd <json>               a dev command onto window.bcInbox, e.g. '{"cmd":"fly_to","spot":"bar","up":20,"ahead":30}'
                            '{"cmd":"aim_hostile","on":true}' '{"cmd":"skip"}' '{"cmd":"set","key":"hints","value":"false"}'
@@ -191,7 +192,7 @@ const NO_LOCK = () => {
 
 // What the one-line status shows, in order, when the client has it.
 const BRIEF = [
-  "screen", "panel", "mode", "scene", "place", "seq", "district", "strip", "city_room", "focus",
+  "screen", "panel", "mode", "scene", "place", "seq", "district", "town_district", "strip", "city_room", "focus",
   "terminal", "driving", "riding", "seated", "interior", "in_hall", "map_open", "objective",
   "waypoint", "frame", "alive", "speed", "pos", "fps", "wasm_mb", "link", "last_error",
 ];
@@ -446,11 +447,14 @@ async function serve() {
       // (A short walk can be over before it's seen: there already counts.)
       const going = await until(
         "the walk to start",
-        (s) => s.walking_to || s.city_walking_to || s.focus === spot,
+        (s) => s.walking_to || s.city_walking_to || s.deck_walking_to || s.town_walking_to || s.focus === spot,
         30_000,
       ).catch(() => null);
       if (!going) return `didn't start walking to ${spot} (not on foot here, or no such spot on this strip)\n${await summary()}`;
-      await until(`arriving at ${spot}`, (s) => !s.walking_to && !s.city_walking_to);
+      await until(
+        `arriving at ${spot}`,
+        (s) => !s.walking_to && !s.city_walking_to && !s.deck_walking_to && !s.town_walking_to,
+      );
       await freshFrame();
       return summary();
     },

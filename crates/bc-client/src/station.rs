@@ -166,6 +166,19 @@ impl SignAtlas {
         meshes: &mut Assets<Mesh>,
         standard: &mut Assets<StandardMaterial>,
     ) {
+        self.hang_on(signs, parent, None, commands, meshes, standard);
+    }
+
+    /// [`SignAtlas::hang`], on render layer `layer` (the ring's town's: the city's).
+    pub fn hang_on(
+        &mut self,
+        signs: &[Sign],
+        parent: Entity,
+        layer: Option<usize>,
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        standard: &mut Assets<StandardMaterial>,
+    ) {
         let Some(sizes) = &self.sizes else { return };
         let aspect: Vec<f32> = sizes.iter().map(|s| s.x / s.y).collect();
         let [aw, ah] = ATLAS.map(|v| v as f32);
@@ -207,13 +220,16 @@ impl SignAtlas {
                     m
                 }
             };
-            commands.spawn((
+            let mut sign = commands.spawn((
                 Mesh3d(meshes.add(mesh)),
                 MeshMaterial3d(material),
                 Transform::default(),
                 NotShadowCaster,
                 ChildOf(parent),
             ));
+            if let Some(layer) = layer {
+                sign.insert(RenderLayers::layer(layer));
+            }
         }
     }
 }

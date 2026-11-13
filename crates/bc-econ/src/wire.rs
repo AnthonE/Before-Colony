@@ -94,6 +94,30 @@ pub enum Request {
     EnterBase,
     /// Back in through the bay's airlock from Bay Row (standing at its door).
     LeaveBase,
+    /// Down a spoke's lift from the bay to the ring's town (`docs/FREE_ROAM.md`): on foot at Hub
+    /// Gate's lift, in its square.
+    EnterTown,
+    /// Back up the lift to the bay, from the door of any of the town's lifts.
+    LeaveTown,
+    /// At the wheel in the ring's town, the pilot's car hit one of its people on foot
+    /// (`bc_sim::colony::street`'s person `person`): the server checks where that person was, and
+    /// everyone in the town sees them down ([`Update::Street`]).
+    Hit {
+        person: u32,
+    },
+    /// At the wheel in the ring's town, stopped by someone standing in a lift's square
+    /// (`bc_sim::colony::street`'s person `person`): take them as a fare. The server says where to
+    /// and what it pays ([`Update::Fare`]).
+    TakeFare {
+        person: u32,
+    },
+    /// Stopped in the square the fare asked for: set them down, and be paid.
+    DropFare,
+    /// Caught by the Watch in the ring's town, wanted at `heat` (1 to 5, `docs/OPEN_CITY.md`): its
+    /// fine ([`watch_fine`]) is paid from the bay's credits, as much of it as there is.
+    Fine {
+        heat: u8,
+    },
     /// On foot at the Blast Hall's gantry in the colony's city: board one of the Charter Board's
     /// trainers and fly it from there (the inside's sector, weapons free in the hall). Nothing of
     /// the pilot's own is taken; `dock`, at rest on the gantry, puts them back on foot there.
@@ -296,6 +320,12 @@ impl Request {
             | Request::LeaveCity
             | Request::EnterBase
             | Request::LeaveBase
+            | Request::EnterTown
+            | Request::LeaveTown
+            | Request::Fine { .. }
+            | Request::Hit { .. }
+            | Request::TakeFare { .. }
+            | Request::DropFare
             | Request::BoardTrainer
             | Request::Withdraw { .. }
             | Request::Deliver { .. }
@@ -398,6 +428,31 @@ pub fn clean_line(text: &str) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
+/// One of the town's people knocked down by a pilot's car (`docs/FREE_ROAM.md`, the first of the
+/// promoted): who (`bc_sim::colony::street::Person::id`), where they lie on the ring's floor
+/// (across it, round it, m) and the way they faced, and the sector's tick they get up at. Till
+/// then no client draws them walking.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Down {
+    pub id: u32,
+    pub x: f32,
+    pub s: f32,
+    pub yaw: f32,
+    pub until: u32,
+    /// Not lying there but gone from the street: a fare in a pilot's car.
+    #[serde(default)]
+    pub away: bool,
+}
+
+/// What a fare pays for each kilometre round the ring between its two squares, credits.
+pub const FARE_PER_KM: u64 = 40;
+
+/// The Watch's fine for a pilot caught wanted at `heat` (1 to 5), credits.
+pub fn watch_fine(heat: u8) -> u64 {
+    let l = u64::from(heat.min(5));
+    150 * l * l
+}
+
 /// Where the pilot is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -410,6 +465,8 @@ pub enum Place {
     City,
     /// On foot on the base's deck in the hub, out of the bay's airlock (`docs/RING.md`).
     Base,
+    /// On foot (or driving) in the ring's town, down a spoke's lift (`docs/FREE_ROAM.md`).
+    Town,
 }
 
 /// Where a pilot waking at home gets up: the home, and the spot beside its bed (dm from the home's
@@ -495,6 +552,17 @@ pub enum Update {
     /// The pilot's body (survival): how fed they are, and for how long. On entering, after a meal,
     /// when the condition changes, and each minute on foot.
     Body(crate::body::BodyView),
+    /// The ring's town's street, to everyone down in it, whenever it changes: its people knocked
+    /// down.
+    Street {
+        down: Vec<Down>,
+    },
+    /// The fare in the pilot's car (the ring's town): the lift whose square they asked for, and
+    /// what they pay there; none, set down or lost.
+    Fare {
+        to: Option<u16>,
+        pay: u64,
+    },
 }
 
 /// The held homes near a pilot, as they see them.
@@ -727,6 +795,12 @@ pub fn apply(
         | Request::LeaveCity
         | Request::EnterBase
         | Request::LeaveBase
+        | Request::EnterTown
+        | Request::LeaveTown
+        | Request::Fine { .. }
+        | Request::Hit { .. }
+        | Request::TakeFare { .. }
+        | Request::DropFare
         | Request::WatchBoard { .. }
         | Request::UseKit { .. }
         | Request::Eject { .. }
@@ -997,6 +1071,12 @@ mod tests {
             (Request::LeaveCity, None),
             (Request::EnterBase, None),
             (Request::LeaveBase, None),
+            (Request::EnterTown, None),
+            (Request::LeaveTown, None),
+            (Request::Fine { heat: 2 }, None),
+            (Request::Hit { person: 7 }, None),
+            (Request::TakeFare { person: 7 }, None),
+            (Request::DropFare, None),
             (Request::BoardTrainer, None),
             (Request::Withdraw { id: 1 }, None),
             (Request::Deliver { id: 1, qty: 1 }, None),
@@ -1014,7 +1094,7 @@ mod tests {
             .iter()
             .map(|(r, _)| serde_json::to_value(r).unwrap()["t"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(tags.len(), 34, "every request: {tags:?}");
+        assert_eq!(tags.len(), 40, "every request: {tags:?}");
         // Each refusal says where to go, as the server's notes and the e2e read them.
         for (k, place) in [
             (Floor, "the exchange floor's counter"),

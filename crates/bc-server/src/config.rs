@@ -23,6 +23,17 @@ pub enum Ruleset {
     Arcade,
 }
 
+/// Where a new pilot wakes under survival rules (`docs/FREE_ROAM.md`, O1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum Start {
+    /// In their hangar bay, on foot beside their suit (agents always do; the suites that begin in
+    /// the bay ask for it).
+    #[default]
+    Bay,
+    /// On the street: in the ring's town, at Hub Gate's lift. The bay is up the spoke.
+    Town,
+}
+
 /// How pilots fly (`bc_sim::tuning::FlightRules`; drones fly by the real rules either way).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum Flight {
@@ -148,6 +159,9 @@ pub struct Config {
     /// inside is the retired cylinder's (`docs/RING.md`), opened only by the server's `--colony`;
     /// this default stays closed, so a test that doesn't ask for the colony gets no second sector.
     pub colony: bool,
+    /// Where a new pilot wakes (survival; a person, not an agent): this default is the bay, so a
+    /// test that doesn't ask for the town begins where it always did; the server's own is the town.
+    pub start: Start,
     /// How many connections it takes, in all and from one address (`net::admit`).
     pub limits: crate::net::admit::Limits,
     /// Where the store lists the traders on its trade page, who stand on the Exchange floor
@@ -184,6 +198,7 @@ impl Default for Config {
             craft_speed: 1.0,
             data_dir: None,
             colony: false,
+            start: Start::Bay,
             limits: crate::net::admit::Limits::default(),
             floor_visitors: None,
         }

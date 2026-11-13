@@ -120,6 +120,8 @@ pub struct Ui {
     /// (its number, their credits).
     pub prompt: String,
     pub bay_line: String,
+    /// In the ring's town: the radar.
+    pub radar: Option<bc_client_core::page::Radar>,
     /// In the colony: the map (M) is up, and where the pilot stands on it (strip, `x` along, `s`
     /// across, heading in the map's terms: radians from +x towards −s).
     pub map: bool,
@@ -353,6 +355,7 @@ fn view_of(ui: &Ui) -> View {
         map: ui.map_at.filter(|_| ui.map).map(|[strip, x, s, heading]| MapAt { strip, x, s, heading }),
         map_goal: ui.map_goal.filter(|_| ui.map),
         map_found: ui.map_found,
+        radar: ui.radar.clone(),
         news_seq: ui.news_seq,
         news: ui.news.clone(),
         news_bad: ui.news_bad,

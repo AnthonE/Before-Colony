@@ -14,8 +14,9 @@ screenshot is a PNG path: **Read it to see it.** `scripts/pt help` lists everyth
 ```bash
 scripts/pt up                      # the world (builds first if the code is newer than the build)
 export PT_SESSION=scout            # your own browser and pilot (default: pt); keep it for the session
-scripts/pt open                    # a guest pilot, straight into their bay on foot (survival rules)
-scripts/pt shot bay                # -> e2e/artifacts/playtest/scout/001-bay.png: Read it
+scripts/pt open                    # a guest pilot, awake on foot in the ring's town at Hub Gate's lift (survival rules)
+scripts/pt shot town               # -> e2e/artifacts/playtest/scout/001-town.png: Read it
+scripts/pt walk lift && scripts/pt use         # the spoke's lift up to their bay (BC_START=bay scripts/pt up: they wake there)
 scripts/pt walk airlock && scripts/pt use      # the cap lift down to the colony (BC_COLONY=1 pt up)
 scripts/pt wait 's.place=="city"' 120 && scripts/pt cmd '{"cmd":"skip"}'
 scripts/pt around                  # four views turning round, on one contact sheet
@@ -65,7 +66,8 @@ the suite shows the current way.
 | Where | How |
 |---|---|
 | The title screen | `open 'autoplay=0'`, then `ui` for its controls, `click '#launch-button'` |
-| The bay, on foot | `open` (survival is the default: a guest wakes in their bay) |
+| The ring's town, on foot | `open` (survival is the default: a new pilot wakes at Hub Gate's lift, `docs/FREE_ROAM.md`); `walk boulevard`; `walk car`, `use` takes it (`key KeyW 3000` drives, `key Space 800` the handbrake, `use` out); knocks and pavements draw the Watch (`status town_heat town_watch`) |
+| The bay, on foot | from the town `walk lift`, `use`; or start the world with `BC_START=bay scripts/pt up`: a guest wakes in their bay (Q at its airlock rides back down) |
 | A bay terminal | `walk fabricator` (or `stores`, `exchange`, `suit`), `use`; `key Escape` closes |
 | Space, launched | `walk cockpit`, `use` (the launch sequence; `cmd '{"cmd":"skip"}'` skips it) |
 | Home from space | `cmd '{"cmd":"fly_to","spot":"dock"}'`, `wait '!s.flying_to' 400`, `key Enter` |
@@ -79,7 +81,9 @@ the suite shows the current way.
 
 `status` prints the client's whole `window.__bc`; the fields that say where you are: `place`
 (hangar, city, space), `seq` (walking, launching, lift_down…), `focus` (what's in view to use),
-`terminal`, `district`, `strip`, `interior` (a suit inside the colony), `objective`, `alive`.
+`terminal`, `district`, `strip`, `interior` (a suit inside the colony), `objective`, `alive`; in the
+town `town_feet` (across the ring, round it, up), `town_district`, `town_driving`, `town_speed`,
+`town_heat`.
 `wait` takes any JS over them: `scripts/pt wait 's.terminal=="exchange"' 60`.
 
 ## What to look for

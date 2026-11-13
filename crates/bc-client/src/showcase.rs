@@ -115,6 +115,12 @@ pub enum Scene {
     /// The fx stage (`?fx=<name>`, `fx_stage.rs`): one effect alone in front of a dark card and a
     /// light card, fired on the clock's step 1, for `scripts/fx.sh`'s strips.
     Fx,
+    /// The ring's town (`docs/FREE_ROAM.md`), from Hub Gate's square, its traffic and its people on
+    /// the scene's clock: down the boulevard under the lift's portal (1), from over the square, the
+    /// floor rising ahead (2), along a street by its parked cars (3), a pavement among its people
+    /// (4), the canal from its quay (5), the lift's door (6), from a tower's height across the town
+    /// (7), the boulevard's traffic from its median (8).
+    Town,
 }
 
 impl Scene {
@@ -139,6 +145,7 @@ impl Scene {
             "ring" | "station" | "deck" => Some(Self::Ring),
             "floor" | "exchange" => Some(Self::Floor),
             "fx" => Some(Self::Fx),
+            "town" | "freeroam" => Some(Self::Town),
             _ => None,
         }
     }
@@ -164,6 +171,7 @@ impl Scene {
             Self::Ring => "ring",
             Self::Floor => "floor",
             Self::Fx => "fx",
+            Self::Town => "town",
         }
     }
 
@@ -173,6 +181,7 @@ impl Scene {
             Self::City => city_cams(),
             Self::Markab => markab_cams(),
             Self::Base => base_cams(),
+            Self::Town => town_cams(),
             Self::Floor => floor_cams(),
             // Framed by the effect it stages (`ShowcasePlugin::build`).
             Self::Fx => vec![orbit(crate::fx_stage::AT, 0.0, 0.0, 10.0)],
@@ -537,6 +546,9 @@ impl Plugin for ShowcasePlugin {
         if self.scene == Scene::Base {
             app.add_systems(Update, base_script.after(script).in_set(crate::view::Vis::Drive));
         }
+        if self.scene == Scene::Town {
+            app.add_systems(Update, town_script.after(script).in_set(crate::view::Vis::Drive));
+        }
         if self.scene == Scene::Ring {
             app.add_systems(Update, ring_script.after(script).in_set(crate::view::Vis::Drive));
         }
@@ -645,7 +657,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Surface => {
             vec![(Argo, Faction::Colonies), (Argo, Faction::Colonies), (Argo, Faction::Alliance)]
         }
-        Scene::City | Scene::Markab | Scene::Base | Scene::Floor | Scene::Fx => vec![],
+        Scene::City | Scene::Markab | Scene::Base | Scene::Floor | Scene::Fx | Scene::Town => vec![],
         Scene::Ring => vec![(Argo, Faction::Colonies), (Altair, Faction::Colonies)],
     }
 }
@@ -1581,6 +1593,37 @@ fn base_cams() -> Vec<Orbit> {
     ]
 }
 
+/// The town's cameras, round Hub Gate's lift, in the frame the town is drawn in from its square
+/// (`town::TownAt`'s default: upright at the step out of the lift's door): `x` across the ring, `dt`
+/// m round it from there, `h` up.
+fn town_cams() -> Vec<Orbit> {
+    use bc_client_core::town_mesh::bend;
+    use bc_sim::colony::town;
+    let (door_x, door_t) = town::out_of_the_lift(0);
+    // (Round the ring from the lift's own `t`, which the step out is half a pier short of.)
+    let at = |x: f32, t: f32, h: f32| bend(x, t - door_t, h);
+    let toward = |from: Vec3, to: Vec3| look(from, to - from);
+    let street = town::column(town::BOULEVARD_COLUMNS.0).0;
+    vec![
+        // On the boulevard's fore pavement short of the lift: its portal, the towers past it.
+        toward(at(-36.0, -70.0, 1.7), at(-10.0, 60.0, 14.0)),
+        // From over the square: the boulevard running on, the floor rising into the haze.
+        toward(at(-60.0, -160.0, 90.0), at(0.0, 500.0, 60.0)),
+        // Along the street behind the square, by its parked cars.
+        toward(at(street - 6.5, 60.0, 1.7), at(street + 2.0, 200.0, 4.0)),
+        // On a block's pavement among its people.
+        toward(at(street + 11.5, 150.0, 1.7), at(street + 12.5, 60.0, 1.6)),
+        // The canal from its quay.
+        toward(at(town::CANAL.0 - 4.0, 40.0, 2.2), at(town::CANAL.1 + 30.0, 320.0, 12.0)),
+        // The lift's door from out on its square.
+        toward(at(door_x - 9.0, door_t - 3.0, 1.7), at(door_x + 2.0, door_t, 2.2)),
+        // From a tower's height: across the town to the ring's fore face, the ceiling's lattice.
+        toward(at(120.0, 220.0, 150.0), at(-600.0, 900.0, 40.0)),
+        // On the boulevard's median, its traffic coming on.
+        toward(at(-7.0, 30.0, 2.0), at(-22.0, 220.0, 3.0)),
+    ]
+}
+
 fn markab_cams() -> Vec<Orbit> {
     use bc_client_core::showcase_markab::Stunt;
     let toward = |from: Vec3, to: Vec3| look(from, (to - from).normalize());
@@ -2407,7 +2450,7 @@ fn script(
         }
         // The bay is driven by `hangar_script`; the city by `city_script`; the Markab by
         // `markab_crowd`; the base stands still.
-        Scene::Hangar | Scene::City | Scene::Markab | Scene::Base | Scene::Floor => {}
+        Scene::Hangar | Scene::City | Scene::Markab | Scene::Base | Scene::Floor | Scene::Town => {}
         Scene::Fx => {
             if let Some(stage) = &stage {
                 crate::fx_stage::fire(stage, show.t0, show.step, show.prev, t, &mut events);
@@ -2682,7 +2725,6 @@ fn ring_script(mut indoors: ResMut<crate::hangar::Indoors>, mut set: ResMut<crat
     }
 }
 
-/// The hangar scene: the pilot's view indoors, the suit in its gantry, and the bay cycling.
 /// The view is on the base's deck, by the test hall, in its light.
 fn base_script(mut view: ResMut<crate::base::BaseView>) {
     if !view.active {
@@ -2690,6 +2732,21 @@ fn base_script(mut view: ResMut<crate::base::BaseView>) {
     }
 }
 
+/// The view is in the ring's town at Hub Gate's square (every cell in sight built before the
+/// first shot), its traffic and its people on the scene's clock.
+fn town_script(
+    vis: Res<VisTime>,
+    mut view: ResMut<crate::town::TownView>,
+    mut trams: ResMut<crate::trams::TramClock>,
+) {
+    if !view.active {
+        *view = crate::town::TownView { active: true, sync: true };
+    }
+    let (tick, frac) = bc_client_core::showcase_city::clock(vis.now);
+    *trams = crate::trams::TramClock(tick, frac);
+}
+
+/// The hangar scene: the pilot's view indoors, the suit in its gantry, and the bay cycling.
 fn hangar_script(
     show: Res<Show>,
     vis: Res<VisTime>,

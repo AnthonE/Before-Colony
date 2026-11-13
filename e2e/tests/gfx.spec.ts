@@ -99,6 +99,15 @@ const scenes: Array<[string, number, number, number]> = [
   // Bay 01's airlock from the walkway: the station language at a person's scale, its number over
   // its lit frame, KEEP CLEAR before it.
   ["base", 7, 2, 8],
+  // The ring's town from Hub Gate's square (docs/FREE_ROAM.md): the boulevard under the lift's
+  // portal, from over the square with the floor rising ahead, a street by its parked cars, and a
+  // pavement among its people; the boulevard again by night. (Cameras 5 to 8, by hand: the canal,
+  // the lift's door, across the town from a tower's height, the traffic from the median.)
+  ["town", 1, 2, 8],
+  ["town", 2, 2, 8],
+  ["town", 3, 2, 8],
+  ["town", 4, 2, 8],
+  ["town", 1, 1900, 8],
   // Suits on the landmarks: an Argo walking Fornax's core as the station rolls, rolling onto its toes
   // as each foot pushes off; one kneeling asleep in the Aft Well, its rim lights round it, the back
   // foot's toes tucked under; one lifting off Hermit on the verniers in its soles; one landing on

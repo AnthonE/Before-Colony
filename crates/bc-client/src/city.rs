@@ -412,16 +412,20 @@ pub fn setup_city(
 #[allow(clippy::type_complexity)]
 fn switch_view(
     view: Res<CityView>,
+    town: Res<crate::town::TownView>,
     streamer: Res<Streamer>,
     gfx: Res<Gfx>,
     mut cams: Query<(&mut RenderLayers, Option<&mut ColorGrading>, Option<&mut Bloom>), With<MainCamera>>,
     mut suns: Query<(&mut DirectionalLight, &mut Transform), With<Sun>>,
     mut vis: Query<&mut Visibility>,
 ) {
-    if !view.is_changed() {
+    if !view.is_changed() && !town.is_changed() {
         return;
     }
-    if !view.active {
+    // The ring's town is drawn on the city's layer too (`town.rs`): in either, the camera sees it
+    // and nothing of space.
+    let inside = view.active || town.active;
+    if !inside {
         // Space's Sun as `sky::setup_sky` spawns it (`sky::eclipse` puts its illuminance back):
         // otherwise the colony's hour (a red dusk) and its strip's direction follow it out.
         for (mut light, mut tf) in &mut suns {
@@ -430,14 +434,14 @@ fn switch_view(
         }
     }
     // (The cockpit's on its own layer in either: the pilot sits in it inside the colony too.)
-    let layers = if view.active {
+    let layers = if inside {
         RenderLayers::from_layers(&[CITY_LAYER, crate::cockpit::LAYER])
     } else {
         RenderLayers::from_layers(&[0, crate::cockpit::LAYER])
     };
     for (mut l, grading, bloom) in &mut cams {
         *l = layers.clone();
-        if view.active {
+        if inside {
             continue;
         }
         // Space's grade (`camera::pilot_effects` keeps its exposure and saturation) and bloom.

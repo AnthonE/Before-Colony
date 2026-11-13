@@ -125,6 +125,10 @@ pub struct GameShared {
     pub survival: bool,
     /// The colony is open: pilots may go down into its city, and fly their suits inside it.
     pub colony: bool,
+    /// A new pilot wakes in the ring's town, not their bay (survival; `config::Start`).
+    pub town_start: bool,
+    /// The town's people knocked down (`crate::street`).
+    pub street: Arc<crate::street::Street>,
     /// The colony's inside, if it's open.
     pub inside: Option<Inside>,
     /// The people in the colony's city (`plaza`).
@@ -453,6 +457,8 @@ impl GameRuntime {
             idle: cfg.idle_timeout,
             survival,
             colony: survival && cfg.colony,
+            town_start: survival && cfg.start == crate::config::Start::Town,
+            street: Arc::new(crate::street::Street::default()),
             inside,
             plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone())),
             anime: cfg.flight == Flight::Anime,
@@ -746,7 +752,7 @@ impl StatusView {
             // Under 100 while ticks run hot: the share of what it could send a pilot is sent.
             "pace_pct": l(&m.pace_pct),
         });
-        serde_json::json!({
+        let mut status = serde_json::json!({
             "tick": s.tick.load(Ordering::Acquire),
             "tick_hz": bc_sim::TICK_HZ,
             "oracle": self.oracle,
@@ -824,7 +830,10 @@ impl StatusView {
             "pilots": pilots,
             // Signed-in pilots who left: their suits, asleep in the cockpit.
             "sleepers": sleepers,
-        })
+        });
+        // And how many are down in the ring's town (set here: the macro above is at its depth).
+        status["town"] = serde_json::json!({ "people": self.plaza.in_town() });
+        status
     }
 }
 

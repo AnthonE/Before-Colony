@@ -840,3 +840,21 @@ fn the_town_answers_without_allocating() {
     assert!(hits > 5_000 && boxes > 3_000, "{hits} hits, {boxes} boxes");
     assert_eq!(n, 0, "heap operations in the town: {n}");
 }
+
+#[test]
+fn the_towns_street_life_answers_without_allocating() {
+    use bc_sim::colony::street;
+    use bc_sim::colony::town::ROUND;
+    use bc_sim::world::COLONY_HALF_WIDTH as HALF;
+    let (mut cars, mut people) = (0u32, 0u32);
+    let ((), n) = bc_alloc::count(|| {
+        for k in 0..200u32 {
+            let t0 = k as f32 * 97.0 - 300.0;
+            street::each_car(-HALF, HALF, t0, t0 + 600.0, k * 7_919, 0.5, &mut |_| cars += 1);
+            street::each_person(-HALF, HALF, t0, t0 + 300.0, k * 7_919, 0.5, &mut |_| people += 1);
+        }
+        street::each_car(-HALF, HALF, 0.0, ROUND, 1, 0.0, &mut |_| cars += 1);
+    });
+    assert!(cars > 5_000 && people > 10_000, "{cars} cars, {people} people");
+    assert_eq!(n, 0, "heap operations in the town's street life: {n}");
+}

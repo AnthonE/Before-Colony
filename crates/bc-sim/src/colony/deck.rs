@@ -101,6 +101,21 @@ impl DeckPos {
     pub fn from_walker(deck: u8, w: Vec3) -> Self {
         Self { deck, x: w.x, s: -w.z, h: w.y }
     }
+
+    /// The same place with `s` brought into `0..round`: the ring's floor is walked all the way round,
+    /// so a walker's `s` there runs past either end.
+    pub fn wrapped(self) -> Self {
+        let round = self.of().round();
+        let s = self.s - floor(self.s / round) * round;
+        Self { s: if s >= round { 0.0 } else { s }, ..self }
+    }
+}
+
+/// How far round deck `deck` it is from `from` to `to` the short way, m (signed: the way `s` grows).
+pub fn round_from(deck: u8, from: f32, to: f32) -> f32 {
+    let round = DECKS[deck as usize % DECKS.len()].round();
+    let d = to - from;
+    d - floor(d / round + 0.5) * round
 }
 
 /// Bay Row: the walkway along the base deck's back end (its low x), behind the bays, every bay's
@@ -159,18 +174,22 @@ pub fn local_frame(deck: u8, s: f32) -> Quat {
 }
 
 /// Whether the box `min..max` (the walker's frame on deck `deck`, `(x, h, −s)`) touches anything
-/// solid there: the deck's floor, its ends, its ceiling, the bulkhead at its seam, or a building
-/// standing on it (`content::base::SITES`; on the ring's, the town: `colony::town`). What a walker
-/// meets on the deck, and what the server's pose check asks, as `city::solid` is on the cylinder's
-/// strips.
+/// solid there: the deck's floor, its ends, its ceiling, or a building standing on it
+/// (`content::base::SITES`; on the ring's, the town: `colony::town`). The base's deck has a bulkhead
+/// at its seam; the ring's floor goes all the way round (any `s`: the town wraps). What a walker meets
+/// on the deck, and what the server's pose check asks, as `city::solid` is on the cylinder's strips.
 pub fn solid(deck: u8, min: Vec3, max: Vec3) -> bool {
     let d = &DECKS[deck as usize % DECKS.len()];
-    // The floor, the deck's ends, its ceiling; round it, the seam (`s` from 0 to the round, so the
-    // walker's z from −round to 0) is a bulkhead till the ring's town crosses it.
-    if min.y < 0.0 || min.x < d.x0 || max.x > d.x1 || max.y > d.roof_h || max.z > 0.0 || min.z < -d.round() {
+    // The floor, the deck's ends, its ceiling.
+    if min.y < 0.0 || min.x < d.x0 || max.x > d.x1 || max.y > d.roof_h {
         return true;
     }
-    if deck == RING && crate::colony::town::solid(min, max) {
+    if deck == RING {
+        return crate::colony::town::solid(min, max);
+    }
+    // Round the base's deck, the seam (`s` from 0 to the round, so the walker's z from −round to 0)
+    // is a bulkhead.
+    if max.z > 0.0 || min.z < -d.round() {
         return true;
     }
     let b = Aabb::new(min, max);
@@ -276,5 +295,31 @@ mod solid_tests {
         assert!(solid(BASE, lo, hi));
         let (lo, hi) = at(d.x0 + 152.0, 0.1, 0.0);
         assert!(solid(BASE, lo, hi));
+    }
+
+    #[test]
+    fn the_rings_floor_goes_all_the_way_round() {
+        use crate::colony::town;
+        let round = DECKS[RING as usize].round();
+        // On the boulevard's carriageway, either side of the seam and a turn on: nothing in the way.
+        for s in [-3.0f32, 0.0, 3.0, round - 3.0, round + 3.0, 2.0 * round + 40.0] {
+            let w = Vec3::new(20.0, 0.0, -s);
+            assert!(!solid(RING, w - Vec3::new(0.3, 0.0, 0.3), w + Vec3::new(0.3, 1.8, 0.3)), "s {s}");
+        }
+        // The same wall a turn on.
+        let r = town::block_rect(town::BlockId::new(30, 3));
+        let mut wall = None;
+        town::each_block_box(town::BlockId::new(30, 3), &mut |b| wall = wall.or(Some(b)));
+        let b = wall.expect("a building on the block");
+        assert!(r.t0 <= b.t0);
+        let s = town::deck_s(0.5 * (b.t0 + b.t1));
+        for turn in [-round, 0.0, round] {
+            let w = Vec3::new(0.5 * (b.x0 + b.x1), 0.0, -(s + turn));
+            assert!(solid(RING, w - Vec3::new(0.3, 0.0, 0.3), w + Vec3::new(0.3, 1.8, 0.3)), "turn {turn}");
+        }
+        assert!((DeckPos::new(RING, 0.0, round + 5.0, 0.0).wrapped().s - 5.0).abs() < 1e-2);
+        assert!((DeckPos::new(RING, 0.0, -5.0, 0.0).wrapped().s - (round - 5.0)).abs() < 1e-2);
+        assert!((round_from(RING, round - 2.0, 3.0) - 5.0).abs() < 1e-2);
+        assert!((round_from(RING, 3.0, round - 2.0) + 5.0).abs() < 1e-2);
     }
 }
