@@ -46,6 +46,8 @@ pub struct HangarState {
     /// ...and the last one is kept.
     pub last_debrief: Option<Debrief>,
     /// News, oldest first. The UI takes it.
+    /// The ring's town's people knocked down, as the server last said (`Update::Street`).
+    pub street: Vec<bc_econ::wire::Down>,
     pub news: Vec<String>,
     /// In the city: the names of the people seen there, by the slot the plaza knows them by.
     pub people: std::collections::HashMap<u16, String>,
@@ -104,6 +106,7 @@ impl HangarState {
             Update::Proving(view) => self.proving = Some(view),
             Update::Homes(view) => self.homes = view,
             Update::Body(view) => self.body = Some(view),
+            Update::Street { down } => self.street = down,
         }
         false
     }

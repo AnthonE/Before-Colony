@@ -304,6 +304,93 @@ pub fn drive(v: &mut Vehicle, d: &bc_sim::car::Drive, dt: f32, cars: &Obstacles)
     knocked
 }
 
+/// A car the town's people step aside from: a pilot's, where its middle is on the ring's floor,
+/// its heading and how fast it goes (back: negative).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mover {
+    pub x: f32,
+    pub s: f32,
+    pub yaw: f32,
+    pub speed: f32,
+}
+
+impl Mover {
+    pub fn of(v: &Vehicle) -> Self {
+        Self { x: v.x, s: v.s, yaw: v.yaw, speed: v.speed }
+    }
+}
+
+/// People mind a car coming at them from this far off, m, within this far either side of its way;
+/// they start to step aside after [`REACT`] s, at [`SIDESTEP`] m/s, [`ASIDE`] m at most; and step
+/// back over this far behind it.
+const MIND: f32 = 6.0;
+const MIND_SIDE: f32 = 2.6;
+const REACT: f32 = 0.25;
+const SIDESTEP: f32 = 3.0;
+const ASIDE: f32 = 1.4;
+const BEHIND: f32 = 4.0;
+const PASSED: f32 = 2.6;
+/// A car going this fast knocks down whoever it reaches, m/s; slower, it only shoves past.
+pub const HIT_SPEED: f32 = 6.0;
+
+/// How far someone at `(x, s)` has stepped aside from `car`: out of its way, by how long it's been
+/// coming at them (so a slow car parts the crowd and a fast one doesn't give them time), and back
+/// once it's past. A closed form of where each is: the same on every screen that sees the car.
+/// `seed` says which way someone dead ahead goes.
+pub fn dodge(x: f32, s: f32, seed: u32, car: &Mover) -> (f32, f32) {
+    let speed = car.speed.abs();
+    if speed < 1.0 {
+        return (0.0, 0.0);
+    }
+    let (fx, fs) = bc_sim::car::forward(car.yaw);
+    let (fx, fs) = if car.speed < 0.0 { (-fx, -fs) } else { (fx, fs) };
+    let (rx, rs) = (x - car.x, deck::round_from(RING, car.s, s));
+    let ahead = rx * fx + rs * fs;
+    let side = rs * fx - rx * fs;
+    // (Past them once its tail is: half a car's length and a bit.)
+    let past = (-ahead - PASSED).max(0.0);
+    if past >= BEHIND || ahead > MIND || side.abs() >= MIND_SIDE {
+        return (0.0, 0.0);
+    }
+    // How long it's been coming at them, and how far that's let them get; easing back behind it.
+    let since = (MIND - ahead.max(0.0)) / speed;
+    let back = 1.0 - past / BEHIND;
+    let reach = ((since - REACT) * SIDESTEP).clamp(0.0, ASIDE) * back * (1.0 - side.abs() / MIND_SIDE);
+    let way = if side.abs() > 0.05 {
+        side.signum()
+    } else if seed & 1 == 0 {
+        1.0
+    } else {
+        -1.0
+    };
+    (-fs * way * reach, fx * way * reach)
+}
+
+/// Whoever of the town's people a car at `v` runs down at tick `tick` plus `frac`: someone it
+/// reaches, going [`HIT_SPEED`] or more, wherever they'd stepped aside to. Not those `down` already.
+pub fn struck(v: &Vehicle, (tick, frac): (u32, f32), down: &[u32]) -> Option<bc_sim::colony::street::Person> {
+    if v.speed.abs() < HIT_SPEED {
+        return None;
+    }
+    let me = Mover::of(v);
+    let t = town::town_t(v.s);
+    let reach = CAR_CIRCLE.0 + bc_sim::foot::HALF;
+    let circles = Obstacles::circles(v.x, v.s, v.yaw);
+    let mut hit = None;
+    bc_sim::colony::street::each_person(v.x - 7.0, v.x + 7.0, t - 7.0, t + 7.0, tick, frac, &mut |p| {
+        if hit.is_some() || down.contains(&p.id) {
+            return;
+        }
+        let s = v.s + (p.t - t);
+        let (dx, ds) = dodge(p.x, s, p.seed, &me);
+        let (px, ps) = (p.x + dx, s + ds);
+        if circles.iter().any(|(cx, cs)| (cx - px).hypot(cs - ps) < reach) {
+            hit = Some(*p);
+        }
+    });
+    hit
+}
+
 /// Where a guide walks a pilot in the town to from `from` (their feet), by name (the dev hooks'
 /// `walk_to`): `lift`, the step at Hub Gate's lift's door; `boulevard`, the boulevard's pavement
 /// between the lift's piers; `car`, beside the nearest parked car. The square and its avenue are open
@@ -516,5 +603,52 @@ mod tests {
         assert!(!cars.blocks_car(&Vehicle::new(Kind::Car, RING_FLOOR, by.s, by.x + 6.0, c.yaw)));
         let w = by.walker();
         assert!(!cars.hits(w - Vec3::new(0.3, 0.0, 0.3), w + Vec3::new(0.3, 1.8, 0.3)), "no wall on foot");
+    }
+
+    #[test]
+    fn people_step_aside_from_a_slow_car_and_a_fast_one_runs_them_down() {
+        use bc_sim::colony::street;
+        // Somebody walking a block's pavement near Hub Gate, and a car driven straight at them from
+        // 20 m back along the way they walk.
+        let (x, t) = town::out_of_the_lift(0);
+        let mut who = None;
+        street::each_person(x - 200.0, x + 200.0, t + 30.0, t + 200.0, 0, 0.0, &mut |p| {
+            if p.pose == street::Pose::Walk && p.speed > 0.5 {
+                who = who.or(Some(*p));
+            }
+        });
+        let p = who.expect("somebody walking");
+        let s = town::deck_s(p.t);
+        let (fx, fs) = bc_sim::car::forward(p.yaw);
+        let run = |speed: f32| {
+            // (A frozen moment: the person where tick 0 has them, the car closing at `speed`.)
+            let mut least = f32::MAX;
+            let mut hit = false;
+            let mut d = 20.0;
+            while d > -8.0 {
+                let car =
+                    Vehicle { speed, ..Vehicle::new(Kind::Car, RING_FLOOR, s - fs * d, p.x - fx * d, p.yaw) };
+                let (dx, ds) = dodge(p.x, s, p.seed, &Mover::of(&car));
+                // How far off the car's line they are as its nose reaches them.
+                if d.abs() < 2.0 {
+                    least = least.min(dx.hypot(ds));
+                }
+                hit |= struck(&car, (0, 0.0), &[]).is_some_and(|h| h.id == p.id);
+                d -= speed / 60.0;
+            }
+            (least, hit)
+        };
+        let (aside, hit) = run(3.0);
+        assert!(aside > 1.2 && !hit, "a slow car: {aside} m aside, hit {hit}");
+        let (aside, hit) = run(18.0);
+        assert!(aside < 0.4 && hit, "a fast one: {aside} m aside, hit {hit}");
+        // Already down, nobody's hit twice; and nobody minds a car standing still or one going away.
+        let on_them = Vehicle { speed: 18.0, ..Vehicle::new(Kind::Car, RING_FLOOR, s, p.x, p.yaw) };
+        assert!(struck(&on_them, (0, 0.0), &[]).is_some());
+        assert!(struck(&on_them, (0, 0.0), &[p.id]).is_none_or(|h| h.id != p.id));
+        let parked = Mover { speed: 0.0, ..Mover::of(&on_them) };
+        assert_eq!(dodge(p.x + 0.5, s, 0, &parked), (0.0, 0.0));
+        let gone = Mover { x: p.x + fx * 12.0, s: s + fs * 12.0, ..Mover::of(&on_them) };
+        assert_eq!(dodge(p.x, s, 0, &gone), (0.0, 0.0));
     }
 }

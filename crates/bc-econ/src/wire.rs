@@ -99,6 +99,12 @@ pub enum Request {
     EnterTown,
     /// Back up the lift to the bay, from the door of any of the town's lifts.
     LeaveTown,
+    /// At the wheel in the ring's town, the pilot's car hit one of its people on foot
+    /// (`bc_sim::colony::street`'s person `person`): the server checks where that person was, and
+    /// everyone in the town sees them down ([`Update::Street`]).
+    Hit {
+        person: u32,
+    },
     /// Caught by the Watch in the ring's town, wanted at `heat` (1 to 5, `docs/OPEN_CITY.md`): its
     /// fine ([`watch_fine`]) is paid from the bay's credits, as much of it as there is.
     Fine {
@@ -309,6 +315,7 @@ impl Request {
             | Request::EnterTown
             | Request::LeaveTown
             | Request::Fine { .. }
+            | Request::Hit { .. }
             | Request::BoardTrainer
             | Request::Withdraw { .. }
             | Request::Deliver { .. }
@@ -409,6 +416,19 @@ pub fn clean_line(text: &str) -> Option<String> {
     }
     let out = out.trim_end().to_string();
     (!out.is_empty()).then_some(out)
+}
+
+/// One of the town's people knocked down by a pilot's car (`docs/FREE_ROAM.md`, the first of the
+/// promoted): who (`bc_sim::colony::street::Person::id`), where they lie on the ring's floor
+/// (across it, round it, m) and the way they faced, and the sector's tick they get up at. Till
+/// then no client draws them walking.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Down {
+    pub id: u32,
+    pub x: f32,
+    pub s: f32,
+    pub yaw: f32,
+    pub until: u32,
 }
 
 /// The Watch's fine for a pilot caught wanted at `heat` (1 to 5), credits.
@@ -516,6 +536,11 @@ pub enum Update {
     /// The pilot's body (survival): how fed they are, and for how long. On entering, after a meal,
     /// when the condition changes, and each minute on foot.
     Body(crate::body::BodyView),
+    /// The ring's town's street, to everyone down in it, whenever it changes: its people knocked
+    /// down.
+    Street {
+        down: Vec<Down>,
+    },
 }
 
 /// The held homes near a pilot, as they see them.
@@ -751,6 +776,7 @@ pub fn apply(
         | Request::EnterTown
         | Request::LeaveTown
         | Request::Fine { .. }
+        | Request::Hit { .. }
         | Request::WatchBoard { .. }
         | Request::UseKit { .. }
         | Request::Eject { .. }
@@ -1024,6 +1050,7 @@ mod tests {
             (Request::EnterTown, None),
             (Request::LeaveTown, None),
             (Request::Fine { heat: 2 }, None),
+            (Request::Hit { person: 7 }, None),
             (Request::BoardTrainer, None),
             (Request::Withdraw { id: 1 }, None),
             (Request::Deliver { id: 1, qty: 1 }, None),
@@ -1041,7 +1068,7 @@ mod tests {
             .iter()
             .map(|(r, _)| serde_json::to_value(r).unwrap()["t"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(tags.len(), 37, "every request: {tags:?}");
+        assert_eq!(tags.len(), 38, "every request: {tags:?}");
         // Each refusal says where to go, as the server's notes and the e2e read them.
         for (k, place) in [
             (Floor, "the exchange floor's counter"),

@@ -127,6 +127,8 @@ pub struct GameShared {
     pub colony: bool,
     /// A new pilot wakes in the ring's town, not their bay (survival; `config::Start`).
     pub town_start: bool,
+    /// The town's people knocked down (`crate::street`).
+    pub street: Arc<crate::street::Street>,
     /// The colony's inside, if it's open.
     pub inside: Option<Inside>,
     /// The people in the colony's city (`plaza`).
@@ -456,6 +458,7 @@ impl GameRuntime {
             survival,
             colony: survival && cfg.colony,
             town_start: survival && cfg.start == crate::config::Start::Town,
+            street: Arc::new(crate::street::Street::default()),
             inside,
             plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone())),
             anime: cfg.flight == Flight::Anime,

@@ -32,6 +32,8 @@ pub enum Offence {
     Knock,
     /// A second of driving at speed where people walk.
     Reckless,
+    /// Somebody run down.
+    HitSomeone,
 }
 
 impl Offence {
@@ -43,6 +45,7 @@ impl Offence {
             Offence::TookACarInSight => 3.0,
             Offence::Knock => 1.0,
             Offence::Reckless => 0.8,
+            Offence::HitSomeone => 4.0,
         }
     }
 }

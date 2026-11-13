@@ -149,6 +149,7 @@ pub(super) async fn run(
         proving_sent: Instant::now() - MARKET_EVERY,
         homes_seen: 0,
         homes_sent: Instant::now() - MARKET_EVERY,
+        street_seen: None,
         homes_near: Vec::new(),
         knocks_heard: game.homes.with(|h| h.knocks_for("", u64::MAX).1),
         waking: None,
@@ -224,6 +225,9 @@ struct Session<'a> {
     /// covered; and the last knock heard at one of their doors.
     homes_seen: u64,
     homes_sent: Instant,
+    /// The town's street as last sent (`crate::street::Street::version`; none: not yet, this time
+    /// down there).
+    street_seen: Option<u64>,
     homes_near: Vec<(i32, i32, u8)>,
     knocks_heard: u64,
     /// Back from asleep in a bed at home: where they get up, for the next `Update::Place`.
@@ -1149,6 +1153,18 @@ impl Session<'_> {
             Request::LeaveBase => self.leave_base().await,
             Request::EnterTown => self.enter_town().await,
             Request::LeaveTown => self.leave_town().await,
+            Request::Hit { person } => {
+                // Their car hit one of the town's people: taken if that person was there.
+                if self.place == Place::Town {
+                    let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+                    if let Some(pose) = self.game.plaza.pose_of(self.slot)
+                        && self.game.street.hit(person, &pose, tick)
+                    {
+                        tracing::info!(slot = self.slot, name = %self.callsign, "knocked somebody down in the town");
+                    }
+                }
+                Ok(())
+            }
             Request::Fine { heat } => {
                 // Caught by the Watch in the town: its fine, as much of it as the bay has.
                 if self.place != Place::Town || heat == 0 {
@@ -1980,6 +1996,18 @@ impl Session<'_> {
             && self.proving_sent.elapsed() >= MARKET_EVERY
         {
             self.send_proving().await?;
+        }
+        // Down in the town: its street, whenever it changes (and first on the way in).
+        if self.place == Place::Town {
+            let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            let down = self.game.street.view(tick);
+            let version = self.game.street.version();
+            if self.street_seen != Some(version) {
+                self.street_seen = Some(version);
+                self.send(&Update::Street { down }).await?;
+            }
+        } else {
+            self.street_seen = None;
         }
         self.homes_tick(settle).await
     }

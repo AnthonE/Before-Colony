@@ -165,3 +165,58 @@ async fn a_new_pilot_wakes_in_the_town_and_an_agent_in_its_bay() -> anyhow::Resu
     assert_eq!(server.status()["game"]["town"]["people"], 1);
     Ok(())
 }
+
+/// One pilot at the wheel runs down one of the town's people (someone standing about in Hub Gate's
+/// square); the server takes their word (that
+/// person was there) and tells everyone in the town, who see the same person down in the same place;
+/// a hit on somebody far off is nobody's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn somebody_run_down_is_down_for_everyone_in_the_town() -> anyhow::Result<()> {
+    use bc_sim::colony::street;
+    let server = bc_server::start(config()?).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut a = down(&http, "Maren").await?;
+    let mut b = down(&http, "Pagan").await?;
+    a.set_pose(standing(0.0, 0.0));
+    b.set_pose(standing(-3.0, 2.0));
+    both(&mut a, &mut b, 1.0).await?;
+    assert!(a.core.hangar.street.is_empty() && b.core.hangar.street.is_empty());
+
+    // Somebody standing about in the lift's square, fore of it (open ground from its door).
+    let (lx, lt) = town::out_of_the_lift(0);
+    let tick = server.status()["game"]["tick"].as_u64().unwrap() as u32;
+    let mut who = None;
+    street::each_person(lx - 110.0, lx - 15.0, lt + 15.0, lt + 110.0, tick, 0.0, &mut |p| {
+        if p.pose == street::Pose::Stand {
+            who = who.or(Some(*p));
+        }
+    });
+    let p = who.expect("somebody standing in Hub Gate's square");
+    // A hit claimed from the lift's door, on foot and far off: nothing.
+    b.request(&Request::Hit { person: p.id }).await?;
+    both(&mut a, &mut b, 0.6).await?;
+    assert!(a.core.hangar.street.is_empty(), "{:?}", a.core.hangar.street);
+    // Pagan takes a car and drives over to them, a car's pace at a time, and says so again.
+    let (dx, ds) = (p.x - lx, town::deck_s(p.t) - town::deck_s(lt));
+    let steps = ((dx.hypot(ds) / 20.0).ceil() as usize).max(2);
+    for k in 0..=steps {
+        let u = k as f32 / steps as f32;
+        b.set_pose(PersonPose {
+            ride: RIDE_CAR,
+            speed: 12.0,
+            ..standing(-3.0 + (dx + 3.0) * u, 2.0 + (ds - 2.0) * u)
+        });
+        both(&mut a, &mut b, 0.7).await?;
+    }
+    b.request(&Request::Hit { person: p.id }).await?;
+    a.wait_until(5.0, "the street's word", |c| c.hangar.street.iter().any(|d| d.id == p.id)).await?;
+    b.wait_until(5.0, "the street's word", |c| c.hangar.street.iter().any(|d| d.id == p.id)).await?;
+    let (da, db) = (a.core.hangar.street[0], b.core.hangar.street[0]);
+    assert_eq!(da, db, "the same person down in the same place for both");
+    assert!((da.x - p.x).abs() < 0.01 && (da.s - town::deck_s(p.t)).abs() < 0.05, "{da:?} vs {p:?}");
+    // Said again, they're no more down than they were.
+    b.request(&Request::Hit { person: p.id }).await?;
+    both(&mut a, &mut b, 0.6).await?;
+    assert_eq!(a.core.hangar.street.len(), 1);
+    Ok(())
+}

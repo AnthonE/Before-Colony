@@ -1024,6 +1024,12 @@ pub struct TownFoot {
     /// long till a knock counts again.
     reckless: f32,
     knock_wait: f32,
+    /// The people their own car has knocked down, till the server's word has them
+    /// (`Update::Street`).
+    struck: Vec<bc_econ::wire::Down>,
+    /// The Watch's cars after the other wanted pilots near, by their slot (their heat rides in
+    /// their pose: the same pursuit, as near as each screen can make it).
+    others: std::collections::HashMap<u16, Pursuit>,
 }
 
 /// The chase camera behind a car in the town: how far back and up it sits, m, and how fast its
@@ -1054,6 +1060,8 @@ impl TownFoot {
             pursuit: Pursuit::default(),
             reckless: 0.0,
             knock_wait: 0.0,
+            struck: Vec::new(),
+            others: std::collections::HashMap::new(),
         }
     }
 
@@ -1996,6 +2004,25 @@ pub fn drive_onfoot(
                     offences.push(Offence::Reckless);
                 }
             }
+            // Somebody run down: the server's told (it checks they were there, and everyone sees
+            // them down); here they're down at once.
+            let clock = g.core.colony_tick(now);
+            t.struck.retain(|d| d.until > clock.0 && !g.core.hangar.street.iter().any(|o| o.id == d.id));
+            let down: Vec<u32> = g.core.hangar.street.iter().chain(&t.struck).map(|d| d.id).collect();
+            if let Some(v) = t.drive
+                && let Some(p) = town_foot::struck(&v, clock, &down)
+            {
+                ask(&net, &g, &Request::Hit { person: p.id });
+                let at = DeckPos::new(RING, p.x, bc_sim::colony::town::deck_s(p.t), 0.0).wrapped();
+                t.struck.push(bc_econ::wire::Down {
+                    id: p.id,
+                    x: at.x,
+                    s: at.s,
+                    yaw: v.yaw,
+                    until: clock.0 + 25 * bc_sim::TICK_HZ,
+                });
+                offences.push(Offence::HitSomeone);
+            }
             if live && keys.just_pressed(KeyCode::Tab) {
                 t.seat_view = !t.seat_view;
                 t.orbit = Vec2::ZERO;
@@ -2101,9 +2128,42 @@ pub fn drive_onfoot(
                 town_cars.driving = None;
             }
         }
-        let watch: Vec<Vehicle> = t.pursuit.cars().copied().collect();
+        // The other pilots near: the cars the town's people step aside from, and the Watch after
+        // any of them it wants (their heat rides in their pose).
+        let people = g.core.people(now);
+        let in_town = |p: &PersonPose| p.strip == bc_proto::presence::RING_DECK;
+        let mut movers: Vec<town_foot::Mover> = t.drive.iter().map(town_foot::Mover::of).collect();
+        movers.extend(
+            people.iter().filter(|(_, _, p)| in_town(p) && p.driving()).map(|(_, _, p)| town_foot::Mover {
+                x: p.x,
+                s: p.s,
+                yaw: p.yaw,
+                speed: p.speed,
+            }),
+        );
+        let nobody = town_foot::Obstacles::default();
+        t.others.retain(|id, _| people.iter().any(|(pid, _, p)| pid == id && in_town(p)));
+        for (id, _, p) in people.iter().filter(|(_, _, p)| in_town(p)) {
+            if p.jets > 0 || t.others.contains_key(id) {
+                let pursuit = t.others.entry(*id).or_default();
+                pursuit.step(p.jets, DeckPos::new(RING, p.x, p.s, 0.0), p.speed, dt.max(1e-3), &nobody);
+                if p.jets == 0 && pursuit.is_empty() {
+                    t.others.remove(id);
+                }
+            }
+        }
+        drop(people);
+        let watch: Vec<Vehicle> =
+            t.pursuit.cars().chain(t.others.values().flat_map(|p| p.cars())).copied().collect();
         if town_cars.watch != watch {
             town_cars.watch = watch;
+        }
+        if town_cars.movers != movers {
+            town_cars.movers = movers;
+        }
+        let down: Vec<bc_econ::wire::Down> = g.core.hangar.street.iter().chain(&t.struck).copied().collect();
+        if town_cars.down != down {
+            town_cars.down = down;
         }
         // A district's name on the way into it.
         let (district, name) = town_foot::district_at(at.s);
@@ -2115,6 +2175,9 @@ pub fn drive_onfoot(
             Some(v) => town_foot::pose_driving(v),
             None => town_foot::pose_of(&t.walker),
         };
+        // (How much the Watch wants them goes with it, for whoever's near to see its cars come:
+        // the pose's two spare bits on this floor.)
+        let pose = PersonPose { jets: level.min(3), ..pose };
         g.core.set_pose(Some(pose));
         if let (Some(tr), Some(p)) = (net.get(), g.core.poll_pose(now)) {
             tr.send_datagram(&p);

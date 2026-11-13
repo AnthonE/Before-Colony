@@ -237,6 +237,15 @@ pub fn people_on(id: BlockId) -> (u32, u32) {
     }
 }
 
+/// The seed of the person `id` names (their look comes from it), wherever the tick has them.
+pub fn seed_of(id: u32) -> u32 {
+    if id >> 28 == 0xF {
+        return town::mix(0x57 + ((id >> 16) & 0xFFF), id & 0xFFFF, 0x5720);
+    }
+    let (block, j) = (id >> 4, id & 15);
+    if j < 8 { town::mix(block, j, 0xF007) } else { town::mix(block, j - 8, 0x57A9D) }
+}
+
 /// Where `u` m round a rectangle's edge is (from its low corner, along `x` first), and the heading
 /// there going that way round; `back` goes the other way.
 fn round_rect(r: &town::TownBox, u: f32, back: bool) -> (f32, f32, f32) {
@@ -461,6 +470,8 @@ mod tests {
                 assert!((0.0..1.0).contains(&p.stride) && (t0..=t0 + 500.0).contains(&p.t));
                 n += 1;
             }
+            // Each one's seed is their id's.
+            assert!(all.iter().all(|p| seed_of(p.id) == p.seed));
             // Nobody twice.
             let mut ids: Vec<u32> = all.iter().map(|p| p.id).collect();
             ids.sort_unstable();

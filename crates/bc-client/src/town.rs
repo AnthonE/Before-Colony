@@ -118,8 +118,13 @@ pub struct TownCars {
     pub driving: Option<(Vehicle, u32)>,
     pub left: Vec<(Vehicle, u32)>,
     pub taken: Vec<(i32, i32)>,
-    /// The Watch's cars after the pilot (`bc_client_core::watch`).
+    /// The Watch's cars after the pilot, and after the other wanted pilots near
+    /// (`bc_client_core::watch`).
     pub watch: Vec<Vehicle>,
+    /// The pilots' cars the town's people step aside from: the pilot's own, and the others' near.
+    pub movers: Vec<town_foot::Mover>,
+    /// The town's people knocked down: the server's word, and the pilot's own hits till it comes.
+    pub down: Vec<bc_econ::wire::Down>,
 }
 
 /// The seed a parked car's look comes from.
@@ -195,6 +200,8 @@ struct Seen<T> {
     s: f32,
     yaw: f32,
     what: T,
+    /// Knocked down: lying where they fell.
+    lie: bool,
 }
 
 /// A car to draw: its look, its lights, its seed.
@@ -510,17 +517,46 @@ fn draw_life(
                         && (o.x - p.x).abs() < CLEAR
                         && round_from(RING, o.s, at.s + (p.t - t)).abs() < CLEAR
                 });
-            if d2 <= reach * reach && !hidden {
-                people.push(Seen {
-                    d2,
-                    id: u64::from(p.id),
-                    x: p.x,
-                    s: at.s + (p.t - t),
-                    yaw: p.yaw,
-                    what: *p,
-                });
+            // (Nor anyone knocked down: they're drawn where they lie, below.)
+            let down = own.down.iter().any(|d| d.id == p.id && d.until > tick);
+            if d2 <= reach * reach && !hidden && !down {
+                // Stepped aside from the pilots' cars.
+                let s = at.s + (p.t - t);
+                let (mut x, mut ps) = (p.x, s);
+                for car in &own.movers {
+                    let (dx, ds) = town_foot::dodge(p.x, s, p.seed, car);
+                    x += dx;
+                    ps += ds;
+                }
+                people.push(Seen { d2, id: u64::from(p.id), x, s: ps, yaw: p.yaw, what: *p, lie: false });
             }
         });
+        // Those knocked down, where they lie.
+        for d in own.down.iter().filter(|d| d.until > tick) {
+            let ds = round_from(RING, at.s, d.s);
+            let d2 = near(d.x, ds);
+            if d2 <= reach * reach {
+                let what = street::Person {
+                    id: d.id,
+                    x: d.x,
+                    t: t + ds,
+                    yaw: d.yaw,
+                    speed: 0.0,
+                    stride: 0.0,
+                    pose: street::Pose::Stand,
+                    seed: street::seed_of(d.id),
+                };
+                people.push(Seen {
+                    d2,
+                    id: u64::from(d.id),
+                    x: d.x,
+                    s: at.s + ds,
+                    yaw: d.yaw,
+                    what,
+                    lie: true,
+                });
+            }
+        }
         people.sort_by(|a, b| a.d2.total_cmp(&b.d2));
     }
 
@@ -546,6 +582,7 @@ fn draw_life(
                 s: at.s + (c.t - t),
                 yaw: c.yaw,
                 what: look,
+                lie: false,
             });
         });
     }
@@ -555,7 +592,15 @@ fn draw_life(
             lights: Lights { parked: !lit, lamps: lit && lamps > 0.15, ..Lights::default() },
             seed,
         };
-        Seen { d2: near(v.x, round_from(RING, at.s, v.s)), id, x: v.x, s: v.s, yaw: v.yaw, what: look }
+        Seen {
+            d2: near(v.x, round_from(RING, at.s, v.s)),
+            id,
+            x: v.x,
+            s: v.s,
+            yaw: v.yaw,
+            what: look,
+            lie: false,
+        }
     };
     town_foot::each_parked(at.x, at.s, reach.min(320.0), |v| {
         let id = town_foot::parked_id(&v);
@@ -582,7 +627,7 @@ fn draw_life(
             seed: k as u32,
         };
         let d2 = near(v.x, round_from(RING, at.s, v.s));
-        cars.push(Seen { d2, id: 4 << 40 | k as u64, x: v.x, s: v.s, yaw: v.yaw, what: look });
+        cars.push(Seen { d2, id: 4 << 40 | k as u64, x: v.x, s: v.s, yaw: v.yaw, what: look, lie: false });
     }
     cars.retain(|c| c.d2 <= reach * reach);
     cars.sort_by(|a, b| a.d2.total_cmp(&b.d2));
@@ -647,8 +692,16 @@ fn draw_life(
                 };
                 (p.x, p.s, p.yaw, Vec3::new(wide, tall, wide), m, plan::figure_tag(&o, 1.0, w.seed))
             };
-            let (translation, turn) = seen_from(at.s, x, s, 0.0);
-            tf.set_if_neq(Transform { translation, rotation: turn * Quat::from_rotation_y(yaw), scale });
+            // (Someone knocked down lies on their back where they fell.)
+            let lie = !is_car && life.people[a + n].lie;
+            let (translation, turn) = seen_from(at.s, x, s, if lie { 0.22 } else { 0.0 });
+            let fallen =
+                if lie { Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2) } else { Quat::IDENTITY };
+            tf.set_if_neq(Transform {
+                translation,
+                rotation: turn * Quat::from_rotation_y(yaw) * fallen,
+                scale,
+            });
             tag.set_if_neq(MeshTag(want_tag));
             if mesh.0 != *want_mesh {
                 mesh.0 = want_mesh.clone();

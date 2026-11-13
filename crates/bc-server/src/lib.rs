@@ -23,6 +23,7 @@ pub mod pilots;
 pub mod plaza;
 pub mod proving;
 pub mod radio;
+pub mod street;
 pub mod telemetry;
 pub mod visitors;
 
