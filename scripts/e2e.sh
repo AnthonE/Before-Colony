@@ -10,7 +10,7 @@
 #   scripts/e2e.sh login [project]   # wallet sign-in (a stub wallet with a test key), resume, take-over
 #   scripts/e2e.sh hangar [project]  # survival: on foot in the bay, its terminals, launching and docking
 #   scripts/e2e.sh base [project]    # survival: out of the bay's airlock onto Bay Row, the base's deck, into the test hall and back in; two browsers meet on the row
-#   scripts/e2e.sh town [project]    # survival: Q at the bay's airlock rides a spoke's lift down to the ring's town; a walk to the boulevard, a car taken from a kerb and driven off, its traffic and its people, and back up the lift; two browsers meet in Hub Gate's square
+#   scripts/e2e.sh town [project]    # survival as the game runs it: a new pilot wakes in the ring's town at Hub Gate's lift; a walk to the boulevard, a car taken from a kerb and driven off, its traffic and its people, up the lift to the bay and down again by Q at its airlock; two browsers meet in Hub Gate's square
 #   scripts/e2e.sh surface [project] # the lander lands in Fornax's Aft Well, hides, parks and wakes there
 #   scripts/e2e.sh colony [project]  # survival, the colony open: the cap lift, another pilot at Hub Gate, the streets, the Exchange floor, a sight; two browsers meet at Hub Gate, one rides home, and an agent's suit lands by the other
 #   scripts/e2e.sh inside [project]  # survival, the colony open: Q at the cockpit launches the suit into the colony, it flies a way down it (through the course's start ring) and docks back at the inner gate; another lands on the avenue, sees the stroller there and walks it; a third flies into the Blast Hall and scores on its targets; a fourth boards a trainer at the hall's gantry, starts the drill and docks back on foot
@@ -95,25 +95,25 @@ case "$suite" in
   hangar)
     # Survival rules; the fabricator works fast so a job finishes inside the test. The retired
     # cylinder's inside open (`--colony`), as the suite's pointers to its desks expect, till R3.
-    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --craft-speed 60 --drones 0 --colony &
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --craft-speed 60 --drones 0 --colony --start bay &
     pids+=($!)
     ;;
   base)
     # Survival rules, the retired cylinder's inside shut (the default): out of the airlock onto Bay
-    # Row, the base's deck (`docs/RING.md`); no drones.
-    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 &
+    # Row, the base's deck (`docs/RING.md`); no drones. Pilots wake in their bays (`--start bay`).
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --start bay &
     pids+=($!)
     ;;
   town)
-    # Survival rules, the retired cylinder's inside shut (the default): down a spoke's lift to the
-    # ring's town (`docs/FREE_ROAM.md`); no drones.
+    # Survival rules as the game runs them: a new pilot wakes in the ring's town, their bay up a
+    # spoke's lift (`docs/FREE_ROAM.md`); no drones.
     "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 &
     pids+=($!)
     ;;
   colony|inside)
     # Survival rules, the retired cylinder's inside open (`--colony`); no drones. An agent strolls
     # outside Hub Gate.
-    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --colony &
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --colony --start bay &
     pids+=($!)
     sleep 1
     "$bin/examples/flaneur" --server "$BC_URL" --name "Flaneur-01" &
@@ -126,7 +126,7 @@ case "$suite" in
     data="$(mktemp -d)"
     BC_HOME_SEED="$("$bin/examples/seed_homes" "$data")"
     export BC_HOME_SEED
-    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --colony --data-dir "$data" &
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --colony --start bay --data-dir "$data" &
     pids+=($!)
     ;;
   *) echo "unknown suite $suite" >&2; exit 1 ;;

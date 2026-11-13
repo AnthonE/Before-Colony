@@ -83,11 +83,28 @@ impl BotClient {
         Self::connect_signing(cfg, Identity::Solana { key, resume }, None, Signer::Solana(sign)).await
     }
 
+    /// Connects as a guest who says they're a person at a keyboard ([`PilotKind::Human`]), as the
+    /// browser does: for tests of what the server does for people and not for agents (a new pilot
+    /// waking in the ring's town).
+    pub async fn connect_person(cfg: &BotConfig) -> anyhow::Result<Self> {
+        Self::connect_kind(cfg, Identity::Guest, None, Signer::None, PilotKind::Human).await
+    }
+
     async fn connect_signing(
         cfg: &BotConfig,
         identity: Identity,
         pass: Option<String>,
         signer: Signer<'_>,
+    ) -> anyhow::Result<Self> {
+        Self::connect_kind(cfg, identity, pass, signer, PilotKind::Agent).await
+    }
+
+    async fn connect_kind(
+        cfg: &BotConfig,
+        identity: Identity,
+        pass: Option<String>,
+        signer: Signer<'_>,
+        pilot: PilotKind,
     ) -> anyhow::Result<Self> {
         let info = if cfg.server.starts_with("http://") {
             discover(&cfg.server).await.context("discovering the server")?
@@ -98,7 +115,7 @@ impl BotClient {
         let (mut tx, mut rx) = conn.open_bi().await?.await?;
         let core = ClientCore::new(ClientConfig {
             name: cfg.name.clone(),
-            pilot: PilotKind::Agent,
+            pilot,
             frame: cfg.frame,
             faction: cfg.faction,
         })

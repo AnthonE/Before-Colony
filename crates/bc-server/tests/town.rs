@@ -7,6 +7,7 @@ use bc_bot::{BotClient, BotConfig};
 use bc_econ::wire::Request;
 use bc_proto::presence::{PersonPose, RIDE_CAR, RING_DECK};
 use bc_proto::{Faction, FrameId};
+use bc_server::config::Start;
 use bc_server::{Config, Mode, Ruleset};
 use bc_sim::colony::town;
 
@@ -128,5 +129,39 @@ async fn pilots_ride_a_spoke_down_to_the_town_see_each_other_drive_and_ride_back
     let (_, ok) = ask(&mut a, Request::LeaveTown).await?;
     assert!(!ok, "not down in the town any more");
     assert_eq!(server.status()["game"]["hot_path_allocations"], 0);
+    Ok(())
+}
+
+/// With the game's own start (`--start town`), a new pilot at a keyboard wakes on the street: at
+/// Hub Gate's lift, told where their suit is, and rides up to their bay by its door. An agent still
+/// wakes in its bay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_pilot_wakes_in_the_town_and_an_agent_in_its_bay() -> anyhow::Result<()> {
+    let server = bc_server::start(Config { start: Start::Town, ..config()? }).await?;
+    let http = format!("http://{}", server.http_addr);
+    let cfg = |name: &str| BotConfig {
+        server: http.clone(),
+        name: name.into(),
+        frame: FrameId::Argo,
+        faction: Faction::Colonies,
+    };
+    let mut person = BotClient::connect_person(&cfg("Maren")).await?;
+    person.wait_until(5.0, "the town", |c| c.hangar.in_town() && c.hangar.view.is_some()).await?;
+    assert!(
+        person.core.hangar.news.iter().any(|n| n.contains("UP THE SPOKE'S LIFT")),
+        "{:?}",
+        person.core.hangar.news
+    );
+    let mut agent = BotClient::connect(&cfg("Pagan")).await?;
+    agent.wait_until(5.0, "its bay", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
+    assert_eq!(server.status()["game"]["town"]["people"], 1);
+    // She stands where the lift let her out, and rides it up.
+    person.set_pose(standing(0.0, 0.0));
+    both(&mut person, &mut agent, 1.0).await?;
+    person.leave_town().await?;
+    assert_eq!(server.status()["game"]["town"]["people"], 0);
+    // Back down by her airlock's lift; and next time, no longer new... a guest is new every time.
+    person.enter_town().await?;
+    assert_eq!(server.status()["game"]["town"]["people"], 1);
     Ok(())
 }

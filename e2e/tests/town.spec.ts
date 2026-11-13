@@ -1,12 +1,12 @@
 import { chromium, expect, test, type Page } from "@playwright/test";
 import { bc, collectConsole } from "./util";
 
-// The ring's town, in the browser (`scripts/e2e.sh town`: survival, the retired cylinder's inside
-// shut as it is by default, no drones; `docs/FREE_ROAM.md`). A pilot walks to their bay's airlock
-// and rides a spoke's lift down to Hub Gate's square: the town is drawn round them, its traffic
-// and its people about; they walk out to the boulevard, take a car from a kerb and drive it off,
-// get out, walk back to the lift and ride up to their bay. Two pilots in two browsers ride down and
-// each sees the other in the square. The walking is the dev hook's (a guide walks the pilot's legs).
+// The ring's town, in the browser (`scripts/e2e.sh town`: survival as the game runs it, the retired
+// cylinder's inside shut, no drones; `docs/FREE_ROAM.md`). A new pilot wakes on the street at Hub
+// Gate's lift: the town is drawn round them, its traffic and its people about; they walk out to the
+// boulevard, take a car from a kerb and drive it off, get out, walk back to the lift and ride up to
+// their bay, and come back down by Q at its airlock. Two pilots in two browsers wake there and one
+// sees the other in the square. The walking is the dev hook's (a guide walks the pilot's legs).
 
 const push = (page: Page, cmd: Record<string, unknown>) =>
   page.evaluate((c) => ((window as any).bcInbox ||= []).push(c), cmd);
@@ -37,26 +37,32 @@ function seenAt(s: Record<string, any>, name: string): number[] | undefined {
   return hit?.slice(name.length + 1).split(",").map(Number);
 }
 
-/** To the bay's airlock, and down the spoke's lift to the town. */
+/** Awake (or come down) in the town, on foot. */
+const inTheTown = (page: Page, ms: number) =>
+  until(page, "the town", (s) => s.place === "town" && s.seq === "walking" && s.town_feet !== "", ms);
+
+/** From the bay: to its airlock, and down the spoke's lift to the town. */
 async function downToTheTown(page: Page) {
   await push(page, { cmd: "walk_to", spot: "airlock" });
   await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 180_000);
   await expect(page.locator("#use")).toContainText("THE TOWN");
   await push(page, { cmd: "hangar", req: { t: "enter_town" } });
-  return until(page, "the town", (s) => s.place === "town" && s.seq === "walking" && s.town_feet !== "", 120_000);
+  return inTheTown(page, 120_000);
 }
 
 const errors = (logs: string[]) => logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
 
-test("a pilot rides down to the town, walks it, drives a car off and rides back up", async ({ page }) => {
+test("a new pilot wakes in the town, walks it, drives a car off, rides up to their bay and back down", async ({
+  page,
+}) => {
   test.setTimeout(1_500_000);
   const logs = collectConsole(page);
   await page.goto("/?autoplay=1&name=Tester&quality=low");
-  await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 240_000);
 
-  // Out of Hub Gate's lift's door, on the floor of its square, in Charter Square; the town drawn
-  // round them, its people and its traffic about.
-  let s = await downToTheTown(page);
+  // Awake at Hub Gate's lift's door, on the floor of its square, in Charter Square, told where
+  // their suit is; the town drawn round them, its people and its traffic about.
+  let s = await inTheTown(page, 240_000);
+  await expect(page.locator("#news")).toContainText("UP THE SPOKE'S LIFT", { timeout: 30_000 });
   const [x0, , h0] = townFeet(s);
   expect(x0).toBeLessThan(-40);
   expect(x0).toBeGreaterThan(-46);
@@ -100,29 +106,34 @@ test("a pilot rides down to the town, walks it, drives a car off and rides back 
   await until(page, "back at the lift", (s) => s.focus === "lift" && !s.town_walking_to, 900_000);
   await expect(page.locator("#use")).toContainText("UP TO YOUR BAY");
   await push(page, { cmd: "use" });
-  await until(page, "the bay again", (s) => s.place === "hangar" && s.seq === "walking", 120_000);
+  await until(page, "their bay", (s) => s.place === "hangar" && s.seq === "walking", 120_000);
   status = await (await page.request.get("/status")).json();
   expect(status.game.town.people).toBe(0);
+  // And down again: Q at the bay's airlock is the spoke's lift.
+  s = await downToTheTown(page);
+  expect(s.town_district).toBe("CHARTER SQUARE");
+  status = await (await page.request.get("/status")).json();
+  expect(status.game.town.people).toBe(1);
   expect(status.game.hot_path_allocations).toBe(0);
   const bad = errors(logs);
   if (bad.length) console.log(bad.join("\n"));
   expect(bad).toEqual([]);
 });
 
-test("two pilots ride down to the town and see each other in Hub Gate's square", async ({ browser }) => {
+test("two new pilots wake in the town and see each other in Hub Gate's square", async ({ browser }) => {
   test.setTimeout(1_200_000);
   const small = { viewport: { width: 640, height: 360 } };
   const second = await chromium.launch(test.info().project.use.launchOptions ?? {});
   const [ca, cb] = [await browser.newContext(small), await second.newContext(small)];
   const [a, b] = [await ca.newPage(), await cb.newPage()];
   const logs = [collectConsole(a), collectConsole(b)];
-  const inBay = async (p: Page, name: string) => {
+  const awake = async (p: Page, name: string) => {
     for (let k = 0; k < 3; k++) {
       await p.goto(`/?autoplay=1&name=${name}&quality=low`);
       const s = await until(
         p,
-        "the bay",
-        (s) => (s.place === "hangar" && s.seq === "walking") || s.link === "failed",
+        "the town",
+        (s) => (s.place === "town" && s.seq === "walking" && s.town_feet !== "") || s.link === "failed",
         240_000,
       );
       if (s.link !== "failed") return;
@@ -130,9 +141,8 @@ test("two pilots ride down to the town and see each other in Hub Gate's square",
     }
     throw new Error(`${name} never got in`);
   };
-  await inBay(a, "Kai");
-  await inBay(b, "Nico");
-  await Promise.all([downToTheTown(a), downToTheTown(b)]);
+  await awake(a, "Kai");
+  await awake(b, "Nico");
   // Nico steps out to the boulevard; Kai sees him there (within 2 m of where he stands).
   await push(b, { cmd: "walk_to", spot: "boulevard" });
   await until(b, "the boulevard", (s) => !s.town_walking_to && Math.abs(townFeet(s)[0] + 36) < 1.5, 240_000);

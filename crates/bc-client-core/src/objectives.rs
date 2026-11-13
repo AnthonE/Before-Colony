@@ -101,7 +101,8 @@ pub enum Realm {
 }
 
 /// Where the pilot is, for the objectives: flying (or not yet anywhere), on foot in their bay, out
-/// on Bay Row (the base's deck, the colony closed), or on foot on strip `n` of the city.
+/// on Bay Row (the base's deck, the colony closed), on foot on strip `n` of the city, or down in
+/// the ring's town (`docs/FREE_ROAM.md`: where a new pilot wakes).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Here {
     #[default]
@@ -109,6 +110,7 @@ pub enum Here {
     Bay,
     Deck,
     City(u8),
+    Town,
 }
 
 /// Where an objective's waypoint is.
@@ -456,6 +458,16 @@ impl Objective {
                 "Back into your bay (E at its airlock's door), and launch from its cockpit. "
             }
             (Realm::City, Here::Deck) => "Back into your bay, and E at its airlock rides the cap lift down. ",
+            // Down in the ring's town: everything else is up the spoke, from the bay.
+            (Realm::Bay | Realm::Afoot, Here::Town) => {
+                "Up to your bay first: E at a spoke lift's door (Hub Gate's stands over the boulevard). "
+            }
+            (Realm::Space, Here::Town) => {
+                "Up to your bay (E at a spoke lift's door: Hub Gate's stands over the boulevard), and launch from its cockpit. "
+            }
+            (Realm::City, Here::Town) => {
+                "Up to your bay (E at a spoke lift's door), and E at its airlock rides the cap lift down. "
+            }
             (Realm::City | Realm::Bay | Realm::Afoot, Here::Space) => "Home first: dock at the ◆. ",
         };
         format!("{first}{}", self.how(survival, colony))
@@ -674,7 +686,7 @@ impl Objectives {
                 .copied()
                 .find(|o| open(o) && space(o))
                 .or_else(|| order.iter().copied().find(open)),
-            Here::Bay | Here::Deck | Here::City(_) => {
+            Here::Bay | Here::Deck | Here::City(_) | Here::Town => {
                 let due = |o: &Objective| *o == Objective::CharterDesk && i.waiting && o.available(i);
                 let flown_past =
                     |k: usize| order[k + 1..].iter().any(|later| space(later) && done & later.bit() != 0);

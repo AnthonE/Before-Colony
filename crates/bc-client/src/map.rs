@@ -241,6 +241,8 @@ pub fn update_objectives(
         Here::City(onfoot.city.as_ref().map_or(core.hangar.strip.unwrap_or(0), |c| c.strip))
     } else if onfoot.deck.is_some() {
         Here::Deck
+    } else if onfoot.town.is_some() {
+        Here::Town
     } else {
         Here::Bay
     };

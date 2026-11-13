@@ -1493,7 +1493,10 @@ pub fn drive_onfoot(
                     *town_cars = TownCars::default();
                 }
                 me.done(now);
-                ui.news("DOWN THE SPOKE · HUB GATE · CHARTER SQUARE", false);
+                // (Woken there, the Charter Board's word comes with the place.)
+                if before == Some(Place::Hangar) {
+                    ui.news("DOWN THE SPOKE · HUB GATE · CHARTER SQUARE", false);
+                }
             }
             // Out of the airlock onto Bay Row: a cut, the screen fading back in there.
             (_, Some(Place::Base)) => {

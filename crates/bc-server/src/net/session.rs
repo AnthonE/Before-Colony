@@ -294,6 +294,9 @@ async fn push_fed(sector: &SectorShared, slot: u16, fed: Option<Fed>) {
 pub const ARRIVAL: &str =
     "ARRIVAL REGISTERED · THE CHARTER BOARD ADVANCES YOU 2,000 CR AND AN ARGO · WELCOME TO THE FIRST COLONY";
 
+/// And the first time they wake in the ring's town (`config::Start::Town`).
+pub const ARRIVAL_IN_TOWN: &str = "ARRIVAL REGISTERED · THE CHARTER BOARD ADVANCES YOU 2,000 CR AND AN ARGO · IT STANDS IN YOUR BAY, UP THE SPOKE'S LIFT";
+
 /// What a pilot who left while flying inside the colony is told when they're back.
 pub const TOWED_FROM_THE_GATE: &str = "THE COLONY'S TUGS BROUGHT YOUR SUIT IN FROM THE INNER GATE";
 
@@ -435,6 +438,17 @@ impl Session<'_> {
         self.game.egress_thread.unpark();
         if self.survival() {
             self.place = if self.suit.is_some() { Place::Space } else { Place::Hangar };
+            // A new pilot (a person: agents are sent straight to their suits) wakes on the street,
+            // in the ring's town at Hub Gate's lift (`docs/FREE_ROAM.md`, O1).
+            let in_town = arrived
+                && self.game.town_start
+                && self.pilot == PilotKind::Human
+                && self.place == Place::Hangar;
+            if in_town {
+                self.place = Place::Town;
+                self.game.plaza.enter_town(self.slot, &self.callsign);
+                self.named.clear();
+            }
             // Asleep in a bed at home when they left: they wake there.
             self.waking = self.wake_at_home().await;
             self.settle(true);
@@ -453,7 +467,8 @@ impl Session<'_> {
                 self.send(&Update::News { text }).await?;
             }
             if arrived {
-                self.send(&Update::News { text: ARRIVAL.to_string() }).await?;
+                let text = if in_town { ARRIVAL_IN_TOWN } else { ARRIVAL };
+                self.send(&Update::News { text: text.to_string() }).await?;
             }
             self.send_hangar().await?;
             self.send_body().await?;

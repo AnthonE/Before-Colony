@@ -51,12 +51,17 @@ pub enum Hint {
     Gantry,
     /// On foot, hungry or starving (`docs/LIFE.md`): where meals are served.
     Hungry,
+    /// On foot in the ring's town (`docs/FREE_ROAM.md`): the cars at its kerbs, the Watch, and the
+    /// lift up to the bay.
+    Town,
 }
 
 impl Hint {
     /// In the order they're shown.
-    pub const ALL: [Hint; 24] = [
+    pub const ALL: [Hint; 25] = [
         Hint::Walk,
+        // Woken in the town: what's there, and the way up to the bay.
+        Hint::Town,
         Hint::Use,
         // Down into the city first (the Proving Ground is there), then out.
         Hint::Airlock,
@@ -89,15 +94,19 @@ impl Hint {
 
     /// Shown on foot, in the hangar bay or the colony's city (else while flying).
     fn on_foot(self) -> bool {
-        matches!(self, Hint::Walk | Hint::Use | Hint::Launch | Hint::Airlock | Hint::City | Hint::Hungry)
+        matches!(
+            self,
+            Hint::Walk | Hint::Use | Hint::Launch | Hint::Airlock | Hint::City | Hint::Hungry | Hint::Town
+        )
     }
 
     /// Whether it's where it belongs: the bay's in the bay, the city's in the city, the inner gate's
     /// inside the colony and the dock's outside it.
     fn in_place(self, i: &HintInput) -> bool {
         match self {
-            Hint::Use | Hint::Launch | Hint::Airlock => !i.in_city && !i.on_deck,
+            Hint::Use | Hint::Launch | Hint::Airlock => !i.in_city && !i.on_deck && !i.in_town,
             Hint::City => i.in_city,
+            Hint::Town => i.in_town,
             Hint::InnerGate => i.inside && !i.trainer,
             Hint::Hover => i.inside,
             Hint::Gantry => i.inside && i.trainer,
@@ -110,9 +119,10 @@ impl Hint {
     /// the bay and the city's for the city.
     fn due(self, i: &HintInput) -> bool {
         match self {
-            Hint::Use | Hint::Launch => !i.in_city && !i.on_deck,
-            Hint::Airlock => !i.in_city && !i.on_deck && i.survival,
+            Hint::Use | Hint::Launch => !i.in_city && !i.on_deck && !i.in_town,
+            Hint::Airlock => !i.in_city && !i.on_deck && !i.in_town && i.survival,
             Hint::City => i.in_city,
+            Hint::Town => i.in_town,
             Hint::Dock => i.survival && !i.inside,
             Hint::InnerGate => i.inside && !i.trainer,
             Hint::Hover => i.inside,
@@ -172,6 +182,9 @@ impl Hint {
             Hint::City => {
                 "M is the city's map. Walk onto a platform to ride a tram, E at a motor pool takes a car (R a Markab: it drives up walls); E at Hub Gate's lift goes back up to your bay."
             }
+            Hint::Town => {
+                "E at a car by a kerb takes it. E at a spoke lift's door (Hub Gate's stands over the boulevard) rides up to your bay, where your suit is. The Watch minds knocks, and driving where people walk."
+            }
             Hint::InnerGate => {
                 "To go home from in here, come to rest inside the inner gate's ring of lights and press Enter."
             }
@@ -209,7 +222,13 @@ impl Hint {
     fn max_secs(self) -> f64 {
         match self {
             Hint::Thrust | Hint::Fire | Hint::Walk => 20.0,
-            Hint::Use | Hint::Launch | Hint::Airlock | Hint::City | Hint::HubLanding | Hint::Hungry => 30.0,
+            Hint::Use
+            | Hint::Launch
+            | Hint::Airlock
+            | Hint::City
+            | Hint::HubLanding
+            | Hint::Hungry
+            | Hint::Town => 30.0,
             Hint::InnerGate | Hint::Gantry => 15.0,
             Hint::Hover => 18.0,
             Hint::Dock | Hint::Camera | Hint::Grip | Hint::Hide | Hint::Map | Hint::Lock | Hint::Step => 15.0,
@@ -266,6 +285,8 @@ pub struct HintInput {
     pub inside: bool,
     /// On foot out on Bay Row, the base's deck (the colony closed).
     pub on_deck: bool,
+    /// On foot (or at the wheel) down in the ring's town.
+    pub in_town: bool,
     /// Rode the cap lift down (or used the airlock).
     pub went_down: bool,
     /// Flying within a couple of kilometres of the docking hub's mouth, outside the colony.
@@ -341,6 +362,7 @@ impl Hints {
                 Hint::Step => i.stepped,
                 Hint::Airlock => i.went_down,
                 Hint::City => i.opened_map,
+                Hint::Town => i.using,
                 Hint::InnerGate | Hint::Gantry => i.docking,
                 Hint::Hover => false,
                 Hint::HubLanding => i.docking || i.gripping,

@@ -96,6 +96,10 @@ struct Args {
     /// so old command lines still run.
     #[arg(long, hide = true)]
     no_colony: bool,
+    /// Where a new pilot wakes (survival): on the street in the ring's town, their bay up the
+    /// spoke's lift; or in their bay, as agents always do.
+    #[arg(long, value_enum, default_value_t = bc_server::config::Start::Town)]
+    start: bc_server::config::Start,
     /// Connections taken in all, handshaking or open.
     #[arg(long, default_value_t = bc_server::net::admit::Limits::default().connections)]
     max_connections: u32,
@@ -155,6 +159,7 @@ fn main() -> anyhow::Result<()> {
         craft_speed: args.craft_speed.max(0.01),
         data_dir: args.data_dir,
         colony: args.rules == Ruleset::Survival && args.colony,
+        start: args.start,
         floor_visitors: floor_visitors(
             args.floor_visitors.as_deref(),
             &bc_server::config::split_list(&args.siwe_domain),
