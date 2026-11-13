@@ -1015,6 +1015,8 @@ pub struct TownFoot {
     seat_view: bool,
     /// The district they were last in (its name is said on the way into the next).
     district: Option<u16>,
+    /// Told what the Watch's heat means (the first time it rises).
+    told_watch: bool,
     /// The cars near them: what their car and their legs run into.
     cars: town_foot::Obstacles,
     /// How much the Watch wants them, and its cars after them (`bc_client_core::watch`).
@@ -1059,6 +1061,7 @@ impl TownFoot {
             orbit: Vec2::ZERO,
             seat_view: false,
             district: None,
+            told_watch: false,
             cars: town_foot::Obstacles::default(),
             heat: Heat::default(),
             pursuit: Pursuit::default(),
@@ -2123,7 +2126,7 @@ pub fn drive_onfoot(
                         }
                         town_cars.taken.push(town_foot::parked_id(&car));
                         // Somebody's car: worse in sight of one of the Watch's own.
-                        let seen = watch::watch_car_near(at, 120.0, g.core.colony_tick(now));
+                        let seen = watch::watch_car_sees(at, 80.0, g.core.colony_tick(now));
                         offences.push(if seen { Offence::TookACarInSight } else { Offence::TookACar });
                         took_in_sight = seen;
                         crate::town::parked_seed(&car)
@@ -2144,16 +2147,30 @@ pub fn drive_onfoot(
                 ui.news(format!("{why} · {}", watch::stars(t.heat.level())), true);
             }
         }
-        // (Nothing cools under the eye of one of its cars: lose them first.)
-        if !t.pursuit.in_sight(t.feet()) && t.heat.cool(dt) {
-            ui.toast(match t.heat.level() {
-                0 => "THE WATCH HAS LOST INTEREST".to_string(),
-                l => format!("THE WATCH · {}", watch::stars(l)),
-            });
+        // (The first time, what it means.)
+        if t.heat.level() > 0 && !t.told_watch {
+            t.told_watch = true;
+            ui.toast("STOPPED WITH ONE OF THE WATCH'S CARS NEAR, YOU'RE FINED · LOSE THEM AND IT COOLS");
+        }
+        // The Watch keeps the clock the pilot's own car does, however slow the frames: in steps.
+        let speed = t.drive.map_or(Vec3::new(t.walker.vel.x, 0.0, t.walker.vel.z).length(), |v| v.speed);
+        let watch_dt = walk_dt(false).max(1e-3);
+        let (mut left, mut caught) = (watch_dt, false);
+        while left > 0.0 && !caught {
+            let h = left.min(0.1);
+            left -= h;
+            // (Nothing cools under the eye of one of its cars: lose them first.)
+            if !t.pursuit.in_sight(t.feet()) && t.heat.cool(h) {
+                ui.toast(match t.heat.level() {
+                    0 => "THE WATCH HAS LOST INTEREST".to_string(),
+                    l => format!("THE WATCH IS LOSING INTEREST · {}", watch::stars(l)),
+                });
+            }
+            let level = t.heat.level();
+            caught = t.pursuit.step(level, t.feet(), speed, h, &t.cars) && level > 0;
         }
         let level = t.heat.level();
-        let speed = t.drive.map_or(Vec3::new(t.walker.vel.x, 0.0, t.walker.vel.z).length(), |v| v.speed);
-        if t.pursuit.step(level, t.feet(), speed, dt.max(1e-3), &t.cars) && level > 0 {
+        if caught {
             ask(&net, &g, &Request::Fine { heat: level });
             t.heat.clear();
             t.pursuit.call_off();
@@ -2179,7 +2196,11 @@ pub fn drive_onfoot(
         for (id, _, p) in people.iter().filter(|(_, _, p)| in_town(p)) {
             if p.jets > 0 || t.others.contains_key(id) {
                 let pursuit = t.others.entry(*id).or_default();
-                pursuit.step(p.jets, DeckPos::new(RING, p.x, p.s, 0.0), p.speed, dt.max(1e-3), &nobody);
+                let mut left = watch_dt;
+                while left > 0.0 {
+                    pursuit.step(p.jets, DeckPos::new(RING, p.x, p.s, 0.0), p.speed, left.min(0.1), &nobody);
+                    left -= 0.1;
+                }
                 if p.jets == 0 && pursuit.is_empty() {
                     t.others.remove(id);
                 }

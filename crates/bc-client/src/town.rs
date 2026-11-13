@@ -61,7 +61,7 @@ const NEAR_CELLS: i32 = 4;
 const REACH_CELLS: i32 = 26;
 /// The haze's density against the hour's (`city_hour`'s is the cylinder's, 6 km across): the town's
 /// far end is lost in it.
-const HAZE: f32 = 4.5;
+const HAZE: f32 = 3.3;
 /// The sky's fill against the colour script's (`city_hour`'s is the cylinder's, where the far
 /// strips overhead fill the shade).
 const SKY_FILL: f32 = 2.6;

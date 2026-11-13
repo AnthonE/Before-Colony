@@ -531,12 +531,16 @@ pub fn cell(cell: u16, detail: Detail) -> PieceMesh {
                 _ => {
                     let tower = style == Style::Business && k == 1;
                     let flags = style as u8 + if tower { TOWER } else { 0 };
+                    let paint = building_paint(paint, s);
                     b.boxed(
                         &bx,
                         colour(Surface::Facade, paint, flags, s),
                         Some(colour(Surface::Roof, paint, 0, s)),
                         0.0,
                     );
+                    if !tower {
+                        crown(&mut b, &bx, paint, flags, s);
+                    }
                 }
             }
             k += 1;
@@ -684,6 +688,66 @@ fn lift(b: &mut Builder, k: u16, turn: f32, (lo, hi): (f32, f32), near: bool) {
         b.wall_t(frame, (dt - w - f, dt - w), (0.0, h + f), -1.0, glow, |t, y| [t, y]);
         b.wall_t(frame, (dt + w, dt + w + f), (0.0, h + f), -1.0, glow, |t, y| [t, y]);
         b.wall_t(frame, (dt - w, dt + w), (h, h + f), -1.0, glow, |t, y| [t, y]);
+    }
+}
+
+/// A building's own paint: its district's, or (two in five) another of the four tints, still in
+/// its quarter's colour. A street of one district isn't one building over and over.
+fn building_paint(paint: u8, s: u8) -> u8 {
+    match s % 5 {
+        0 => (paint & !3) | (paint.wrapping_add(1) & 3),
+        1 => (paint & !3) | (paint.wrapping_add(2) & 3),
+        _ => paint,
+    }
+}
+
+/// What stands on a wide building's roof, for the skyline's sake: a set-back upper block, a
+/// pavilion at each end, a block to one side, or nothing. The mesh's alone: nothing walks or
+/// drives up there, so the town's solid boxes (`town::each_block_box`) know nothing of it.
+fn crown(b: &mut Builder, bx: &TownBox, paint: u8, flags: u8, s: u8) {
+    let (w, l) = (bx.x1 - bx.x0, bx.t1 - bx.t0);
+    let short = w.min(l);
+    if short < 24.0 {
+        return;
+    }
+    let h = u32::from(s);
+    let roof = colour(Surface::Roof, paint, 0, s);
+    let block = |b: &mut Builder, x: (f32, f32), t: (f32, f32), storeys: u32, k: u8| {
+        let top = (bx.h1 + town::FLOOR * storeys as f32).min(town::MAX_HEIGHT);
+        let c = TownBox::new(x.0, x.1, t.0, t.1, bx.h1, top);
+        // (Its storeys start at its own foot: no ground floor's band up here.)
+        let walls = colour(Surface::Facade, paint, flags, s.wrapping_mul(29).wrapping_add(k));
+        b.boxed(&c, walls, Some(roof), bx.h1 - town::GROUND_FLOOR);
+    };
+    let inset = short * (0.14 + 0.04 * ((h / 5) % 4) as f32);
+    match h % 6 {
+        // A set-back block over the middle, one to four storeys.
+        0 | 1 => block(b, (bx.x0 + inset, bx.x1 - inset), (bx.t0 + inset, bx.t1 - inset), 1 + (h / 7) % 4, 1),
+        // A pavilion at each end of its longer side.
+        2 => {
+            let n = 2 + (h / 7) % 3;
+            if l >= w {
+                let d = l * 0.28;
+                block(b, (bx.x0 + 3.0, bx.x1 - 3.0), (bx.t0 + 3.0, bx.t0 + d), n, 1);
+                block(b, (bx.x0 + 3.0, bx.x1 - 3.0), (bx.t1 - d, bx.t1 - 3.0), n + (h / 11) % 2, 2);
+            } else {
+                let d = w * 0.28;
+                block(b, (bx.x0 + 3.0, bx.x0 + d), (bx.t0 + 3.0, bx.t1 - 3.0), n, 1);
+                block(b, (bx.x1 - d, bx.x1 - 3.0), (bx.t0 + 3.0, bx.t1 - 3.0), n + (h / 11) % 2, 2);
+            }
+        }
+        // A taller block to one side, and a low one beside it.
+        3 => {
+            let (lo, hi) = if (h / 7).is_multiple_of(2) { (0.08, 0.45) } else { (0.55, 0.92) };
+            let n = 3 + (h / 9) % 4;
+            if l >= w {
+                block(b, (bx.x0 + 4.0, bx.x1 - 4.0), (bx.t0 + l * lo, bx.t0 + l * hi), n, 1);
+            } else {
+                block(b, (bx.x0 + w * lo, bx.x0 + w * hi), (bx.t0 + 4.0, bx.t1 - 4.0), n, 1);
+            }
+            block(b, (bx.x0 + inset, bx.x1 - inset), (bx.t0 + inset, bx.t1 - inset), 1, 3);
+        }
+        _ => {}
     }
 }
 

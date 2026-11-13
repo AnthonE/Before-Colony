@@ -20,6 +20,7 @@ use bc_sim::colony::{street, town};
 
 use crate::town::Obstacles;
 use crate::vehicle::{Kind, Vehicle};
+use glam::Vec3;
 
 /// What draws the Watch's eye.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,6 +129,27 @@ pub fn watch_car_near(at: DeckPos, reach: f32, (tick, frac): (u32, f32)) -> bool
         near |= c.kind == street::Kind::Watch && (c.x - at.x).hypot(c.t - t) <= reach;
     });
     near
+}
+
+/// Whether one of the Watch's own cars on its beat within `reach` m of `at` has a clear line to
+/// it: nothing of the town's (a building, a lift's pier) between them at eye height.
+pub fn watch_car_sees(at: DeckPos, reach: f32, (tick, frac): (u32, f32)) -> bool {
+    let t = town::town_t(at.s);
+    let mut seen = false;
+    street::each_car(at.x - reach, at.x + reach, t - reach, t + reach, tick, frac, &mut |c| {
+        let (dx, dt) = (c.x - at.x, c.t - t);
+        let far = dx.hypot(dt);
+        if seen || c.kind != street::Kind::Watch || far > reach {
+            return;
+        }
+        let steps = (far / 2.5).ceil().max(1.0) as u32;
+        seen = (1..steps).all(|k| {
+            let u = k as f32 / steps as f32;
+            let (x, s) = (at.x + dx * u, at.s + dt * u);
+            !deck::solid(RING, Vec3::new(x - 0.3, 1.0, -s - 0.3), Vec3::new(x + 0.3, 1.6, -s + 0.3))
+        });
+    });
+    seen
 }
 
 /// Whether a car driven at `at` is where people walk: on a block, a pavement or a rim walk.
@@ -483,6 +505,23 @@ mod tests {
         let secs = arrived.expect("it never got there");
         assert!(secs < 100.0 && off_road < 240, "there in {secs} s, {off_road} ticks off the road");
         assert!(watch_car_near(at, 3_000.0, (0, 0.0)), "the Watch's cars are on their beats");
+        // One of them sees down its own street, and not through the houses.
+        let mut beat = None;
+        street::each_car(-1_000.0, 1_000.0, 0.0, 6_000.0, 0, 0.0, &mut |c| {
+            if c.kind == street::Kind::Watch && c.x.abs() > 100.0 {
+                beat = beat.or(Some(*c));
+            }
+        });
+        let c = beat.expect("one of the Watch's on a street between the blocks");
+        let ahead = DeckPos::new(RING, c.x, town::deck_s(c.t + 30.0), 0.0);
+        let behind_a_house = DeckPos::new(RING, c.x + 45.0, town::deck_s(c.t + 30.0), 0.0);
+        assert!(watch_car_sees(ahead, 80.0, (0, 0.0)));
+        assert!(watch_car_near(behind_a_house, 80.0, (0, 0.0)));
+        let on = town::ground_at(behind_a_house.x, town::town_t(behind_a_house.s));
+        assert!(
+            !watch_car_sees(behind_a_house, 80.0, (0, 0.0)) || !matches!(on, town::Ground::Block(_)),
+            "{on:?}"
+        );
         assert!(where_people_walk(DeckPos::new(RING, -300.0, town::deck_s(town::CELL * 30.5), 0.0)));
         assert!(!where_people_walk(at));
     }

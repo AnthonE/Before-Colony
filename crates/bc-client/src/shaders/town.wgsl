@@ -131,7 +131,7 @@ fn panel_paint(paint: u32) -> vec3<f32> {
         vec3(0.36, 0.44, 0.55),
         vec3(0.52, 0.42, 0.38),
     );
-    return mix(tints[paint & 3u], quarter_paint(paint / 4u), 0.07);
+    return mix(tints[paint & 3u], quarter_paint(paint / 4u), 0.12);
 }
 
 @fragment
@@ -184,7 +184,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let margin = select(margins[st], 0.06, tower);
         let sill = select(sills[st], 0.75, tower);
         let head = select(heads[st], 3.9, tower);
-        let shade = 0.94 + 0.12 * hash2(vec2(seed, 7.0));
+        let shade = 0.84 + 0.3 * hash2(vec2(seed, 7.0));
         let panel = panel_paint(paint_i) * shade;
         let bay_i = floor(u / bay);
         let bu = u - bay_i * bay;
@@ -451,7 +451,10 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let q = fog * 7.0;
     let layered = (floor(q) + smoothstep(0.3, 0.7, fract(q))) / 7.0;
     let hazed = mix(fog, layered, 0.55);
-    out.color = vec4(mix(out.color.rgb, town.haze.rgb, hazed) * town.sky.w, out.color.a);
+    // (Far off it's whiter: the floor rising ahead is lost in light, not in a wall of blue.)
+    let far = smoothstep(0.5, 1.0, fog) * town.day.y;
+    let haze = mix(town.haze.rgb, town.haze.rgb * 1.12 + vec3(0.14), far);
+    out.color = vec4(mix(out.color.rgb, haze, hazed) * town.sky.w, out.color.a);
     out.color = main_pass_post_lighting_processing(pbr, out.color);
     return out;
 }

@@ -731,6 +731,10 @@ html.front-up #boot { display: none; }
   pointer-events: none;
   text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
 }
+.use.low {
+  top: auto;
+  bottom: 12%;
+}
 .bay-line.backed {
   top: 8px;
   left: 8px;

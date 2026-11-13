@@ -904,6 +904,8 @@
     show($("dot"), playing && v.onFoot && !v.driving && !v.map && !v.help && v.panel === "none");
     const use = $("use");
     keyed(use, v.prompt || "");
+    // (At the wheel it sits low, clear of the car.)
+    use.classList.toggle("low", !!v.driving);
     show(use, playing && !!v.prompt && v.panel === "none" && !v.help);
     // A terminal: opened on the tab of the one used; the book stops coming when it closes. Down in
     // the city it's a desk's, and shows only what that desk does.
