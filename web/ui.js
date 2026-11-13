@@ -834,7 +834,7 @@
     $("disconnect-button").textContent = v.place === "hangar" ? "LEAVE THE BAY"
       : v.place === "city" ? "LEAVE THE CITY"
       : v.place === "base" ? "LEAVE BAY ROW"
-      : v.place === "town" ? "LEAVE THE TOWN"
+      : v.place === "town" ? "QUIT TO THE TITLE"
       : !v.signedIn ? "DISCONNECT"
       : v.inside ? "DOCK & DISCONNECT"
       : hidden ? "LEAVE SUIT HIDDEN"
@@ -848,6 +848,8 @@
             : v.place === "base" ? " You wake in your bay next time, not out on the row."
             : v.place === "town" ? " You wake in your bay next time, not down in the town." : "")
         : "Playing as a guest: your hangar, and everything in it, is gone when you leave. Connect a wallet to keep it.";
+      // (This button isn't the way home from the town: the lift is.)
+      if (v.place === "town") $("pause-who").textContent += " The way back up to your bay is a spoke's lift: E at its door.";
     } else if (v.inside) {
       $("pause-who").textContent = !v.signedIn
         ? "Flying as a guest: your hangar, and everything in it, is gone when you leave."
@@ -874,9 +876,10 @@
     // Opened in the world, the sheet starts at the section for where the pilot is (flying, the
     // hangar's came first and FLIGHT and COMBAT were below the fold).
     if (v.help && !helpWas && s === "playing") {
-      const title = v.driving === "car" || v.driving === "markab" ? "DRIVING"
+      const title = v.place === "town" ? "IN THE TOWN"
+        : v.driving === "car" || v.driving === "markab" ? "DRIVING"
         : v.place === "hangar" || v.place === "base" ? "IN THE HANGAR"
-        : v.place === "city" || v.place === "town" ? "IN THE COLONY"
+        : v.place === "city" ? "IN THE COLONY"
         : "FLIGHT";
       const h = [...document.querySelectorAll("#controls-list h3")].find((e) => e.textContent === title);
       h?.closest("section")?.scrollIntoView({ block: "start" });
@@ -895,6 +898,8 @@
     const playing = s === "playing";
     const bayLine = $("bay-line");
     bayLine.textContent = v.bayLine || "";
+    // (Under the town's sky the line needs something dark behind it.)
+    bayLine.classList.toggle("backed", v.place === "town");
     show(bayLine, playing && !!v.bayLine && v.panel === "none");
     show($("dot"), playing && v.onFoot && !v.driving && !v.map && !v.help && v.panel === "none");
     const use = $("use");

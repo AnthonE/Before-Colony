@@ -8,6 +8,8 @@
 pub enum Group {
     /// In the hangar bay, on foot.
     OnFoot,
+    /// In the ring's town: on foot and at the wheel.
+    Town,
     /// On foot in the colony's city.
     Colony,
     /// At the wheel in the colony's city (or on a scooter).
@@ -23,8 +25,9 @@ pub enum Group {
 }
 
 impl Group {
-    pub const ALL: [Group; 9] = [
+    pub const ALL: [Group; 10] = [
         Group::OnFoot,
+        Group::Town,
         Group::Colony,
         Group::Driving,
         Group::Flight,
@@ -43,6 +46,7 @@ impl Group {
     pub fn title(self) -> &'static str {
         match self {
             Group::OnFoot => "IN THE HANGAR",
+            Group::Town => "IN THE TOWN",
             Group::Colony => "IN THE COLONY",
             Group::Driving => "DRIVING",
             Group::Flight => "FLIGHT",
@@ -78,7 +82,7 @@ pub const BINDINGS: &[Binding] = &[
     b(
         Group::OnFoot,
         "Q (at the airlock)",
-        "With the colony open: the next strip's cap lift (1 Charter, 2 Canal, 3 Gardens); E rides it down to that strip's Hub Gate",
+        "The spoke's lift down to the ring's town, out at Hub Gate's square (with the colony open instead: the next strip's cap lift, 1 Charter, 2 Canal, 3 Gardens, and E rides it down)",
     ),
     b(
         Group::OnFoot,
@@ -86,6 +90,32 @@ pub const BINDINGS: &[Binding] = &[
         "Use: the fabricator, the stores, the exchange, the suit's console, the cockpit, the airlock (out onto Bay Row, the base's deck; with the colony open, the cap lift down into it: the Charter strip's, unless Q chose another)",
     ),
     b(Group::OnFoot, "E (on Bay Row)", "At your own airlock's door: back into your bay"),
+    b(Group::Town, "W / A / S / D", "Walk the streets (Shift runs, Space jumps, as in the bay)"),
+    b(
+        Group::Town,
+        "E (at a lift's door)",
+        "The spoke's lift, up to your bay: there's one under every spoke, and the line at the top left points to the nearest",
+    ),
+    b(
+        Group::Town,
+        "E (by a car)",
+        "Take a car from the kerb. It's somebody's: in sight of the Watch, that's noticed",
+    ),
+    b(Group::Town, "W / S", "At the wheel: throttle / brake (held at a stop: reverse)"),
+    b(Group::Town, "A / D", "At the wheel: steer"),
+    b(Group::Town, "Space", "At the wheel: handbrake"),
+    b(Group::Town, "Tab", "At the wheel: the camera behind the car, or from the driver's seat"),
+    b(Group::Town, "E (at the wheel)", "Get out (slow to a walk first)"),
+    b(
+        Group::Town,
+        "F (at the wheel)",
+        "A fare: stopped by someone waiting in a lift's square, take them where they're going for the fare; F again sets them down unpaid",
+    ),
+    b(
+        Group::Town,
+        "The Watch",
+        "Knocks, driving where people walk and running someone down raise its heat (◆). Its cars come: stopped with one near, you're fined and the car goes. Out of their sight, it cools",
+    ),
     b(Group::Colony, "W / A / S / D", "Walk the streets (Shift runs, Space jumps, as in the bay)"),
     b(
         Group::Colony,

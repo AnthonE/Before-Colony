@@ -570,22 +570,11 @@ pub fn cell(cell: u16, detail: Detail) -> PieceMesh {
 
     // Lamps along the boulevard's pavements, and trees along the rim walks.
     if near {
-        for i in 0..4 {
-            let t = t0 + (i as f32 + 0.5) * CELL / 4.0;
-            if !(row.t0 + 2.0..row.t1 - 2.0).contains(&t) {
-                continue;
-            }
-            for side in [-1.0f32, 1.0] {
-                lamp(&mut b, side * (BOULEVARD_HALF + LAMP_OFF), t, -side);
-            }
+        for (x, t) in lamps(cell) {
+            lamp(&mut b, x, t, -x.signum());
         }
-        for i in 0..3 {
-            let t = t0 + (i as f32 + 0.5) * CELL / 3.0;
-            for side in [-1.0f32, 1.0] {
-                let x = side * (HALF - RIM_WALK * 0.5);
-                let s = (town::mix(u32::from(cell), i, 0x7EE) >> 8) as u8;
-                b.tree(x + (f32::from(s) / 255.0 - 0.5) * 16.0, t, 3.2 + f32::from(s % 5) * 0.3, s);
-            }
+        for (x, t, size, seed) in rim_trees(cell) {
+            b.tree(x, t, size, seed);
         }
     }
 
@@ -748,8 +737,72 @@ fn frame_beams(b: &mut Builder, id: BlockId) {
     }
 }
 
-/// A park's trees, on a jittered grid clear of its edges.
+/// The lamp posts of a cell, along the boulevard's two pavements: where each stands, `(x, t)`.
+fn lamps(cell: u16) -> Vec<(f32, f32)> {
+    let t0 = cell_start(cell);
+    let row = town::block_rect(BlockId::new(cell, 0));
+    let mut out = Vec::new();
+    for i in 0..4 {
+        let t = t0 + (i as f32 + 0.5) * CELL / 4.0;
+        if !(row.t0 + 2.0..row.t1 - 2.0).contains(&t) {
+            continue;
+        }
+        for side in [-1.0f32, 1.0] {
+            out.push((side * (BOULEVARD_HALF + LAMP_OFF), t));
+        }
+    }
+    out
+}
+
+/// The trees along a cell's two rim walks: where each stands, its crown's reach and its seed.
+fn rim_trees(cell: u16) -> Vec<(f32, f32, f32, u8)> {
+    let t0 = cell_start(cell);
+    let mut out = Vec::new();
+    for i in 0..3 {
+        let t = t0 + (i as f32 + 0.5) * CELL / 3.0;
+        for side in [-1.0f32, 1.0] {
+            let x = side * (HALF - RIM_WALK * 0.5);
+            let s = (town::mix(u32::from(cell), i, 0x7EE) >> 8) as u8;
+            out.push((x + (f32::from(s) / 255.0 - 0.5) * 16.0, t, 3.2 + f32::from(s % 5) * 0.3, s));
+        }
+    }
+    out
+}
+
+/// Half how thick a lamp's post and a tree's trunk are to whoever walks or drives into one, m (a
+/// little over what's drawn).
+const POST: (f32, f32) = (0.2, 0.28);
+
+/// What stands in a cell thin enough to walk round: each lamp's post and each tree's trunk, where
+/// (`x`, `t`) and half how thick, m. The mesh's own spots, so what's drawn is what's walked into.
+pub fn each_post(cell: u16, f: &mut impl FnMut(f32, f32, f32)) {
+    for (x, t) in lamps(cell) {
+        f(x, t, POST.0);
+    }
+    for (x, t, ..) in rim_trees(cell) {
+        f(x, t, POST.1);
+    }
+    for column in 0..town::COLUMNS {
+        let id = BlockId::new(cell, column);
+        if town::block_use(id) == BlockUse::Park {
+            for (x, t, ..) in park_tree_spots(id) {
+                f(x, t, POST.1);
+            }
+        }
+    }
+}
+
+/// A park's trees.
 fn park_trees(b: &mut Builder, id: BlockId) {
+    for (x, t, size, seed) in park_tree_spots(id) {
+        b.tree(x, t, size, seed);
+    }
+}
+
+/// A park's trees, on a jittered grid clear of its edges: where each stands, its crown's reach and
+/// its seed.
+fn park_tree_spots(id: BlockId) -> Vec<(f32, f32, f32, u8)> {
+    let mut out = Vec::new();
     let r = town::block_rect(id).inset(6.0);
     let (nx, nt) = (((r.x1 - r.x0) / TREE_PITCH) as u32, ((r.t1 - r.t0) / TREE_PITCH) as u32);
     for i in 0..nx {
@@ -762,9 +815,10 @@ fn park_trees(b: &mut Builder, id: BlockId) {
             let (jx, jt) = (town::unit(h, 1) - 0.5, town::unit(h, 2) - 0.5);
             let x = r.x0 + (i as f32 + 0.5 + jx * 0.6) * (r.x1 - r.x0) / nx as f32;
             let t = r.t0 + (j as f32 + 0.5 + jt * 0.6) * (r.t1 - r.t0) / nt as f32;
-            b.tree(x, t, 2.6 + town::unit(h, 3) * 1.8, (h >> 8) as u8);
+            out.push((x, t, 2.6 + town::unit(h, 3) * 1.8, (h >> 8) as u8));
         }
     }
+    out
 }
 
 /// The canal's width, for the shader's ripples and the tests.

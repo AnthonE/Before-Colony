@@ -1994,6 +1994,7 @@ pub fn drive_onfoot(
         let mut got_out = false;
         // What they've done that the Watch minds, this frame.
         let mut offences: Vec<Offence> = Vec::new();
+        let mut took_in_sight = false;
         t.knock_wait = (t.knock_wait - dt).max(0.0);
         if t.drive.is_some() {
             let drive = Drive { throttle: own.forward, steer: -own.right, handbrake: own.jump };
@@ -2124,6 +2125,7 @@ pub fn drive_onfoot(
                         // Somebody's car: worse in sight of one of the Watch's own.
                         let seen = watch::watch_car_near(at, 120.0, g.core.colony_tick(now));
                         offences.push(if seen { Offence::TookACarInSight } else { Offence::TookACar });
+                        took_in_sight = seen;
                         crate::town::parked_seed(&car)
                     }
                 };
@@ -2136,10 +2138,14 @@ pub fn drive_onfoot(
         // and its fine when one has them stopped at its side (their car goes with it).
         for o in offences {
             if t.heat.offend(o) {
-                ui.news(format!("THE WATCH WANTS YOU · {}", watch::stars(t.heat.level())), true);
+                // (The first time it's a car, say what for: nothing else tells them it's somebody's.)
+                let why =
+                    if took_in_sight { "THE WATCH SAW YOU TAKE THAT CAR" } else { "THE WATCH WANTS YOU" };
+                ui.news(format!("{why} · {}", watch::stars(t.heat.level())), true);
             }
         }
-        if t.heat.cool(dt) {
+        // (Nothing cools under the eye of one of its cars: lose them first.)
+        if !t.pursuit.in_sight(t.feet()) && t.heat.cool(dt) {
             ui.toast(match t.heat.level() {
                 0 => "THE WATCH HAS LOST INTEREST".to_string(),
                 l => format!("THE WATCH · {}", watch::stars(l)),
@@ -2193,7 +2199,7 @@ pub fn drive_onfoot(
             town_cars.down = down;
         }
         // A district's name on the way into it.
-        let (district, name) = town_foot::district_at(at.s);
+        let (district, name) = town_foot::district_from(at.s, t.district);
         if t.district.is_some_and(|d| d != district) {
             ui.toast(name);
         }

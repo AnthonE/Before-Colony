@@ -42,7 +42,7 @@ impl Offence {
         match self {
             // (Nobody much minds a car borrowed from a kerb, till there's more.)
             Offence::TookACar => 0.6,
-            Offence::TookACarInSight => 3.0,
+            Offence::TookACarInSight => 1.2,
             Offence::Knock => 1.0,
             Offence::Reckless => 0.8,
             Offence::HitSomeone => 4.0,
@@ -114,12 +114,10 @@ pub fn fine(level: u8) -> u64 {
     bc_econ::wire::watch_fine(level)
 }
 
-/// The heat as the HUD shows it: a diamond a level, the lit ones first ("◆◆◇◇◇"); nothing at 0.
+/// The heat as the HUD shows it: a diamond a level ("◆◆"); nothing at 0. (Only the lit ones: the
+/// page's fonts have no ◇, and one borrowed from another font draws twice the size.)
 pub fn stars(level: u8) -> String {
-    if level == 0 {
-        return String::new();
-    }
-    (0..MAX_HEAT).map(|k| if k < level { '◆' } else { '◇' }).collect()
+    "◆".repeat(usize::from(level.min(MAX_HEAT)))
 }
 
 /// Whether one of the Watch's own cars on its beat is within `reach` m of `at` at tick `tick`.
@@ -164,6 +162,13 @@ const GONE_AFTER: f32 = 20.0;
 const CATCH: (f32, f32, f32) = (9.0, 2.5, 2.5);
 /// The Watch's cars drive this hard after someone: the share of a car's throttle.
 const PRESS: f32 = 0.85;
+/// Where a car can't follow (a quay, a park, between two houses) its officers get out and walk: a
+/// pilot stopped within this far of one, m, is theirs after [`ON_FOOT`]'s wait and the walk across at
+/// this pace, m/s.
+const FOOT: (f32, f32) = (80.0, 4.0);
+const ON_FOOT: f32 = 8.0;
+/// A car of the Watch's this near has a pilot in sight, m: nothing cools while one has.
+const IN_SIGHT: f32 = 90.0;
 
 /// The Watch's cars after one pilot.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -171,6 +176,8 @@ pub struct Pursuit {
     pub units: Vec<Unit>,
     /// How long one of them has had the pilot stopped at its side, s.
     held: f32,
+    /// How long the pilot's been stopped with one of them near but not at their side, s.
+    afoot: f32,
     /// Units sent so far: each comes from a different way.
     sent: u32,
 }
@@ -220,6 +227,7 @@ impl Pursuit {
             }
         }
         let mut holding = false;
+        let mut nearest = f32::MAX;
         let others: Vec<Vehicle> = self.units.iter().map(|u| u.car).collect();
         for (k, u) in self.units.iter_mut().enumerate() {
             // Where it is in the pilot's turn of the ring.
@@ -235,6 +243,9 @@ impl Pursuit {
             }
             let near = !u.leaving && off < CATCH.0;
             holding |= near && speed.abs() < CATCH.1;
+            if !u.leaving {
+                nearest = nearest.min(off);
+            }
             let mut d = Drive::default();
             if u.backing > 0.0 {
                 u.backing -= dt;
@@ -277,12 +288,24 @@ impl Pursuit {
         self.units
             .retain(|u| !(u.leaving && ((u.car.x - at.x).hypot(u.car.s - at.s) > GONE || u.left <= 0.0)));
         self.held = if holding { self.held + dt } else { 0.0 };
-        self.held >= CATCH.2
+        // Stopped where no car comes to their side: its officers walk over.
+        let waiting = speed.abs() < CATCH.1 && nearest < FOOT.0;
+        self.afoot = if waiting { self.afoot + dt } else { 0.0 };
+        self.held >= CATCH.2 || (waiting && self.afoot >= ON_FOOT + nearest / FOOT.1)
+    }
+
+    /// Whether one of the cars after a pilot at `at` has them in sight (near enough: the heat
+    /// doesn't cool under its eye).
+    pub fn in_sight(&self, at: DeckPos) -> bool {
+        self.units
+            .iter()
+            .any(|u| !u.leaving && (u.car.x - at.x).hypot(deck::round_from(RING, at.s, u.car.s)) < IN_SIGHT)
     }
 
     /// Where a car at `(x, s)` drives for next on its way to a pilot at `at`: straight at them once
-    /// it's on their road or their cross street and near; else along its road to the cross street
-    /// nearest them, along that to the road nearest them, and in.
+    /// it's level with them across the ring, or near; else along its road to the cross street
+    /// nearest them, along that till it's level with them (the cross streets run from rim to rim,
+    /// over the canal), and in, off the road if that's where they are.
     fn way(x: f32, s: f32, at: DeckPos) -> (f32, f32) {
         let (dx, ds) = (at.x - x, at.s - s);
         if dx.abs() < 14.0 || dx.hypot(ds) < 40.0 {
@@ -295,8 +318,8 @@ impl Pursuit {
             // Along its own road to it.
             return (road_near(x), cross);
         }
-        // Along the cross street to the pilot's road.
-        (road_near(at.x), cross)
+        // Along the cross street till it's level with them.
+        (at.x, cross)
     }
 
     /// A car of the Watch's come into the pursuit: on the road nearest the pilot, [`SPAWN`] m off
@@ -320,6 +343,7 @@ impl Pursuit {
             u.leaving = true;
         }
         self.held = 0.0;
+        self.afoot = 0.0;
     }
 
     /// The nose-first heading and place of each car after the pilot, for whoever draws them.
@@ -343,7 +367,7 @@ mod tests {
         assert_eq!((h.level(), stars(h.level())), (0, String::new()));
         assert!(!h.offend(Offence::TookACar), "a car from a kerb, unseen: nothing yet");
         assert!(h.offend(Offence::Knock));
-        assert_eq!((h.level(), stars(h.level()).as_str()), (1, "◆◇◇◇◇"));
+        assert_eq!((h.level(), stars(h.level()).as_str()), (1, "◆"));
         assert!(!h.offend(Offence::Knock), "still the first level");
         assert!(h.offend(Offence::Knock));
         assert_eq!(h.level(), 2);
@@ -407,6 +431,27 @@ mod tests {
     }
 
     #[test]
+    fn a_pilot_stopped_off_the_road_is_still_caught() {
+        // On the canal's quay in the building site, 128 m from the nearest lane of traffic; and in
+        // the middle of a block's park.
+        let quay = DeckPos::new(RING, 557.8, 10_891.0, 0.0);
+        let r = town::block_rect(town::BlockId::new(31, 7));
+        let park = DeckPos::new(RING, 0.5 * (r.x0 + r.x1), town::deck_s(0.5 * (r.t0 + r.t1)), 0.0);
+        for at in [quay, park] {
+            let cars = Obstacles::default();
+            let mut p = Pursuit::default();
+            let caught = (0..(90.0 * 30.0) as u32).find(|_| p.step(2, at, 0.0, 1.0 / 30.0, &cars));
+            let secs = caught.expect("the Watch never got to them") as f32 / 30.0;
+            assert!(secs < 70.0, "caught after {secs} s at {at:?}");
+            assert!(p.in_sight(at));
+            // Walking on, nobody has them.
+            let mut q = Pursuit::default();
+            assert!(!(0..(60.0 * 30.0) as u32).any(|_| q.step(2, at, 3.5, 1.0 / 30.0, &cars)));
+        }
+        assert!(!Pursuit::default().in_sight(quay));
+    }
+
+    #[test]
     fn a_unit_blocks_away_drives_the_roads_to_the_pilot() {
         // The pilot on the boulevard; a car of the Watch's four columns fore of it, half a kilometre
         // round: it gets there without leaving the roads for long.
@@ -421,6 +466,7 @@ mod tests {
                 left: GONE_AFTER,
             }],
             held: 0.0,
+            afoot: 0.0,
             sent: 1,
         };
         let cars = Obstacles::default();

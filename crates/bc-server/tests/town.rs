@@ -286,3 +286,33 @@ async fn a_fare_is_taken_in_a_lifts_square_and_lost_up_the_lift() -> anyhow::Res
     assert_eq!(b.core.hangar.credits(), credits);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_watch_fines_a_pilot_and_sends_a_broke_one_up_to_their_bay() -> anyhow::Result<()> {
+    let server = bc_server::start(config()?).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut a = down(&http, "Maren").await?;
+    a.set_pose(standing(0.0, 0.0));
+    let credits = a.core.hangar.credits();
+    assert!(credits >= 1_500, "{credits} cr to start with");
+    let (text, ok) = ask(&mut a, Request::Fine { heat: 3 }).await?;
+    assert!(ok && text == "THE WATCH HAS YOU · FINED 1,350 CR", "{text}");
+    a.wait_until(5.0, "the fine", |c| c.hangar.credits() == credits - 1_350).await?;
+    assert!(a.core.hangar.in_town(), "fined, and still down in the town");
+    // Fined for more than they have: all of it, and up the lift.
+    let mut last = String::new();
+    for _ in 0..8 {
+        if !a.core.hangar.in_town() {
+            break;
+        }
+        last = ask(&mut a, Request::Fine { heat: 5 }).await?.0;
+        a.wait_until(5.0, "the fine", |c| c.hangar.credits() == 0 || c.hangar.in_town()).await?;
+    }
+    a.wait_until(5.0, "the bay", |c| c.hangar.in_hangar()).await?;
+    assert_eq!(a.core.hangar.credits(), 0);
+    assert!(last.ends_with("WAS ALL YOU HAD · SENT UP TO YOUR BAY"), "{last}");
+    // Up there the Watch has nothing on them.
+    let (text, ok) = ask(&mut a, Request::Fine { heat: 1 }).await?;
+    assert!(!ok, "{text}");
+    Ok(())
+}

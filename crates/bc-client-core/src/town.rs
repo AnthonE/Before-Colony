@@ -124,6 +124,25 @@ pub fn district_at(s: f32) -> (u16, &'static str) {
     (d, town::district(d).name)
 }
 
+/// How far into the next district a pilot is before they're said to be in it, m.
+const WELL_IN: f32 = 20.0;
+
+/// The district a pilot at `s` is in, having `last` been in another: the next one's only once
+/// they're [`WELL_IN`] m into it (a lift's square lies across the line between two, and would
+/// say one and then the other at every step).
+pub fn district_from(s: f32, last: Option<u16>) -> (u16, &'static str) {
+    let here = district_at(s);
+    match last {
+        Some(d)
+            if d != here.0
+                && (district_at(s - WELL_IN).0 != here.0 || district_at(s + WELL_IN).0 != here.0) =>
+        {
+            (d, town::district(d).name)
+        }
+        _ => here,
+    }
+}
+
 /// A car for the taking near `at` (the walker's feet): the nearest within [`CAR_USE`] of its side,
 /// of the kerbs' parked cars ([`each_parked`], but those `taken` already) and the ones the pilot
 /// `left` where they got out (for those, which of them).
@@ -215,6 +234,9 @@ pub struct Obstacles {
     /// Each car's middle (`x`, and `s` in the asker's turn of the ring), heading, and whether it's
     /// one of the traffic's (moving: nothing on foot is stopped by those).
     cars: Vec<(f32, f32, f32, bool)>,
+    /// Each lamp's post and tree's trunk: its middle (`x`, and `s` in the asker's turn of the
+    /// ring) and half how thick it is, m.
+    posts: Vec<(f32, f32, f32)>,
 }
 
 /// A car's circles: their radius, and how far along its length from its middle the outer two are, m.
@@ -244,6 +266,22 @@ impl Obstacles {
             }
         }
         let t = town::town_t(at.s);
+        // The lamps and the trees of the cells in reach.
+        self.posts.clear();
+        let posts = &mut self.posts;
+        let (first, last) =
+            (((t - reach) / town::CELL).floor() as i32, ((t + reach) / town::CELL).floor() as i32);
+        for c in first..=last {
+            let cell = c.rem_euclid(i32::from(town::CELLS)) as u16;
+            // (The cell's own `t` to the asker's turn of the ring.)
+            let turn = (c - i32::from(cell)) as f32 * town::CELL;
+            crate::town_mesh::each_post(cell, &mut |x, pt, r| {
+                let pt = pt + turn;
+                if (x - at.x).abs() <= reach && (pt - t).abs() <= reach {
+                    posts.push((x, at.s + (pt - t), r));
+                }
+            });
+        }
         bc_sim::colony::street::each_car(
             at.x - reach,
             at.x + reach,
@@ -266,7 +304,11 @@ impl Obstacles {
     pub fn blocks_car(&self, v: &Vehicle) -> bool {
         let mine = Self::circles(v.x, v.s, v.yaw);
         let reach = 2.0 * CAR_CIRCLE.0;
-        self.cars.iter().any(|(x, s, yaw, _)| {
+        let post = self.posts.iter().any(|(x, s, r)| {
+            let s = v.s + deck::round_from(RING, v.s, *s);
+            mine.iter().any(|(mx, ms)| (x - mx).hypot(s - ms) < CAR_CIRCLE.0 + r)
+        });
+        post || self.cars.iter().any(|(x, s, yaw, _)| {
             // (The asker's turn of the ring, whichever the car's `s` is in.)
             let s = v.s + deck::round_from(RING, v.s, *s);
             (x - v.x).abs() < 6.0
@@ -284,7 +326,12 @@ impl Obstacles {
             return false;
         }
         let (s0, s1) = (-max.z, -min.z);
-        self.cars.iter().filter(|c| !c.3).any(|(x, s, yaw, _)| {
+        let post = self.posts.iter().any(|(x, s, r)| {
+            let s = s0 + deck::round_from(RING, s0, *s);
+            let (dx, ds) = (x - x.clamp(min.x, max.x), s - s.clamp(s0, s1));
+            dx * dx + ds * ds < r * r
+        });
+        post || self.cars.iter().filter(|c| !c.3).any(|(x, s, yaw, _)| {
             let s = s0 + deck::round_from(RING, s0, *s);
             Self::circles(*x, s, *yaw).iter().any(|(cx, cs)| {
                 let (dx, ds) = (cx - cx.clamp(min.x, max.x), cs - cs.clamp(s0, s1));
@@ -506,6 +553,55 @@ mod tests {
             }
         }
         false
+    }
+
+    #[test]
+    fn lamps_and_trees_stand_in_the_way() {
+        // A park district's cell and a plain one: every post on a pavement, a walk or a park's grass.
+        let mut posts = Vec::new();
+        for cell in [3, 40, 75, 143] {
+            crate::town_mesh::each_post(cell, &mut |x, t, r| posts.push((x, t, r)));
+        }
+        assert!(posts.len() > 40, "{} posts", posts.len());
+        for &(x, t, _) in &posts {
+            let on = town::ground_at(x, t);
+            assert!(
+                matches!(on, town::Ground::Pavement | town::Ground::RimWalk | town::Ground::Block(_)),
+                "a post on {on:?} at ({x}, {t})"
+            );
+        }
+        // Walked into and driven into; a step to the side, neither.
+        let (x, t, _) = posts[0];
+        let s = town::deck_s(t);
+        let mut o = Obstacles::default();
+        o.gather(DeckPos::new(RING, x + 3.0, s + 2.0, 0.0), 30.0, &[], &[], (0, 0.0));
+        let body = |x: f32| (Vec3::new(x - 0.2, 0.0, -s - 0.2), Vec3::new(x + 0.2, 1.8, -s + 0.2));
+        let ((a0, a1), (b0, b1)) = (body(x), body(x + 1.0));
+        assert!(o.hits(a0, a1) && !o.hits(b0, b1));
+        assert!(o.blocks_car(&Vehicle::new(Kind::Car, RING_FLOOR, s, x + 0.5, 0.0)));
+        assert!(!o.blocks_car(&Vehicle::new(Kind::Car, RING_FLOOR, s, x + 2.5, 0.0)));
+        // And across the seam, where the ring's `s` starts again.
+        let seam = DeckPos::new(RING, 33.0, 4.0, 0.0);
+        let mut both = Obstacles::default();
+        both.gather(seam, 60.0, &[], &[], (0, 0.0));
+        assert!(
+            both.posts.iter().any(|p| p.1 < seam.s - 10.0) && both.posts.iter().any(|p| p.1 > seam.s + 10.0)
+        );
+    }
+
+    #[test]
+    fn a_district_is_named_once_a_pilot_is_well_into_it() {
+        // Hub Gate's lift stands on the line between the last district and the first.
+        let line = town::deck_s(0.0);
+        let (first, last) = (district_at(line + 1.0).0, district_at(line - 1.0).0);
+        assert_ne!(first, last);
+        assert_eq!(district_from(line + 1.0, None).0, first);
+        // A step over the line and back says nothing new; well over it, the next one's.
+        assert_eq!(district_from(line - 1.0, Some(first)).0, first);
+        assert_eq!(district_from(line - WELL_IN + 0.5, Some(first)).0, first);
+        assert_eq!(district_from(line - WELL_IN - 0.5, Some(first)).0, last);
+        assert_eq!(district_from(line + 5.0, Some(last)).0, last);
+        assert_eq!(district_from(line + WELL_IN + 0.5, Some(last)).0, first);
     }
 
     #[test]

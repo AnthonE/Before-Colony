@@ -27,6 +27,7 @@
 use std::time::{Duration, Instant};
 
 use bc_econ::body::{self, Body, BodyView};
+use bc_econ::item::thousands;
 use bc_econ::proving::{self as board, Bests, Feat};
 use bc_econ::wire::{self, HangarView, MarketView, Outcome as SortieOutcome, Place, Request, Update};
 use bc_econ::{Bay, Hangar, Item};
@@ -1217,13 +1218,29 @@ impl Session<'_> {
                 if self.place != Place::Town || heat == 0 {
                     return self.note("the Watch has nothing on you", false).await;
                 }
-                let fine = wire::watch_fine(heat).min(self.hangar.credits);
+                let owed = wire::watch_fine(heat);
+                let fine = owed.min(self.hangar.credits);
                 self.hangar.credits -= fine;
                 // (Their car goes with it, and whoever was riding in it.)
                 self.lose_fare().await?;
                 tracing::info!(slot = self.slot, name = %self.callsign, heat, fine, "fined by the Watch");
-                self.note(format!("THE WATCH HAS YOU · FINED {fine} CR"), true).await?;
-                self.send_hangar().await?;
+                if fine < owed {
+                    // Nothing left to fine: the Watch walks them to a lift and sends them home.
+                    self.game.plaza.leave(self.slot);
+                    self.place = Place::Hangar;
+                    self.send_place().await?;
+                    let had = if fine == 0 {
+                        "NOTHING TO FINE".to_string()
+                    } else {
+                        format!("{} CR WAS ALL YOU HAD", thousands(fine))
+                    };
+                    self.note(format!("THE WATCH HAS YOU · {had} · SENT UP TO YOUR BAY"), true).await?;
+                    self.send_hangar().await?;
+                    self.publish_hangar();
+                } else {
+                    self.note(format!("THE WATCH HAS YOU · FINED {} CR", thousands(fine)), true).await?;
+                    self.send_hangar().await?;
+                }
                 self.save().await;
                 Ok(())
             }

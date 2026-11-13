@@ -731,6 +731,13 @@ html.front-up #boot { display: none; }
   pointer-events: none;
   text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
 }
+.bay-line.backed {
+  top: 8px;
+  left: 8px;
+  padding: 4px 8px;
+  background: rgba(4, 10, 18, 0.62);
+  color: #dcefff;
+}
 .dot {
   position: fixed;
   left: 50%;
