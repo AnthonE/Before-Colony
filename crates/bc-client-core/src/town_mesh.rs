@@ -22,6 +22,7 @@ use bc_sim::world::{COLONY_HALF_WIDTH as HALF, COLONY_RADIUS as R};
 use glam::{Quat, Vec3};
 
 use crate::piece_mesh::PieceMesh;
+use crate::station::Sign;
 
 /// What a face is (`r` of its vertices' colour, in 255ths): `town.wgsl`'s surfaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -598,6 +599,60 @@ pub fn cell(cell: u16, detail: Detail) -> PieceMesh {
     b.mesh
 }
 
+/// The signs stencilled in cell `cell`, in its mesh's frame: on a lift's shaft over the boulevard,
+/// the gate's name (Hub Gate's; the others take their district's) and the district it opens on,
+/// read coming up the boulevard either way; and over its door, where it goes.
+pub fn cell_signs(cell: u16) -> Vec<Sign> {
+    let cell = cell % CELLS;
+    let t0 = cell_start(cell);
+    let mut signs = Vec::new();
+    for k in 0..town::LIFTS {
+        let lt = town::lift_t(k);
+        for turn in [-town::ROUND, 0.0, town::ROUND] {
+            let at = lt + turn;
+            // The half of the lift in this cell: the one after its middle, or the one before.
+            let side = if (at - t0).abs() < 1.0 {
+                1.0
+            } else if (at - (t0 + CELL)).abs() < 1.0 {
+                -1.0
+            } else {
+                continue;
+            };
+            let district = town::district(town::cell_at(lt + 1.0) / CELLS_PER_DISTRICT).name;
+            let name = town::lift_name(k);
+            let dt = at + side * LIFT_HALF_T - t0;
+            let face = |text: &'static str, h: f32, height: f32, ink: u8| Sign {
+                text: text.into(),
+                at: bend(0.0, dt, h),
+                normal: along(dt) * side,
+                up: up(dt),
+                height,
+                ink,
+            };
+            signs.push(face(name, LIFT_LINTEL + 9.5, 5.0, crate::station::DARK));
+            if k == 0 {
+                signs.push(face(district, LIFT_LINTEL + 4.0, 2.4, crate::station::CHARTER));
+            }
+            // Over its door, in the fore pier on its district's side.
+            let (dx, door_t) = town::lift_door(k);
+            let door_dt = door_t + turn - t0;
+            if (0.0..CELL).contains(&door_dt) {
+                for (text, h, height) in [("LIFT", 3.55, 0.5), ("TO THE BAYS", 3.05, 0.26)] {
+                    signs.push(Sign {
+                        text: text.into(),
+                        at: bend(dx, door_dt, h),
+                        normal: -Vec3::X,
+                        up: up(door_dt),
+                        height,
+                        ink: crate::station::DARK,
+                    });
+                }
+            }
+        }
+    }
+    signs
+}
+
 /// Where cell `cell` starts round the ring (the town's `t`), m: where its mesh's frame is upright.
 pub fn cell_start(cell: u16) -> f32 {
     CELL * f32::from(cell % CELLS)
@@ -778,6 +833,28 @@ mod tests {
             tris += m.triangles();
         }
         assert!(tris > 20_000, "{tris}");
+    }
+
+    #[test]
+    fn every_lift_is_named_on_its_shaft_and_over_its_door() {
+        use crate::station::stencils;
+        let mut all = Vec::new();
+        for c in 0..CELLS {
+            for s in cell_signs(c) {
+                assert!(stencils(&s.text), "{:?} can't be stencilled", s.text);
+                assert!((s.normal.length() - 1.0).abs() < 1e-3 && s.normal.dot(s.up).abs() < 1e-3);
+                all.push((c, s));
+            }
+        }
+        // Each lift: its name either side of its shaft, and its door's two lines; Hub Gate its
+        // district under its name too.
+        let named = |text: &str| all.iter().filter(|(_, s)| s.text == text).count();
+        assert_eq!((named("HUB GATE"), named("CHARTER SQUARE"), named("TOWER HILL")), (2, 2, 2));
+        assert_eq!((named("LIFT"), named("TO THE BAYS")), (6, 6));
+        // Hub Gate's door's sign is in cell 0, over the door, on the pier's outer face.
+        let (dx, dt) = town::lift_door(0);
+        let (_, lift) = all.iter().find(|(c, s)| *c == 0 && s.text == "LIFT").expect("over Hub Gate's door");
+        assert!((lift.at - bend(dx, dt, 3.55)).length() < 1e-3 && lift.normal == -Vec3::X);
     }
 
     #[test]

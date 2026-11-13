@@ -93,6 +93,31 @@ pub fn lift_in_view(w: &Walker) -> Option<u16> {
     })
 }
 
+/// The way home from `at`, looking along `yaw` (the walker's): how far the nearest lift's door is,
+/// m, and an arrow to it as seen from there ("↑" ahead, "→" to the right).
+pub fn way_to_a_lift(at: DeckPos, yaw: f32) -> (f32, char) {
+    way_to_lift(at, yaw, None)
+}
+
+/// The same to lift `k`'s door (`None`: whichever is nearest).
+pub fn way_to_lift(at: DeckPos, yaw: f32, k: Option<u16>) -> (f32, char) {
+    let (mut best, mut to) = (f32::MAX, (0.0, 0.0));
+    for k in k.map_or(0..town::LIFTS, |k| k % town::LIFTS..k % town::LIFTS + 1) {
+        let (x, t) = town::out_of_the_lift(k);
+        let (dx, ds) = (x - at.x, deck::round_from(RING, at.s, town::deck_s(t)));
+        if dx.hypot(ds) < best {
+            (best, to) = (dx.hypot(ds), (dx, ds));
+        }
+    }
+    // The walker's frame: +x across, −z the way `s` grows; yaw 0 looks along +z, and grows turning
+    // left.
+    let bearing = to.0.atan2(-to.1) - yaw;
+    let turn = bearing.rem_euclid(std::f32::consts::TAU);
+    const ARROWS: [char; 8] = ['↑', '↖', '←', '↙', '↓', '↘', '→', '↗'];
+    let k = ((turn / std::f32::consts::FRAC_PI_4) + 0.5) as usize % 8;
+    (best, ARROWS[k])
+}
+
 /// The district round the ring at `s`, and its name on the signs.
 pub fn district_at(s: f32) -> (u16, &'static str) {
     let d = town::cell_at(town::town_t(s)) / town::CELLS_PER_DISTRICT;
@@ -304,6 +329,45 @@ pub fn drive(v: &mut Vehicle, d: &bc_sim::car::Drive, dt: f32, cars: &Obstacles)
     knocked
 }
 
+/// How near a stopped car someone standing in a lift's square is offered as a fare from, m (the
+/// server takes them within 12); how near a lift's step counts as its square (it allows 190); and
+/// how near the fare's lift they're set down (it allows 60).
+pub const HAIL: f32 = 9.0;
+const SQUARE: f32 = 185.0;
+pub const SET_DOWN: f32 = 45.0;
+
+/// Someone to take as a fare from a car stopped at `v`: standing in a lift's square within hail,
+/// not one of those `gone` (down, or riding with somebody).
+pub fn fare_at_hand(
+    v: &Vehicle,
+    (tick, frac): (u32, f32),
+    gone: &[u32],
+) -> Option<bc_sim::colony::street::Person> {
+    use bc_sim::colony::street;
+    let at = DeckPos::new(RING, v.x, v.s, 0.0);
+    if v.speed.abs() > 1.5 || way_to_a_lift(at, 0.0).0 > SQUARE {
+        return None;
+    }
+    let t = town::town_t(v.s);
+    let mut best: Option<(f32, street::Person)> = None;
+    street::each_person(v.x - HAIL, v.x + HAIL, t - HAIL, t + HAIL, tick, frac, &mut |p| {
+        let d = (p.x - v.x).hypot(p.t - t);
+        if p.pose == street::Pose::Stand
+            && d <= HAIL
+            && !gone.contains(&p.id)
+            && best.is_none_or(|(b, _)| d < b)
+        {
+            best = Some((d, *p));
+        }
+    });
+    best.map(|(_, p)| p)
+}
+
+/// Whether a car stopped at `v` is in lift `to`'s square, near enough its door to set a fare down.
+pub fn fare_is_there(v: &Vehicle, to: u16) -> bool {
+    v.speed.abs() <= 1.5 && way_to_lift(DeckPos::new(RING, v.x, v.s, 0.0), 0.0, Some(to)).0 <= SET_DOWN
+}
+
 /// A car the town's people step aside from: a pilot's, where its middle is on the ring's floor,
 /// its heading and how fast it goes (back: negative).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -465,6 +529,16 @@ mod tests {
             );
         }
         assert_eq!(district_at(town::deck_s(10.0)).1, "CHARTER SQUARE");
+        // The way home: from 100 m fore of Hub Gate's door, looking at it (+x), it's dead ahead;
+        // looking the way `s` grows (−z), +x is on the right hand.
+        let (x, t) = town::out_of_the_lift(0);
+        let from = DeckPos::new(RING, x - 100.0, town::deck_s(t), 0.0);
+        let facing = |dir: Vec3| Walker::at(from.walker(), dir).yaw;
+        let (far, arrow) = way_to_a_lift(from, facing(Vec3::X));
+        assert!((far - 100.0).abs() < 0.1 && arrow == '↑', "{far} {arrow}");
+        assert_eq!(way_to_a_lift(from, facing(-Vec3::X)).1, '↓');
+        assert_eq!(way_to_a_lift(from, facing(-Vec3::Z)).1, '→');
+        assert_eq!(way_to_a_lift(from, facing(Vec3::Z)).1, '←');
         assert_eq!(district_at(town::deck_s(-10.0)).1, "THE BUILDING SITE");
     }
 
@@ -650,5 +724,51 @@ mod tests {
         assert_eq!(dodge(p.x + 0.5, s, 0, &parked), (0.0, 0.0));
         let gone = Mover { x: p.x + fx * 12.0, s: s + fs * 12.0, ..Mover::of(&on_them) };
         assert_eq!(dodge(p.x, s, 0, &gone), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_fare_hails_a_car_stopped_in_a_lifts_square_and_is_set_down_at_another() {
+        use bc_sim::colony::street;
+        let (x, t) = town::out_of_the_lift(0);
+        let mut who = None;
+        street::each_person(x - 110.0, x - 15.0, t + 15.0, t + 110.0, 0, 0.0, &mut |p| {
+            if p.pose == street::Pose::Stand {
+                who = who.or(Some(*p));
+            }
+        });
+        let p = who.expect("somebody standing in Hub Gate's square");
+        let car = |dx: f32, speed: f32| Vehicle {
+            speed,
+            ..Vehicle::new(Kind::Car, RING_FLOOR, town::deck_s(p.t), p.x + dx, 0.0)
+        };
+        assert_eq!(fare_at_hand(&car(4.0, 0.0), (0, 0.0), &[]).map(|f| f.id), Some(p.id));
+        assert!(fare_at_hand(&car(4.0, 8.0), (0, 0.0), &[]).is_none(), "driving past");
+        assert!(fare_at_hand(&car(4.0, 0.0), (0, 0.0), &[p.id]).is_none_or(|f| f.id != p.id), "gone already");
+        // Out of any square, nobody hails: a park's standers aren't fares.
+        let mut in_a_park = None;
+        street::each_person(
+            -900.0,
+            900.0,
+            8.0 * town::DISTRICT + 300.0,
+            8.0 * town::DISTRICT + 900.0,
+            0,
+            0.0,
+            &mut |q| {
+                if q.pose == street::Pose::Stand {
+                    in_a_park = in_a_park.or(Some(*q));
+                }
+            },
+        );
+        let q = in_a_park.expect("somebody standing in Garden Gate's parks");
+        let by = Vehicle::new(Kind::Car, RING_FLOOR, town::deck_s(q.t), q.x + 3.0, 0.0);
+        assert!(fare_at_hand(&by, (0, 0.0), &[]).is_none());
+        // Set down by the lift they asked for: the next gate's, stopped, and only there.
+        let (lx, lt) = town::out_of_the_lift(1);
+        let at_tower_hill = Vehicle::new(Kind::Car, RING_FLOOR, town::deck_s(lt) + 20.0, lx - 20.0, 0.0);
+        assert!(fare_is_there(&at_tower_hill, 1) && !fare_is_there(&at_tower_hill, 0));
+        assert!(!fare_is_there(&Vehicle { speed: 9.0, ..at_tower_hill }, 1));
+        let (far, _) = way_to_lift(DeckPos::new(RING, x, town::deck_s(t), 0.0), 0.0, Some(1));
+        assert!((far - town::ROUND / 6.0).abs() < 1.0, "a gate to the next: {far} m");
+        assert_eq!((town::lift_name(0), town::lift_name(1)), ("HUB GATE", "TOWER HILL"));
     }
 }

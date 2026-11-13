@@ -472,6 +472,12 @@ pub fn out_of_the_lift(k: u16) -> (f32, f32) {
     (x - LIFT_STEP, t)
 }
 
+/// What lift `k` and its square are called on the signs: Hub Gate, or the district it opens on.
+pub fn lift_name(k: u16) -> &'static str {
+    let k = k % LIFTS;
+    if k == 0 { "HUB GATE" } else { district(2 * k).name }
+}
+
 /// How far out from its door a pilot steps out of a lift, m.
 pub const LIFT_STEP: f32 = 2.5;
 

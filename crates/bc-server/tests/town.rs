@@ -220,3 +220,69 @@ async fn somebody_run_down_is_down_for_everyone_in_the_town() -> anyhow::Result<
     assert_eq!(a.core.hangar.street.len(), 1);
     Ok(())
 }
+
+/// A fare: stopped by someone standing in Hub Gate's square, a pilot is told where they want to go
+/// and what it pays; everyone sees them gone from the square; they can't be set down anywhere but
+/// the square they asked for; and a pilot who rides the lift up leaves them behind, unpaid.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_fare_is_taken_in_a_lifts_square_and_lost_up_the_lift() -> anyhow::Result<()> {
+    use bc_sim::colony::street;
+    let server = bc_server::start(config()?).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut a = down(&http, "Maren").await?;
+    let mut b = down(&http, "Pagan").await?;
+    a.set_pose(standing(0.0, 0.0));
+    b.set_pose(standing(-3.0, 2.0));
+    both(&mut a, &mut b, 1.0).await?;
+    let (lx, lt) = town::out_of_the_lift(0);
+    let tick = server.status()["game"]["tick"].as_u64().unwrap() as u32;
+    let mut who = None;
+    street::each_person(lx - 110.0, lx - 15.0, lt + 15.0, lt + 110.0, tick, 0.0, &mut |p| {
+        if p.pose == street::Pose::Stand {
+            who = who.or(Some(*p));
+        }
+    });
+    let p = who.expect("somebody standing in Hub Gate's square");
+    // Pagan drives over and stops beside them.
+    let (dx, ds) = (p.x + 3.0 - lx, town::deck_s(p.t) - town::deck_s(lt));
+    let steps = ((dx.hypot(ds) / 20.0).ceil() as usize).max(2);
+    for k in 0..=steps {
+        let u = k as f32 / steps as f32;
+        let speed = if k == steps { 0.0 } else { 12.0 };
+        b.set_pose(PersonPose {
+            ride: RIDE_CAR,
+            speed,
+            ..standing(-3.0 + (dx + 3.0) * u, 2.0 + (ds - 2.0) * u)
+        });
+        both(&mut a, &mut b, 0.7).await?;
+    }
+    let (credits, _) = (b.core.hangar.credits(), ());
+    let (text, ok) = ask(&mut b, Request::TakeFare { person: p.id }).await?;
+    assert!(ok && text.starts_with("A FARE FOR "), "{text}");
+    let (to, pay) = b.core.hangar.fare.expect("told where to");
+    assert!(to != 0 && pay >= 120, "to lift {to} for {pay} cr");
+    // Maren sees them gone from the square (away, not down).
+    a.wait_until(5.0, "the street's word", |c| c.hangar.street.iter().any(|d| d.id == p.id && d.away))
+        .await?;
+    // Not here: they asked for another gate's square.
+    let (text, ok) = ask(&mut b, Request::DropFare).await?;
+    assert!(!ok && text.contains("square"), "{text}");
+    assert_eq!(b.core.hangar.credits(), credits, "nothing paid yet");
+    // Back to the lift's door on foot and up: the fare's left behind, back on the street.
+    for k in (0..=steps).rev() {
+        let u = k as f32 / steps as f32;
+        b.set_pose(PersonPose {
+            ride: RIDE_CAR,
+            speed: 12.0,
+            ..standing(-3.0 + (dx + 3.0) * u, 2.0 + (ds - 2.0) * u)
+        });
+        both(&mut a, &mut b, 0.7).await?;
+    }
+    b.set_pose(standing(-3.0, 2.0));
+    both(&mut a, &mut b, 0.7).await?;
+    b.leave_town().await?;
+    assert_eq!(b.core.hangar.fare, None);
+    a.wait_until(5.0, "them back", |c| c.hangar.street.is_empty()).await?;
+    assert_eq!(b.core.hangar.credits(), credits);
+    Ok(())
+}

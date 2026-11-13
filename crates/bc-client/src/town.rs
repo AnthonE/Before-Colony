@@ -181,6 +181,8 @@ pub struct Streamer {
     /// The slowest frame's building lately, ms.
     build_ms: (f32, f32),
     build_window: f32,
+    /// Cells built whose signs wait for the letters to be measured (`station::SignAtlas`).
+    unsigned: Vec<(u16, Entity)>,
 }
 
 /// One of the town's life's pools: its entities, who each shows, and which are shown.
@@ -308,6 +310,7 @@ fn stream_town(
     mut streamer: ResMut<Streamer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut tfs: Query<(&mut Transform, &mut Visibility)>,
+    (mut atlas, mut standard): (ResMut<crate::station::SignAtlas>, ResMut<Assets<StandardMaterial>>),
 ) {
     let Some(root) = streamer.root else { return };
     if view.is_changed()
@@ -366,6 +369,8 @@ fn stream_town(
             {
                 commands.entity(old.entity).despawn();
             }
+            streamer.unsigned.retain(|(c, _)| *c != cell);
+            streamer.unsigned.push((cell, entity));
         }
     }
     let spent = start.elapsed().as_secs_f32() * 1000.0;
@@ -374,6 +379,16 @@ fn stream_town(
     if streamer.build_window >= 1.0 {
         streamer.build_window = 0.0;
         streamer.build_ms = (0.0, streamer.build_ms.0);
+    }
+    // Their signs, once the letters are measured: stencilled on each cell's own faces, so they go
+    // when it does.
+    if atlas.ready() && !streamer.unsigned.is_empty() {
+        for (cell, entity) in std::mem::take(&mut streamer.unsigned) {
+            let signs = town_mesh::cell_signs(cell);
+            if !signs.is_empty() && streamer.cells.get(&cell).is_some_and(|b| b.entity == entity) {
+                atlas.hang_on(&signs, entity, Some(CITY_LAYER), &mut commands, &mut meshes, &mut standard);
+            }
+        }
     }
     // The cells no longer in sight go (they're quick to build again).
     let gone: Vec<u16> =
@@ -532,7 +547,7 @@ fn draw_life(
             }
         });
         // Those knocked down, where they lie.
-        for d in own.down.iter().filter(|d| d.until > tick) {
+        for d in own.down.iter().filter(|d| d.until > tick && !d.away) {
             let ds = round_from(RING, at.s, d.s);
             let d2 = near(d.x, ds);
             if d2 <= reach * reach {

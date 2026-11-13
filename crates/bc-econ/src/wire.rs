@@ -105,6 +105,14 @@ pub enum Request {
     Hit {
         person: u32,
     },
+    /// At the wheel in the ring's town, stopped by someone standing in a lift's square
+    /// (`bc_sim::colony::street`'s person `person`): take them as a fare. The server says where to
+    /// and what it pays ([`Update::Fare`]).
+    TakeFare {
+        person: u32,
+    },
+    /// Stopped in the square the fare asked for: set them down, and be paid.
+    DropFare,
     /// Caught by the Watch in the ring's town, wanted at `heat` (1 to 5, `docs/OPEN_CITY.md`): its
     /// fine ([`watch_fine`]) is paid from the bay's credits, as much of it as there is.
     Fine {
@@ -316,6 +324,8 @@ impl Request {
             | Request::LeaveTown
             | Request::Fine { .. }
             | Request::Hit { .. }
+            | Request::TakeFare { .. }
+            | Request::DropFare
             | Request::BoardTrainer
             | Request::Withdraw { .. }
             | Request::Deliver { .. }
@@ -429,7 +439,13 @@ pub struct Down {
     pub s: f32,
     pub yaw: f32,
     pub until: u32,
+    /// Not lying there but gone from the street: a fare in a pilot's car.
+    #[serde(default)]
+    pub away: bool,
 }
+
+/// What a fare pays for each kilometre round the ring between its two squares, credits.
+pub const FARE_PER_KM: u64 = 40;
 
 /// The Watch's fine for a pilot caught wanted at `heat` (1 to 5), credits.
 pub fn watch_fine(heat: u8) -> u64 {
@@ -540,6 +556,12 @@ pub enum Update {
     /// down.
     Street {
         down: Vec<Down>,
+    },
+    /// The fare in the pilot's car (the ring's town): the lift whose square they asked for, and
+    /// what they pay there; none, set down or lost.
+    Fare {
+        to: Option<u16>,
+        pay: u64,
     },
 }
 
@@ -777,6 +799,8 @@ pub fn apply(
         | Request::LeaveTown
         | Request::Fine { .. }
         | Request::Hit { .. }
+        | Request::TakeFare { .. }
+        | Request::DropFare
         | Request::WatchBoard { .. }
         | Request::UseKit { .. }
         | Request::Eject { .. }
@@ -1051,6 +1075,8 @@ mod tests {
             (Request::LeaveTown, None),
             (Request::Fine { heat: 2 }, None),
             (Request::Hit { person: 7 }, None),
+            (Request::TakeFare { person: 7 }, None),
+            (Request::DropFare, None),
             (Request::BoardTrainer, None),
             (Request::Withdraw { id: 1 }, None),
             (Request::Deliver { id: 1, qty: 1 }, None),
@@ -1068,7 +1094,7 @@ mod tests {
             .iter()
             .map(|(r, _)| serde_json::to_value(r).unwrap()["t"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(tags.len(), 38, "every request: {tags:?}");
+        assert_eq!(tags.len(), 40, "every request: {tags:?}");
         // Each refusal says where to go, as the server's notes and the e2e read them.
         for (k, place) in [
             (Floor, "the exchange floor's counter"),

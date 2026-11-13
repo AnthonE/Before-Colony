@@ -1027,6 +1027,10 @@ pub struct TownFoot {
     /// The people their own car has knocked down, till the server's word has them
     /// (`Update::Street`).
     struck: Vec<bc_econ::wire::Down>,
+    /// Someone in a lift's square their stopped car could take as a fare; and whether the fare
+    /// they carry is where they asked to be set down.
+    pub hail: Option<u32>,
+    pub fare_there: bool,
     /// The Watch's cars after the other wanted pilots near, by their slot (their heat rides in
     /// their pose: the same pursuit, as near as each screen can make it).
     others: std::collections::HashMap<u16, Pursuit>,
@@ -1061,6 +1065,8 @@ impl TownFoot {
             reckless: 0.0,
             knock_wait: 0.0,
             struck: Vec::new(),
+            hail: None,
+            fare_there: false,
             others: std::collections::HashMap::new(),
         }
     }
@@ -2020,8 +2026,29 @@ pub fn drive_onfoot(
                     s: at.s,
                     yaw: v.yaw,
                     until: clock.0 + 25 * bc_sim::TICK_HZ,
+                    away: false,
                 });
                 offences.push(Offence::HitSomeone);
+            }
+            // Fares (F): stopped in a lift's square by someone standing there, they'll ride to
+            // another gate's; stopped in that one, they're set down and pay.
+            let fare = g.core.hangar.fare;
+            t.fare_there =
+                t.drive.is_some_and(|v| fare.is_some_and(|(to, _)| town_foot::fare_is_there(&v, to)));
+            t.hail = match (t.drive, fare) {
+                (Some(v), None) => town_foot::fare_at_hand(&v, clock, &down).map(|p| p.id),
+                _ => None,
+            };
+            if live && keys.just_pressed(KeyCode::KeyF) {
+                if t.fare_there {
+                    ask(&net, &g, &Request::DropFare);
+                } else if let Some(person) = t.hail {
+                    if t.heat.level() == 0 {
+                        ask(&net, &g, &Request::TakeFare { person });
+                    } else {
+                        ui.toast("NOBODY RIDES WITH THE WATCH AFTER YOU");
+                    }
+                }
             }
             if live && keys.just_pressed(KeyCode::Tab) {
                 t.seat_view = !t.seat_view;
@@ -2495,10 +2522,17 @@ pub fn drive_onfoot(
             _ => String::new(),
         },
         Seq::Walking if in_town => match me.town.as_ref() {
-            Some(TownFoot { drive: Some(v), .. }) => {
+            Some(TownFoot { drive: Some(v), hail, fare_there, .. }) => {
                 let kmh = (v.speed.abs() * 3.6).round();
+                let fare = if *fare_there {
+                    " · F  SET YOUR FARE DOWN"
+                } else if hail.is_some() {
+                    " · F  TAKE A FARE"
+                } else {
+                    ""
+                };
                 if v.speed.abs() < TOWN_GET_OUT {
-                    format!("{kmh:.0} KM/H · E  GET OUT")
+                    format!("{kmh:.0} KM/H · E  GET OUT{fare}")
                 } else {
                     format!("{kmh:.0} KM/H")
                 }
@@ -2519,7 +2553,24 @@ pub fn drive_onfoot(
             0 => String::new(),
             l => format!(" · WATCH {}", watch::stars(l)),
         };
-        format!("BAY {:02} · {} CR{fed}{heat}", g.core.hangar.bay, thousands(g.core.hangar.credits()))
+        // And the way home: the nearest spoke's lift, once it's out of reach.
+        let lift = me.town.as_ref().map_or(String::new(), |t| {
+            let yaw = t.drive.map_or(t.walker.yaw, |v| v.yaw);
+            // With a fare aboard, the way to the square they asked for, and what they pay.
+            if let Some((to, pay)) = g.core.hangar.fare {
+                let (far, arrow) = town_foot::way_to_lift(t.feet(), yaw, Some(to));
+                let gate = bc_sim::colony::town::lift_name(to);
+                return format!(" · FARE FOR {gate} {arrow} {:.1} KM · {pay} CR", far / 1_000.0);
+            }
+            match town_foot::way_to_a_lift(t.feet(), yaw) {
+                (far, _) if far < 25.0 => String::new(),
+                (far, arrow) if far < 950.0 => {
+                    format!(" · LIFT {arrow} {:.0} M", (far / 10.0).round() * 10.0)
+                }
+                (far, arrow) => format!(" · LIFT {arrow} {:.1} KM", far / 1_000.0),
+            }
+        });
+        format!("BAY {:02} · {} CR{fed}{heat}{lift}", g.core.hangar.bay, thousands(g.core.hangar.credits()))
     } else {
         String::new()
     };
@@ -2672,6 +2723,9 @@ pub fn publish_onfoot(
             dev.set("town_driving", t.drive.is_some());
             dev.set("town_speed", t.drive.map_or(0.0, |v| f64::from(v.speed)));
             dev.set("town_heat", u32::from(t.heat.level()));
+            dev.set("town_hail", t.hail.is_some());
+            // The lift whose square the fare aboard asked for (-1: none).
+            dev.set("town_fare", h.fare.map_or(-1.0, |(to, _)| f64::from(to)));
             dev.set("town_watch", t.pursuit.units.len() as u32);
             if me.seq == Seq::Walking {
                 let focus = if t.lift.is_some() {
@@ -2691,6 +2745,8 @@ pub fn publish_onfoot(
             dev.set("town_driving", false);
             dev.set("town_speed", 0.0);
             dev.set("town_heat", 0u32);
+            dev.set("town_hail", false);
+            dev.set("town_fare", -1.0);
             dev.set("town_watch", 0u32);
         }
     }

@@ -150,6 +150,7 @@ pub(super) async fn run(
         homes_seen: 0,
         homes_sent: Instant::now() - MARKET_EVERY,
         street_seen: None,
+        fare: None,
         homes_near: Vec::new(),
         knocks_heard: game.homes.with(|h| h.knocks_for("", u64::MAX).1),
         waking: None,
@@ -228,6 +229,8 @@ struct Session<'a> {
     /// The town's street as last sent (`crate::street::Street::version`; none: not yet, this time
     /// down there).
     street_seen: Option<u64>,
+    /// The fare in their car in the town: who, the lift whose square they asked for, their pay.
+    fare: Option<(u32, u16, u64)>,
     homes_near: Vec<(i32, i32, u8)>,
     knocks_heard: u64,
     /// Back from asleep in a bed at home: where they get up, for the next `Update::Place`.
@@ -1165,6 +1168,50 @@ impl Session<'_> {
                 }
                 Ok(())
             }
+            Request::TakeFare { person } => {
+                // Stopped by someone standing in a lift's square: a fare, to another gate's.
+                if self.place != Place::Town || self.fare.is_some() {
+                    return Ok(());
+                }
+                let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+                let from = self
+                    .game
+                    .plaza
+                    .pose_of(self.slot)
+                    .and_then(|pose| self.game.street.pick_up(person, &pose, tick));
+                let Some(from) = from else {
+                    return self.note("nobody there wants a ride", false).await;
+                };
+                let (to, pay) = crate::street::fare_for(person, from);
+                self.fare = Some((person, to, pay));
+                self.send(&Update::Fare { to: Some(to), pay }).await?;
+                self.note(format!("A FARE FOR {} · {pay} CR", crate::street::gate_name(to)), true).await
+            }
+            Request::DropFare => {
+                let Some((person, to, pay)) = self.fare else { return Ok(()) };
+                // At the wheel, in the square they asked for.
+                let (lx, lt) = bc_sim::colony::town::out_of_the_lift(to);
+                let there = self.game.plaza.pose_of(self.slot).is_some_and(|p| {
+                    p.driving()
+                        && crate::street::apart((p.x, p.s), (lx, bc_sim::colony::town::deck_s(lt)))
+                            <= crate::street::SET_DOWN
+                });
+                if self.place != Place::Town || !there {
+                    let gate = crate::street::gate_name(to);
+                    return self
+                        .note(format!("your fare asked for {gate}'s square, by its lift"), false)
+                        .await;
+                }
+                self.fare = None;
+                self.game.street.set_down(person);
+                self.hangar.credits += pay;
+                tracing::info!(slot = self.slot, name = %self.callsign, pay, "a fare set down");
+                self.send(&Update::Fare { to: None, pay: 0 }).await?;
+                self.note(format!("FARE SET DOWN · {pay} CR"), true).await?;
+                self.send_hangar().await?;
+                self.save().await;
+                Ok(())
+            }
             Request::Fine { heat } => {
                 // Caught by the Watch in the town: its fine, as much of it as the bay has.
                 if self.place != Place::Town || heat == 0 {
@@ -1172,6 +1219,8 @@ impl Session<'_> {
                 }
                 let fine = wire::watch_fine(heat).min(self.hangar.credits);
                 self.hangar.credits -= fine;
+                // (Their car goes with it, and whoever was riding in it.)
+                self.lose_fare().await?;
                 tracing::info!(slot = self.slot, name = %self.callsign, heat, fine, "fined by the Watch");
                 self.note(format!("THE WATCH HAS YOU · FINED {fine} CR"), true).await?;
                 self.send_hangar().await?;
@@ -1507,11 +1556,22 @@ impl Session<'_> {
                 .note("the lifts up to the bays are under the spokes: on foot, at a lift's door", false)
                 .await;
         }
+        self.lose_fare().await?;
         self.game.plaza.leave(self.slot);
         self.place = Place::Hangar;
         self.send_place().await?;
         self.send_hangar().await?;
         self.publish_hangar();
+        Ok(())
+    }
+
+    /// A fare left behind (the pilot's gone up the lift, or the Watch has them): back on the
+    /// street, unpaid.
+    async fn lose_fare(&mut self) -> anyhow::Result<()> {
+        if let Some((person, ..)) = self.fare.take() {
+            self.game.street.set_down(person);
+            self.send(&Update::Fare { to: None, pay: 0 }).await?;
+        }
         Ok(())
     }
 

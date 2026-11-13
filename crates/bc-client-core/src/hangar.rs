@@ -46,6 +46,8 @@ pub struct HangarState {
     /// ...and the last one is kept.
     pub last_debrief: Option<Debrief>,
     /// News, oldest first. The UI takes it.
+    /// The fare in the pilot's car in the town: the lift whose square they asked for, and their pay.
+    pub fare: Option<(u16, u64)>,
     /// The ring's town's people knocked down, as the server last said (`Update::Street`).
     pub street: Vec<bc_econ::wire::Down>,
     pub news: Vec<String>,
@@ -107,6 +109,7 @@ impl HangarState {
             Update::Homes(view) => self.homes = view,
             Update::Body(view) => self.body = Some(view),
             Update::Street { down } => self.street = down,
+            Update::Fare { to, pay } => self.fare = to.map(|k| (k, pay)),
         }
         false
     }
