@@ -668,7 +668,7 @@ impl Plaza {
     }
 }
 
-/// The store's traders' slots (`Config::max_clients` must stay under `VISITOR_BASE`).
+/// The store's traders' ids (every session's stays under `VISITOR_BASE`: `net::sessions`).
 pub use bc_proto::presence::{VISITOR_BASE, VISITORS};
 
 /// FNV-1a: a spot from a key, the same on every run.

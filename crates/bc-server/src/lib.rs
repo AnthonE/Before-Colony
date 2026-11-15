@@ -108,7 +108,11 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
     let status_game = status_view.clone();
     let launcher_stats = stats.clone();
     let launcher_game = status_view.clone();
-    let max_players = cfg.max_clients;
+    // Everyone connected has a session; under arcade rules each flies, on a flight slot of its own.
+    let max_players = match cfg.rules {
+        Ruleset::Survival => cfg.max_sessions,
+        Ruleset::Arcade => cfg.max_sessions.min(cfg.max_clients),
+    };
     let online = shared.as_ref().map(|g| g.online.clone());
     let floor_game = shared.clone().filter(|g| g.colony);
     let nonce_game = shared.clone();
@@ -147,7 +151,7 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
 
     // The store's traders, standing on the Exchange floor.
     if let (Some(url), Some(g)) = (cfg.floor_visitors.clone(), shared.as_ref().filter(|g| g.colony)) {
-        tokio::spawn(visitors::run(url, g.plaza.clone(), cfg.max_clients, shutdown_rx.clone()));
+        tokio::spawn(visitors::run(url, g.plaza.clone(), shutdown_rx.clone()));
     }
     let admission = net::admit::Admission::new(cfg.limits);
     tokio::spawn(net::endpoint::accept_loop(

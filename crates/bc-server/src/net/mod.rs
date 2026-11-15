@@ -8,6 +8,7 @@ pub mod echo;
 pub mod endpoint;
 pub mod game;
 mod session;
+pub mod sessions;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

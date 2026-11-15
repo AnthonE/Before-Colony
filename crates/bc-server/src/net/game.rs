@@ -43,8 +43,9 @@ pub enum EgressCmd {
 pub struct RosterEntry {
     pub name: String,
     pub pilot: PilotKind,
-    /// The slot of the session that seated the pilot (`u16::MAX`: none, a suit put back at boot).
-    pub client_slot: u16,
+    /// The session that seated the pilot (`sessions::NO_SESSION`: none, a suit put back at boot,
+    /// or an ace).
+    pub session: u16,
     /// `roster_flags` (signed in, asleep).
     pub flags: u8,
     /// A signed-in pilot's wallet, shortened (`0x1234…abcd`).
@@ -144,8 +145,10 @@ pub struct GameShared {
     /// The colony's register of homes: who holds which flat or house (`docs/OPEN_CITY.md`).
     pub homes: Arc<crate::homes::HomeRegister>,
     pub econ: bc_econ::Rules,
-    /// Pilots' hangars, by client slot, for `/status`.
+    /// Pilots' hangars, by session, for `/status`.
     pub(super) hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
+    /// The sessions live now: their ids and bays.
+    pub sessions: Arc<super::sessions::Sessions>,
     /// The colony's radio: what pilots say (`radio`).
     pub radio: Arc<crate::radio::Radio>,
     /// The wallets on now, for the store (`/online.json`).
@@ -174,10 +177,10 @@ impl GameShared {
         let agents: Vec<u16> = self
             .roster
             .read()
-            .map(|r| r.values().filter(|e| e.pilot == PilotKind::Agent).map(|e| e.client_slot).collect())
+            .map(|r| r.values().filter(|e| e.pilot == PilotKind::Agent).map(|e| e.session).collect())
             .unwrap_or_default();
         let plaza = self.colony.then_some(&*self.plaza);
-        self.market.with(|ex| crate::floor::json(plaza, Some(ex), |slot| agents.contains(&slot)))
+        self.market.with(|ex| crate::floor::json(plaza, Some(ex), |id| agents.contains(&id)))
     }
 
     /// Survival, at boot, before anyone can connect: puts the suits pilots left in landmarks'
@@ -268,7 +271,7 @@ impl GameShared {
                 let entry = RosterEntry {
                     name: r.name.clone(),
                     pilot,
-                    client_slot: u16::MAX,
+                    session: super::sessions::NO_SESSION,
                     flags,
                     address: Some(pilots::short(&address)),
                 };
@@ -314,6 +317,7 @@ pub struct StatusView {
     proving: Arc<Proving>,
     homes: Arc<crate::homes::HomeRegister>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
+    sessions: Arc<super::sessions::Sessions>,
     inside: Option<Arc<SectorShared>>,
     radio: Arc<crate::radio::Radio>,
 }
@@ -468,6 +472,7 @@ impl GameRuntime {
             homes,
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed, ..bc_econ::Rules::default() },
             hangars: Arc::new(RwLock::new(HashMap::new())),
+            sessions: super::sessions::Sessions::new(cfg.max_sessions),
             radio: Arc::new(crate::radio::Radio::default()),
             online: Arc::new(crate::online::Online::default()),
             restore_over: Arc::new(AtomicBool::new(false)),
@@ -549,6 +554,7 @@ impl GameRuntime {
             proving: self.shared.proving.clone(),
             homes: self.shared.homes.clone(),
             hangars: self.shared.hangars.clone(),
+            sessions: self.shared.sessions.clone(),
             inside: self.shared.inside.as_ref().map(|i| i.sector.clone()),
             radio: self.shared.radio.clone(),
         }
@@ -651,6 +657,7 @@ impl StatusView {
             }
             pilots.push(serde_json::json!({
                 "client_slot": slot,
+                "session": entry.map(|e| e.session),
                 "suit": suit,
                 "name": entry.map(|e| e.name.clone()).unwrap_or_default(),
                 "verified": entry.is_some_and(|e| e.flags & roster_flags::VERIFIED != 0),
@@ -730,6 +737,13 @@ impl StatusView {
                 "course_record_ms": v.course_record.map(|r| r.ms),
                 "drill_record_ms": v.drill_record.map(|r| r.ms),
             })
+        });
+        // Sessions live (in the bay, on foot or flying), and room for them; suits flying in space
+        // are `clients`, and the flight slots no session holds are free.
+        let sessions = serde_json::json!({
+            "live": self.sessions.live(),
+            "max": self.sessions.max(),
+            "flight_slots_free": s.leases.len(),
         });
         let tick_us = serde_json::json!({
             "p50": m.tick_quantile_us(0.5),
@@ -833,6 +847,7 @@ impl StatusView {
         });
         // And how many are down in the ring's town (set here: the macro above is at its depth).
         status["town"] = serde_json::json!({ "people": self.plaza.in_town() });
+        status["sessions"] = sessions;
         status
     }
 }
@@ -900,6 +915,25 @@ pub(super) async fn wait_slot(
         tokio::time::sleep(Duration::from_millis(2)).await;
     }
     None
+}
+
+/// Tells the sector a slot is empty (whatever was seated there leaves), and waits until it has
+/// heard: every tick drains the control queue first, so two ticks on, nothing this session sent
+/// it before (a `Watch`, a `Join`) can seat anyone under whoever has the slot next.
+pub(super) async fn vacate(sector: &SectorShared, slot: u16) {
+    let tick = || sector.tick.load(Ordering::Acquire);
+    let mut bye = Control::Leave { slot };
+    while let Err(back) = sector.control.push(bye) {
+        bye = back;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let pushed = tick();
+    for _ in 0..1_500 {
+        if tick() > pushed + 1 && sector.slots[slot as usize].state() == SlotState::Free {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
 }
 
 /// Simple token bucket: inputs are ~30/s; allow bursts, drop floods.
@@ -1150,7 +1184,7 @@ impl AceWatch {
             let name = bc_sim::content::aces::ace(ace).name;
             let ours = game.roster.write().is_ok_and(|mut r| {
                 let ours = r.get(&suit).is_some_and(|e| {
-                    e.pilot == PilotKind::Drone && e.client_slot == u16::MAX && e.name == name
+                    e.pilot == PilotKind::Drone && e.session == super::sessions::NO_SESSION && e.name == name
                 });
                 if ours {
                     r.remove(&suit);
@@ -1174,7 +1208,7 @@ impl AceWatch {
             let entry = RosterEntry {
                 name: name.to_string(),
                 pilot: PilotKind::Drone,
-                client_slot: u16::MAX,
+                session: super::sessions::NO_SESSION,
                 flags: 0,
                 address: None,
             };

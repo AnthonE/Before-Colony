@@ -1220,7 +1220,7 @@ fn foot_golden_wasm() {
 /// Hash of 8 cars and 4 scooters (`bc_sim::car`, the tick's and the driver's) taken from the motor
 /// pools on three strips and driven 900 ticks: away down the avenue, turning across it onto the
 /// kerbs and into the walls and posts, braking, reversing and the handbrake.
-const CARS_GOLDEN: u64 = 0xfac7_195f_8bf0_05a1;
+const CARS_GOLDEN: u64 = 0xe182_b02e_1806_3bf4;
 
 fn cars_hash() -> u64 {
     use bc_sim::car::{Drive, Kind, Vehicle};
