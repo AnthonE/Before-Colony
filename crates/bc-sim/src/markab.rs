@@ -1041,6 +1041,7 @@ impl Markab {
             running: self.fan,
             ride: RIDE_MARKAB,
             jets: (if self.jets.lift { JET_LIFT } else { 0 }) | (if self.jets.boost { JET_BOOST } else { 0 }),
+            heat: 0,
         }
     }
 

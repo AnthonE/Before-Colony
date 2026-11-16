@@ -130,6 +130,10 @@ pub struct GameShared {
     pub town_start: bool,
     /// The town's people knocked down (`crate::street`).
     pub street: Arc<crate::street::Street>,
+    /// Every pilot's heat, and the incidents the Watch is answering in the town (`crate::watch`).
+    pub watch: Arc<crate::watch::Watch>,
+    /// The dev hooks are on (`Config::dev_hooks`): the dev HTTP's `/dev/incident`.
+    pub dev_hooks: bool,
     /// The colony's inside, if it's open.
     pub inside: Option<Inside>,
     /// The people in the colony's city (`plaza`).
@@ -311,6 +315,8 @@ pub struct StatusView {
     survival: bool,
     colony: bool,
     plaza: Arc<crate::plaza::Plaza>,
+    street: Arc<crate::street::Street>,
+    watch: Arc<crate::watch::Watch>,
     anime: bool,
     market: Arc<Market>,
     charter: Arc<Charter>,
@@ -442,6 +448,7 @@ impl GameRuntime {
         let proving = Arc::new(Proving::open(cfg.data_dir.as_ref().map(|d| d.join("proving.json"))));
         let homes =
             Arc::new(crate::homes::HomeRegister::open(cfg.data_dir.as_ref().map(|d| d.join("homes.json"))));
+        let watch = Arc::new(crate::watch::Watch::default());
         let game = GameShared {
             sector: shared,
             egress: queue,
@@ -463,8 +470,10 @@ impl GameRuntime {
             colony: survival && cfg.colony,
             town_start: survival && cfg.start == crate::config::Start::Town,
             street: Arc::new(crate::street::Street::default()),
+            watch: watch.clone(),
+            dev_hooks: cfg.dev_hooks,
             inside,
-            plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone())),
+            plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone()).with_watch(watch)),
             anime: cfg.flight == Flight::Anime,
             market,
             charter,
@@ -548,6 +557,8 @@ impl GameRuntime {
             survival: self.shared.survival,
             colony: self.shared.colony,
             plaza: self.shared.plaza.clone(),
+            street: self.shared.street.clone(),
+            watch: self.shared.watch.clone(),
             anime: self.shared.anime,
             market: self.shared.market.clone(),
             charter: self.shared.charter.clone(),
@@ -846,7 +857,13 @@ impl StatusView {
             "sleepers": sleepers,
         });
         // And how many are down in the ring's town (set here: the macro above is at its depth).
-        status["town"] = serde_json::json!({ "people": self.plaza.in_town() });
+        // (Its people knocked down and the Watch's incidents: counts, never where or whose.)
+        let tick = self.sector.tick.load(Ordering::Acquire);
+        status["town"] = serde_json::json!({
+            "people": self.plaza.in_town(),
+            "down": self.street.count(tick),
+            "incidents": self.watch.live(tick),
+        });
         status["sessions"] = sessions;
         status
     }

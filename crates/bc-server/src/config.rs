@@ -171,6 +171,9 @@ pub struct Config {
     /// Where the store lists the traders on its trade page, who stand on the Exchange floor
     /// (`crate::visitors`). None: nobody from the store.
     pub floor_visitors: Option<String>,
+    /// The dev HTTP's hooks for tests (`--dev-hooks`): `/dev/incident` raises one of the Watch's
+    /// incidents by hand. Off by default, and in every deployment: the route isn't there at all.
+    pub dev_hooks: bool,
 }
 
 impl Default for Config {
@@ -206,6 +209,7 @@ impl Default for Config {
             start: Start::Bay,
             limits: crate::net::admit::Limits::default(),
             floor_visitors: None,
+            dev_hooks: false,
         }
     }
 }

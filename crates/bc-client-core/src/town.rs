@@ -70,6 +70,7 @@ pub fn pose_of(w: &Walker) -> PersonPose {
         running: flat > 5.0,
         ride: 0,
         jets: 0,
+        heat: 0,
     }
 }
 

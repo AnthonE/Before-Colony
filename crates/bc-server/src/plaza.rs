@@ -24,6 +24,9 @@
 //! The ring's floor, the town (`docs/FREE_ROAM.md`), is another ([`RING_DECK`]): down a spoke's lift
 //! to Hub Gate's square, the first pose near its door, on foot or driving a car, out of the town's
 //! walls and its canal, all the way round the ring (its `s` wraps).
+//!
+//! Each pose relayed carries how much the Watch wants its pilot (`crate::watch`), written here from
+//! the server's own heat: a client's pose carries none.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -108,6 +111,8 @@ pub struct Plaza {
     people: Mutex<HashMap<u16, Person>>,
     refused_by: Mutex<[u32; WHYS.len()]>,
     homes: Option<std::sync::Arc<crate::homes::HomeRegister>>,
+    /// Who the Watch wants, and how much (none: nobody).
+    watch: Option<std::sync::Arc<crate::watch::Watch>>,
 }
 
 /// Why a pose wasn't passed on.
@@ -316,6 +321,16 @@ impl Plaza {
         Self { homes: Some(homes), ..Self::default() }
     }
 
+    /// And that writes the heat `watch` holds on each person into the poses it relays.
+    pub fn with_watch(self, watch: std::sync::Arc<crate::watch::Watch>) -> Self {
+        Self { watch: Some(watch), ..self }
+    }
+
+    /// How much the Watch wants `id`, as their relayed pose says it.
+    fn heat(&self, id: u16) -> u8 {
+        self.watch.as_ref().map_or(0, |w| w.level(id))
+    }
+
     /// `id` is `key` on the register of homes (their trader's key).
     pub fn key(&self, id: u16, key: &str) {
         if let Ok(mut all) = self.people.lock()
@@ -511,7 +526,7 @@ impl Plaza {
         let d = |ps: f32, px: f32, _: f32| {
             (px - x).hypot(if ring { deck::round_from(RING, s, ps) } else { ps - s })
         };
-        nearest(&all, Some(viewer), me.strip, now, tick, NEAR, d, w, shown);
+        nearest(&all, Some(viewer), me.strip, now, tick, NEAR, d, &|id| self.heat(id), w, shown);
     }
 
     /// The people a pilot flying a suit inside the colony sees from `at` (the colony's own frame),
@@ -529,7 +544,7 @@ impl Plaza {
         let Ok(all) = self.people.lock() else { return };
         let (strip, _, _) = strip_under(at);
         let d = |ps: f32, px: f32, h: f32| CityPos::new(strip, px, ps, h).to_colony().distance(at);
-        nearest(&all, None, strip, now, tick, SUIT_NEAR, d, w, shown);
+        nearest(&all, None, strip, now, tick, SUIT_NEAR, d, &|id| self.heat(id), w, shown);
     }
 
     /// Where `id` was last seen to be (their last pose taken), if they're in the city.
@@ -689,7 +704,8 @@ fn visitor_spot(k: u16, jitter: u32) -> (f32, f32, f32) {
 }
 
 /// Into `w`, the people on strip `strip` heard from lately (but `skip`) within `range` by `dist`
-/// (of where they are across and along it, and how high), nearest first; their slots into `shown`.
+/// (of where they are across and along it, and how high), nearest first, each pose with the heat
+/// `heat` says of them (never what came with it); their slots into `shown`.
 #[allow(clippy::too_many_arguments)]
 fn nearest(
     all: &HashMap<u16, Person>,
@@ -699,6 +715,7 @@ fn nearest(
     tick: u32,
     range: f32,
     dist: impl Fn(f32, f32, f32) -> f32,
+    heat: &dyn Fn(u16) -> u8,
     w: &mut PlazaWriter<'_>,
     shown: &mut Vec<u16>,
 ) {
@@ -715,6 +732,7 @@ fn nearest(
         .collect();
     near.sort_by(|a, b| a.0.total_cmp(&b.0));
     for (_, id, age, pose) in near.into_iter().take(MAX_PEOPLE) {
+        let pose = PersonPose { heat: heat(id), ..pose };
         if !w.push(id, age, &pose) {
             break;
         }
