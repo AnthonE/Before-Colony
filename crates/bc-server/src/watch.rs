@@ -394,6 +394,29 @@ impl Watch {
         self.with(id, |_, w| w.fine.take()).flatten()
     }
 
+    /// What `id`'s heat comes to at tick `tick`, in points (0: nothing): kept with a signed-in
+    /// pilot's record when they leave ([`Watch::resume`]).
+    pub fn points(&self, id: u16, tick: u32) -> f32 {
+        let Ok(inner) = self.inner.lock() else { return 0.0 };
+        inner.wanted.get(&id).map_or(0.0, |w| {
+            let mut h = w.heat;
+            h.cool(tick);
+            h.points()
+        })
+    }
+
+    /// `id` is back after `away` s with `points` of heat kept from when they left: it's theirs
+    /// again at tick `tick`, cooled by the time away.
+    pub fn resume(&self, id: u16, points: f32, away: u64, tick: u32) {
+        if points <= 0.0 {
+            return;
+        }
+        let quiet = u32::try_from(away.saturating_mul(u64::from(TICK_HZ))).unwrap_or(u32::MAX);
+        self.with(id, |_, w| {
+            w.heat = Heat::resumed(points, quiet, tick);
+        });
+    }
+
     /// `id`'s session is over: the Watch forgets them (their incident runs its time).
     pub fn leave(&self, id: u16) {
         if let Ok(mut inner) = self.inner.lock() {
@@ -609,5 +632,27 @@ mod tests {
         assert!(live.iter().any(|i| i.id == id), "the one longest to run is kept");
         assert_eq!(w.live(100), MAX_INCIDENTS);
         assert_eq!(w.news_since(0).1.len(), 1, "a level 1 is no news");
+    }
+
+    #[test]
+    fn heat_kept_over_a_logout_is_theirs_again_cooled_by_the_time_away() {
+        let w = Watch::default();
+        let at = (20.0, town::deck_s(town::CELL * 20.5));
+        assert!(w.offend(1, "Maren", Offence::TookTheWatchs, at, 100));
+        assert_eq!(w.level(1), 3);
+        // Gone (a reload) with it kept: back in a few seconds, still wanted as much, in a new slot.
+        let kept = w.points(1, 200);
+        w.leave(1);
+        assert_eq!(w.level(1), 0);
+        w.resume(4, kept, 5, 400);
+        assert_eq!(w.level(4), 3);
+        // It cools on from there as it would have.
+        assert!(w.tick(4, None, 400 + COOL_TICKS));
+        assert_eq!(w.level(4), 2);
+        // Away long enough, it's nothing; and nothing kept is nothing.
+        w.resume(5, kept, 10 * u64::from(COOL_TICKS / TICK_HZ), 400);
+        assert_eq!(w.level(5), 0);
+        w.resume(6, 0.0, 0, 400);
+        assert_eq!(w.heat(6), (0, None));
     }
 }

@@ -244,6 +244,15 @@ pub struct PilotRecord {
     /// bay, up a lift, their suit), or the record's older than that: they wake in the bay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub town: Option<TownSpot>,
+    /// How much the Watch wanted them when they left (its heat's points, `bc_sim::colony::watch`):
+    /// it's waiting when they're back, cooled by the time they were away (`seen_unix` on). A reload
+    /// doesn't clear it.
+    #[serde(default, skip_serializing_if = "cold")]
+    pub heat: f32,
+}
+
+fn cold(heat: &f32) -> bool {
+    *heat <= 0.0
 }
 
 /// A spot on the ring's town's floor, as the plaza has a pilot there: `x` across the ring, `s` round
@@ -283,6 +292,7 @@ impl PilotRecord {
             word: Vec::new(),
             body: bc_econ::body::Body::default(),
             town: None,
+            heat: 0.0,
         }
     }
 }

@@ -157,6 +157,15 @@ async fn whats_taken_from_the_towns_crowd_is_the_same_for_everyone_near_and_kept
     // kerb empty. Corvi, districts away, is never sent that district.
     walk(&mut a, &mut b, &walk_there).await?;
     let kerb = town_foot::kerb_of(&car).expect("in a bay");
+    // As a browser does: at the wheel in the frame it asks, so the pose is there first.
+    a.set_pose(PersonPose {
+        x: car.x,
+        s: car.s,
+        yaw: car.yaw,
+        ride: RIDE_CAR,
+        ..beside(car.x, car.s, car.yaw)
+    });
+    both(&mut a, &mut b, 0.3).await?;
     a.request(&Request::TakeParked { kerb }).await?;
     b.wait_until(5.0, "the kerb empty", |c| c.hangar.taken.kerbs().any(|k| k == kerb)).await?;
     assert_eq!(server.status()["game"]["town"]["kerbs"], 1);

@@ -506,6 +506,12 @@ impl Session<'_> {
         // Where in the ring's town they logged out, if they did: they wake there (and the record
         // has them there no more till they leave it so again).
         let left_in_town = self.record.as_mut().and_then(|r| r.town.take());
+        // And what the Watch wanted of them then: still theirs, cooled by the time away.
+        if let Some(r) = self.record.as_mut().filter(|r| r.heat > 0.0) {
+            let away = pilots::unix_now().saturating_sub(r.seen_unix);
+            let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            self.game.watch.resume(self.id, std::mem::take(&mut r.heat), away, tick);
+        }
         if let Some(r) = self.record.as_mut() {
             // Woken, or gone: either way it's no longer out there asleep (in a hide spot or not).
             r.sleeper = None;
@@ -1752,7 +1758,11 @@ impl Session<'_> {
             return self.note("you're not down in the town", false).await;
         }
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-        let Some(pose) = self.game.plaza.pose_of(self.id) else {
+        // Where they stood to ask (their client is at the wheel already, and its pose may be here
+        // before the ask).
+        let now = std::time::Instant::now();
+        let Some(pose) = self.game.plaza.stood_for(self.id, std::time::Duration::from_millis(1_500), now)
+        else {
             return self.note("there's no car there", false).await;
         };
         let street = &self.game.street;
@@ -2557,6 +2567,9 @@ impl Session<'_> {
         self.lie_down().await;
         // Down in the ring's town: where, to wake there.
         let town = if self.survival() { self.town_spot() } else { None };
+        // And what the Watch wants of them (kept with them: a reload doesn't clear it).
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let heat = self.game.watch.points(self.id, tick);
         self.let_go_of_the_car();
         self.game.plaza.leave(self.id);
         self.game.watch.leave(self.id);
@@ -2736,6 +2749,7 @@ impl Session<'_> {
                 r.hangar = Some(self.hangar.clone());
                 r.body = self.body.clone();
                 r.town = town;
+                r.heat = heat;
             } else {
                 r.credits = credits;
             }

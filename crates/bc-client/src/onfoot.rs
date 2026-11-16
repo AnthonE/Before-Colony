@@ -2291,7 +2291,7 @@ pub fn drive_onfoot(
         // (The first time, what it means.)
         if level > 0 && !t.told_watch {
             t.told_watch = true;
-            ui.toast("STOPPED WITH ONE OF THE WATCH'S UNITS NEAR, YOU'RE FINED · LOSE THEM AND IT COOLS");
+            ui.toast("ITS UNITS ARE COMING · IF THEY STOP YOU WITH ONE NEAR, YOU'RE FINED · LOSE THEM AND IT COOLS");
         }
         // The other pilots near: the cars the town's people step aside from.
         let people = g.core.people(now);

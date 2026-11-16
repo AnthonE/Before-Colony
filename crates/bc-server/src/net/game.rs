@@ -316,6 +316,7 @@ pub struct StatusView {
     oracle: &'static str,
     survival: bool,
     colony: bool,
+    town_start: bool,
     plaza: Arc<crate::plaza::Plaza>,
     street: Arc<crate::street::Street>,
     watch: Arc<crate::watch::Watch>,
@@ -570,6 +571,7 @@ impl GameRuntime {
             oracle: self.oracle,
             survival: self.shared.survival,
             colony: self.shared.colony,
+            town_start: self.shared.town_start,
             plaza: self.shared.plaza.clone(),
             street: self.shared.street.clone(),
             watch: self.shared.watch.clone(),
@@ -801,6 +803,8 @@ impl StatusView {
             // (never where), and how many of their poses weren't passed on. And how many are out on
             // the base's deck.
             "colony": self.colony,
+            // Where a new pilot wakes: the ring's town (at Hub Gate's lift), or their bay.
+            "start": if self.town_start { "town" } else { "bay" },
             "base": { "people": city.3 },
             "city": {
                 "people": city.0,

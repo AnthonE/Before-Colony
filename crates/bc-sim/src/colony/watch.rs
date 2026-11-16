@@ -320,6 +320,13 @@ impl Heat {
         (self.points > 0.0).then(|| self.since.saturating_add(COOL_TICKS))
     }
 
+    /// `points` of heat kept while its pilot was away for `quiet` ticks, at tick `tick`: cooled as
+    /// that quiet would have.
+    pub fn resumed(points: f32, quiet: u32, tick: u32) -> Self {
+        let points = cooled(points.clamp(0.0, MOST), quiet);
+        Self { points, since: tick.saturating_sub(quiet % COOL_TICKS) }
+    }
+
     /// Paid off (a fine): nothing wanted.
     pub fn clear(&mut self) {
         *self = Self::default();

@@ -56,6 +56,11 @@ const STRAYED: f32 = 25.0;
 /// Where the units after one pilot each make for, round them (by their place in the chase), m
 /// round the ring: so they don't stand on each other.
 const CHASE_SPREAD: [f32; 4] = [0.0, 7.0, -7.0, 14.0];
+/// How long the heat of a pilot holds while the units sent after them are on their way and none
+/// has had them in sight yet, ticks (else a first level cools before any could come).
+const ON_THE_WAY: u32 = 90 * TICK_HZ;
+/// Units sent out of one station together pull out this far apart, s (else they drive as one).
+const PULL_OUT: f32 = 1.5;
 
 /// What a unit is doing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,6 +98,8 @@ struct Unit {
     routed: u32,
     /// Holding its cordon till this tick.
     until: u32,
+    /// Still at its station's door this long before it pulls out, s.
+    wait: f32,
 }
 
 impl Unit {
@@ -115,6 +122,7 @@ impl Unit {
             goal: (x, t),
             routed: 0,
             until: 0,
+            wait: 0.0,
         }
     }
 
@@ -156,7 +164,9 @@ impl Unit {
 
     /// `dt` s along its route.
     fn drive(&mut self, dt: f32) {
-        let mut left = self.speed() * dt;
+        let waited = self.wait.min(dt);
+        self.wait -= waited;
+        let mut left = self.speed() * (dt - waited);
         while left > 0.0 && self.next < self.len {
             let w = self.route[self.next];
             let (dx, dt) = (w.x - self.x, w.t - self.t);
@@ -193,6 +203,9 @@ struct Chase {
     held: f32,
     /// The tick more units were last sent after them.
     topped: Option<u32>,
+    /// The tick the chase began, and whether a unit has had them in sight since.
+    since: u32,
+    met: bool,
 }
 
 /// How far apart two places on the town's floor are, `(x, t)`, m (round the ring the short way).
@@ -219,6 +232,8 @@ pub struct Seen {
     pub goal: (f32, f32),
     pub to_go: f32,
     pub until: u32,
+    /// Still at its door this long before it pulls out, s.
+    pub wait: f32,
 }
 
 struct Inner {
@@ -291,6 +306,8 @@ impl Inner {
         let total = u32::from(answer.cars) + u32::from(answer.hounds);
         let mut slot = u32::from(have.0) + u32::from(have.1);
         let mut sent = 0;
+        // How many each station has sent so far: each pulls out after the one before.
+        let mut pulled = [0u8; STATIONS];
         for (k, kind) in UnitKind::ALL.into_iter().enumerate() {
             let mut left = want[k];
             for &(far, station) in by_road.iter().take(usize::from(answer.stations)) {
@@ -319,6 +336,9 @@ impl Inner {
                     (u.x, u.t) = (u.route[0].x, u.route[0].t);
                     u.state = State::Driving;
                     (u.incident, u.after, u.level, u.slot) = (incident, after, level, slot as u8);
+                    let p = &mut pulled[usize::from(station)];
+                    u.wait = PULL_OUT * f32::from(*p);
+                    *p = p.saturating_add(1);
                     slot += 1;
                     left -= 1;
                     sent += 1;
@@ -406,6 +426,8 @@ impl Dispatch {
                         speed: None,
                         held: 0.0,
                         topped: None,
+                        since: tick,
+                        met: false,
                     });
                     k
                 }
@@ -487,6 +509,13 @@ impl Dispatch {
                 }
             }
             if nearest.0 <= UNIT_SIGHT {
+                c.met = true;
+                watch.seen(c.id, tick);
+            } else if !c.met
+                && tick.saturating_sub(c.since) < ON_THE_WAY
+                && inner.units.iter().any(|u| u.chasing(c.id))
+            {
+                // On their way, none there yet: it doesn't cool before they could have come.
                 watch.seen(c.id, tick);
             }
             let slow = c.speed.is_some_and(|v| v < CATCH.0);
@@ -571,6 +600,7 @@ impl Dispatch {
                     goal: u.goal,
                     to_go,
                     until: u.until,
+                    wait: u.wait,
                 }
             })
             .collect()
@@ -656,12 +686,18 @@ mod tests {
         assert_eq!(sent.len(), 2, "{sent:?}");
         assert!(sent.iter().all(|u| u.station == 3 && u.incident == id && u.state == State::Driving));
         assert_eq!(sent.iter().filter(|u| u.kind == UnitKind::Car).count(), 1);
+        // One after the other out of the door, not as one.
+        let mut waits: Vec<f32> = sent.iter().map(|u| u.wait).collect();
+        waits.sort_by(f32::total_cmp);
+        assert!(waits[0] == 0.0 && waits[1] > PULL_OUT * 0.5 && waits[1] <= PULL_OUT, "{waits:?}");
         on_the_roads(&d);
         // Each there within its route's length at its speed, and a little.
         let haste = tables::answer(1).haste;
         let due: Vec<(u16, u32)> = sent
             .iter()
-            .map(|u| (u.id, tick + ((u.to_go / (u.kind.speed() * haste) + 1.0) * TICK_HZ as f32) as u32))
+            .map(|u| {
+                (u.id, tick + ((u.wait + u.to_go / (u.kind.speed() * haste) + 1.0) * TICK_HZ as f32) as u32)
+            })
             .collect();
         let mut arrived = vec![None; MAX_UNITS];
         let all_there = run(

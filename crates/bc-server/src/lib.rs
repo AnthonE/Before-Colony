@@ -9,6 +9,8 @@
 //!   packet rings into `send_datagram`.
 //!
 //! [`start`] boots everything in-process, which is also how the integration tests run a real server.
+// (`/status`'s `json!` is deep.)
+#![recursion_limit = "256"]
 
 pub mod charter;
 pub mod config;

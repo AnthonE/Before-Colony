@@ -92,6 +92,9 @@ struct Person {
     /// Where they came into the city: `(s, x)`.
     arrival: (f32, f32),
     pose: Option<PersonPose>,
+    /// Their last pose taken on foot, and when: a car taken switches the pose to its wheel in the
+    /// frame the client asks, and the pose (a datagram) can beat the ask (the control stream).
+    stood: Option<(PersonPose, Instant)>,
     seq: u16,
     heard: Instant,
     /// Reach carried from their last pose, s (at most [`BANK`]).
@@ -400,6 +403,7 @@ impl Plaza {
                     strip,
                     arrival,
                     pose: None,
+                    stood: None,
                     seq: 0,
                     heard: Instant::now(),
                     bank: 0.0,
@@ -510,6 +514,9 @@ impl Plaza {
             None => 0.0,
         };
         me.pose = Some(pose);
+        if mode(&pose) == Mode::Foot {
+            me.stood = Some((pose, now));
+        }
         me.seq = seq;
         me.heard = now;
         Verdict::Taken
@@ -550,6 +557,22 @@ impl Plaza {
     /// Where `id` was last seen to be (their last pose taken), if they're in the city.
     pub fn pose_of(&self, id: u16) -> Option<PersonPose> {
         self.people.lock().ok()?.get(&id)?.pose
+    }
+
+    /// Where `id` stood for a car they ask to take: their pose, or if that's at a wheel already,
+    /// their last on foot if it was taken within `within` of `now` (the client is at the wheel in
+    /// the frame it asks, and that pose can arrive before the ask).
+    pub fn stood_for(&self, id: u16, within: std::time::Duration, now: Instant) -> Option<PersonPose> {
+        let all = self.people.lock().ok()?;
+        let me = all.get(&id)?;
+        let pose = me.pose?;
+        if !pose.driving() {
+            return Some(pose);
+        }
+        match me.stood {
+            Some((stood, at)) if now.saturating_duration_since(at) <= within => Some(stood),
+            _ => Some(pose),
+        }
     }
 
     /// Where `id` is in the colony's own frame at tick `tick` (a rider: where their train has
@@ -676,6 +699,7 @@ impl Plaza {
                     strip: room.strip,
                     arrival: (s, x),
                     pose: Some(pose),
+                    stood: None,
                     seq: 0,
                     heard: Instant::now(),
                     bank: 0.0,
