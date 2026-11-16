@@ -1,7 +1,8 @@
 //! `?perf=1`: a frame-time readout in the corner (fps, frame time, tier, entity count), and in the
-//! ring's town what it costs to draw (`town::TownStats`): its cells shown, built and still to build,
-//! their triangles, the most a frame spent building cells and placing its life lately, the people
-//! and the cars drawn, and the meshes in view.
+//! ring's town what it costs to draw (`town::TownStats`): its cells shown and the pieces they're
+//! drawn in (a near cell, four cells a face a quad, a district in the haze), the pieces built and
+//! still to build, their triangles, the most a frame spent building them and placing its life
+//! lately, the people and the cars drawn, and the meshes in view.
 
 use bevy::diagnostic::{DiagnosticPath, DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
@@ -65,8 +66,9 @@ fn update(
         if view.active {
             let s = *town;
             t.push_str(&format!(
-                "\ntown: {} cells ({} built, {} to build)  {}k tris  build {:.1} ms  life {:.1} ms\n{} people  {} cars  {} meshes in view",
+                "\ntown: {} cells in {} pieces ({} built, {} to build)  {}k tris  build {:.1} ms  life {:.1} ms\n{} people  {} cars  {} meshes in view",
                 s.cells,
+                s.pieces,
                 s.cached,
                 s.missing,
                 s.tris / 1000,
