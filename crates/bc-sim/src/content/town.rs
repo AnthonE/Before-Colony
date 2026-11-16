@@ -111,3 +111,34 @@ pub const PLACES: [PlaceDef; 3] = [
     PlaceDef { cell: 1, column: 7, kind: PlaceKind::TheArrival },
     PlaceDef { cell: 142, column: 6, kind: PlaceKind::CharterHall },
 ];
+
+/// The names the town's people go by (`colony::census`): a given name and a family name each, from
+/// every part of the Earth the colony's builders came from, and none from another studio's show or
+/// game (`docs/STORY.md`, "Voice and naming"). A hundred of each, so a street's crowd rarely holds the
+/// same person twice. (They aren't the town's layout: changing them doesn't move [`TOWN_VERSION`],
+/// but it does change who everybody is.)
+pub const GIVEN_NAMES: [&str; 100] = [
+    "Ada", "Agnes", "Aino", "Aksel", "Alba", "Amara", "Anouk", "Ansel", "Arlo", "Asha", "Aurel", "Ayo",
+    "Bea", "Bram", "Brielle", "Bruno", "Calla", "Cass", "Clara", "Coralie", "Dara", "Dov", "Eamon", "Edda",
+    "Efe", "Elin", "Elio", "Emre", "Esme", "Farah", "Femi", "Ffion", "Gil", "Greta", "Hana", "Hugo", "Ida",
+    "Ilka", "Ilse", "Imre", "Ines", "Ingrid", "Isak", "Ivo", "Jae", "Joss", "Kasia", "Kenji", "Kofi",
+    "Lark", "Leif", "Lena", "Linnea", "Lior", "Lotte", "Luca", "Maeve", "Malik", "Marek", "Maren", "Mateo",
+    "Mei", "Milo", "Mira", "Nell", "Nils", "Noor", "Nuno", "Odile", "Olu", "Oren", "Orla", "Otto", "Petra",
+    "Priya", "Quinn", "Rafa", "Ravi", "Rhea", "Rosa", "Rui", "Sami", "Sanne", "Saoirse", "Selma", "Sven",
+    "Taavi", "Tamsin", "Teo", "Thea", "Tobin", "Tomas", "Ulla", "Uma", "Una", "Vesna", "Vida", "Wren",
+    "Yusuf", "Zaid",
+];
+
+pub const FAMILY_NAMES: [&str; 100] = [
+    "Abara", "Achterberg", "Adeyemi", "Amsel", "Asante", "Baines", "Bakker", "Barlow", "Bergstrom", "Birch",
+    "Bonsu", "Brandt", "Cardoso", "Carvalho", "Castell", "Chandra", "Coombe", "Corrigan", "Dagher",
+    "Dalby", "Delgado", "Dunmore", "Ekwueme", "Elgin", "Engstrom", "Fairweather", "Falk", "Fennick",
+    "Ferreira", "Fofana", "Galloway", "Garrow", "Haddad", "Hartley", "Hayward", "Hoffmann", "Holm",
+    "Huang", "Ibarra", "Iqbal", "Ishida", "Jaramillo", "Jovanovic", "Kalnins", "Kapoor", "Kaur", "Keane",
+    "Kiplagat", "Kowalczyk", "Lachance", "Lam", "Larkin", "Lindqvist", "Lund", "Marchetti", "Mensah",
+    "Merriman", "Moreno", "Mwangi", "Nakashima", "Navarro", "Nowak", "Nyberg", "Obi", "Okafor", "Ortega",
+    "Osei", "Oyelaran", "Pellegrini", "Penrose", "Quintero", "Rahman", "Rasku", "Rautio", "Renwick",
+    "Rocha", "Sadeghi", "Salo", "Sandoval", "Sato", "Selby", "Shah", "Sorensen", "Strand", "Takahashi",
+    "Tamura", "Tanaka", "Thorne", "Tiwari", "Valdes", "Varga", "Vos", "Wainwright", "Weller", "Whitlock",
+    "Wilde", "Xu", "Yilmaz", "Zhou", "Zielinski",
+];

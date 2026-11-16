@@ -231,53 +231,27 @@ pub fn car_at_hand(at: DeckPos, taken: &[(i32, i32)], left: &[Vehicle]) -> Optio
     best.map(|(_, v, k)| (v, k))
 }
 
-/// How many parking bays there are along a cell's length of kerb, and how far apart their middles
-/// are, m (`town.wgsl` paints a tick between each): a whole number round the ring, so the same bays
-/// whichever way round they're counted.
-pub const BAYS_PER_CELL: u16 = 21;
-pub const BAY: f32 = town::CELL / BAYS_PER_CELL as f32;
-/// How far in from a street's kerb a parked car's middle is, m.
-const BAY_IN: f32 = 1.5;
+pub use bc_sim::colony::street::{BAY, BAYS_PER_CELL};
 
 /// The cars parked at the kerbs of the streets between the town's columns, within `reach` m of
-/// `(x, s)`: a closed form of the place, the same on every screen. One bay in three or so has a car
-/// in it, nose the way its side of the street is driven (traffic keeps right). Each is a
-/// [`Vehicle`] standing where it is, in the deck's `s` nearest the asker's.
+/// `(x, s)`: `bc_sim::colony::street::each_parked`'s, a closed form of the place, the same on every
+/// screen. Each is a [`Vehicle`] standing where it is, in the deck's `s` nearest the asker's.
 pub fn each_parked(x: f32, s: f32, reach: f32, mut f: impl FnMut(Vehicle)) {
     let t = town::town_t(s);
-    let half = town::STREET * 0.5;
-    let bays = i32::from(town::CELLS) * i32::from(BAYS_PER_CELL);
-    for c in 0..town::COLUMNS {
-        let (_, x1, _, hi) = town::column(c);
-        // The street along this column's far edge, if a street is what's there.
-        if hi != half || (x1 - x).abs() > reach + half {
-            continue;
+    // The square round the reach, a bay over, and then the reach itself.
+    let (x0, x1, t0, t1) = (x - reach - 1.0, x + reach + 1.0, t - reach - BAY, t + reach + BAY);
+    bc_sim::colony::street::each_parked(x0, x1, t0, t1, &mut |p| {
+        let ps = s + (p.t - t);
+        if (p.x - x).hypot(ps - s) <= reach {
+            f(Vehicle::new(Kind::Car, RING_FLOOR, ps, p.x, p.yaw));
         }
-        let (b0, b1) = (((t - reach) / BAY).floor() as i32, ((t + reach) / BAY).ceil() as i32);
-        for g in b0..=b1 {
-            let bay = g.rem_euclid(bays);
-            let cell = (bay / i32::from(BAYS_PER_CELL)) as u16;
-            // Only along a block's side: not across the cross streets at a cell's ends.
-            let row = town::block_rect(town::BlockId::new(cell, c));
-            let along = (bay as f32 + 0.5) * BAY;
-            if along < row.t0 + 10.0 || along > row.t1 - 10.0 {
-                continue;
-            }
-            for side in [-1.0f32, 1.0] {
-                let h = town::mix(u32::from(c) * 2 + u32::from(side > 0.0), bay as u32, 0xCA5);
-                if !h.is_multiple_of(3) {
-                    continue;
-                }
-                let px = x1 + side * (half - BAY_IN);
-                // Keeping right: on the +x side of the street's middle, the way `t` grows.
-                let yaw = if side > 0.0 { std::f32::consts::PI } else { 0.0 };
-                let ps = s + ((g as f32 + 0.5) * BAY - t);
-                if (px - x).hypot(ps - s) <= reach {
-                    f(Vehicle::new(Kind::Car, RING_FLOOR, ps, px, yaw));
-                }
-            }
-        }
-    }
+    });
+}
+
+/// Which kerb's bay a [`Vehicle`] from [`each_parked`] stands in (`bc_sim::colony::street::kerb`), if
+/// it stands in one: how the server names it.
+pub fn kerb_of(v: &Vehicle) -> Option<u32> {
+    bc_sim::colony::street::kerb_at(v.x, town::town_t(v.s))
 }
 
 /// Which parked car a [`Vehicle`] from [`each_parked`] is: its street and side, and its bay round

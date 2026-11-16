@@ -593,6 +593,82 @@ pub fn deck_s(t: f32) -> f32 {
     s - floor(s / round) * round
 }
 
+/// Where someone stands at the door of the Watch's station in district `d`: on its block, a pace in
+/// from its kerb on the boulevard, halfway along it. `(x, t)`, m.
+pub fn watch_door(d: u16) -> (f32, f32) {
+    let r = block_rect(watch_station(d));
+    (r.x0 + 1.5, 0.5 * (r.t0 + r.t1))
+}
+
+/// Whether someone can stand at `(x, t)` on the town's floor: not on the canal's water nor past the
+/// ring's faces, their body clear of every wall (a little wider than the walker's, so the server's
+/// pose check, which takes a thin core of it, has them clear too).
+pub fn stands_clear(x: f32, t: f32) -> bool {
+    if matches!(ground_at(x, t), Ground::Water | Ground::Outside) {
+        return false;
+    }
+    let (e, s) = (0.4, deck_s(t));
+    !crate::colony::deck::solid(RING, Vec3::new(x - e, 0.05, -s - e), Vec3::new(x + e, 1.8, -s + e))
+}
+
+/// What a `bc_econ::wire::Wake`'s `home` says when it's a spot on the town's floor ([`pack_spot`])
+/// and not a home's bed: no home's id has these bits (`colony::homes::HomeId` keeps to 29).
+pub const WAKE_IN_TOWN: u32 = u32::MAX;
+
+/// A spot on the town's floor in two `u16`s: `x` in 32nds of a metre from −1,024 m, and `t` round the
+/// ring in 65,536ths of its round (0.29 m). How a pilot's wake there is sent.
+pub fn pack_spot(x: f32, t: f32) -> (u16, u16) {
+    let x = floor((x + 1_024.0) * 32.0 + 0.5).clamp(0.0, f32::from(u16::MAX)) as u16;
+    let t = (floor(wrap(t) / ROUND * 65_536.0 + 0.5) as u32 % 65_536) as u16;
+    (x, t)
+}
+
+/// The spot [`pack_spot`] packed, `(x, t)`.
+pub fn unpack_spot((x, t): (u16, u16)) -> (f32, f32) {
+    (f32::from(x) / 32.0 - 1_024.0, f32::from(t) * (ROUND / 65_536.0))
+}
+
+/// Where a pilot who left the town at `(x, t)` on its floor wakes there, packed ([`pack_spot`]): that
+/// spot, if they can stand there ([`stands_clear`]); else the nearest they can a few metres round it
+/// (out of the wall they'd be in); else at the door of the nearest of the Watch's stations; else
+/// (somewhere that isn't the floor at all) out of Hub Gate's lift.
+pub fn wake_spot(x: f32, t: f32) -> (u16, u16) {
+    let at = |x: f32, t: f32| {
+        let p = pack_spot(x, t);
+        let (ux, ut) = unpack_spot(p);
+        stands_clear(ux, ut).then_some(p)
+    };
+    if x.is_finite() && t.is_finite() && x.abs() < COLONY_HALF_WIDTH {
+        if let Some(p) = at(x, t) {
+            return p;
+        }
+        for r in 1..=WAKE_REACH {
+            let n = 8 * r;
+            for k in 0..n {
+                let a = TAU * k as f32 / n as f32;
+                if let Some(p) = at(x + r as f32 * crate::math::cos(a), t + r as f32 * crate::math::sin(a)) {
+                    return p;
+                }
+            }
+        }
+        let round = |d: u16| {
+            let (dx, dt) = watch_door(d);
+            let w = wrap(dt - t);
+            (dx - x).abs() + w.min(ROUND - w)
+        };
+        let d = (0..DISTRICT_COUNT).min_by(|a, b| round(*a).total_cmp(&round(*b))).unwrap_or(0);
+        let (dx, dt) = watch_door(d);
+        if let Some(p) = at(dx, dt) {
+            return p;
+        }
+    }
+    let (lx, lt) = out_of_the_lift(0);
+    pack_spot(lx, lt)
+}
+
+/// How far round a spot [`wake_spot`] looks for somewhere to stand, m.
+const WAKE_REACH: u32 = 12;
+
 /// Lift `k`'s spoke's angle round the axis, from +Y towards +Z, before the spin (`hub::spoke_angle`).
 pub fn lift_angle(k: u16) -> f32 {
     spoke_angle(u32::from(k % LIFTS))
@@ -822,6 +898,50 @@ mod tests {
             // Out on the square's own avenue, off the boulevard's carriageway.
             assert_ne!(band_at(x), Band::Boulevard);
         }
+    }
+
+    #[test]
+    fn a_pilot_wakes_where_they_left_the_town_clear_of_its_walls() {
+        // Packed and unpacked, a spot is where it was to a hand's breadth, any turn of the ring.
+        for (x, t) in [(-42.5f32, 11.0f32), (999.0, ROUND - 0.01), (-1_000.0, 0.0), (310.7, -77.3)] {
+            let (ux, ut) = unpack_spot(pack_spot(x, t));
+            let dt = wrap(ut - t);
+            assert!((ux - x).abs() <= 1.0 / 64.0 + 1e-4 && dt.min(ROUND - dt) < 0.15, "({x}, {t}): ({ux}, {ut})");
+        }
+        // Somewhere clear: there.
+        let (x, t) = (-60.0, 40.0);
+        assert!(stands_clear(x, t));
+        let (ux, ut) = unpack_spot(wake_spot(x, t));
+        assert!((ux - x).abs() < 0.05 && (ut - t).abs() < 0.2, "({ux}, {ut})");
+        // In a wall: out of it, near by.
+        let mut wall = None;
+        each_block_box(BlockId::new(40, 2), &mut |b| wall = wall.or(Some(b)));
+        let b = wall.unwrap();
+        let (x, t) = (b.x0 + 0.6, 0.5 * (b.t0 + b.t1));
+        assert!(!stands_clear(x, t));
+        let (ux, ut) = unpack_spot(wake_spot(x, t));
+        assert!(stands_clear(ux, ut) && libm::hypotf(ux - x, ut - t) < WAKE_REACH as f32 + 0.5, "({ux}, {ut})");
+        // Out on the canal's water, or deep in a tower: at the nearest Watch station's door.
+        for (x, t) in [(0.5 * (CANAL.0 + CANAL.1), CELL * 30.5), (0.5 * (b.x0 + b.x1), 0.5 * (b.t0 + b.t1))] {
+            let (ux, ut) = unpack_spot(wake_spot(x, t));
+            assert!(stands_clear(ux, ut));
+            let d = cell_at(t) / CELLS_PER_DISTRICT;
+            let near = [d, (d + 1) % DISTRICT_COUNT, (d + DISTRICT_COUNT - 1) % DISTRICT_COUNT];
+            assert!(
+                near.iter().any(|&d| (ux - watch_door(d).0).abs() < 0.05 && (ut - watch_door(d).1).abs() < 0.2),
+                "({x}, {t}): ({ux}, {ut})"
+            );
+        }
+        // Every station's door is somewhere to stand, on its block; and nowhere at all is Hub Gate.
+        for d in 0..DISTRICT_COUNT {
+            let (x, t) = watch_door(d);
+            assert!(stands_clear(x, t) && ground_at(x, t) == Ground::Block(watch_station(d)), "district {d}");
+        }
+        let (lx, lt) = out_of_the_lift(0);
+        for (x, t) in [(f32::NAN, 0.0), (0.0, f32::INFINITY), (1_500.0, 30.0)] {
+            assert_eq!(wake_spot(x, t), pack_spot(lx, lt));
+        }
+        assert!(stands_clear(lx, lt));
     }
 
     #[test]

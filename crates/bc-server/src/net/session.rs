@@ -489,6 +489,9 @@ impl Session<'_> {
         // Word kept for them while they were away (`PilotRecord::word`), told once.
         let word = self.record.as_mut().map(|r| std::mem::take(&mut r.word)).unwrap_or_default();
         self.bests = self.record.as_ref().map_or_else(Bests::default, |r| r.proving);
+        // Where in the ring's town they logged out, if they did: they wake there (and the record
+        // has them there no more till they leave it so again).
+        let left_in_town = self.record.as_mut().and_then(|r| r.town.take());
         if let Some(r) = self.record.as_mut() {
             // Woken, or gone: either way it's no longer out there asleep (in a hide spot or not).
             r.sleeper = None;
@@ -552,6 +555,13 @@ impl Session<'_> {
             }
             // Asleep in a bed at home when they left: they wake there.
             self.waking = self.wake_at_home().await;
+            // Logged out down in the ring's town: they wake where they were (O1).
+            if self.waking.is_none()
+                && self.place == Place::Hangar
+                && let Some(spot) = left_in_town
+            {
+                self.waking = Some(self.wake_in_town(spot));
+            }
             self.settle(true);
             self.send_place().await?;
             if self.place == Place::City {
@@ -1582,6 +1592,31 @@ impl Session<'_> {
         Some(wake)
     }
 
+    /// Back from logging out down in the ring's town at `spot`: they wake there, on foot, out of any
+    /// wall (`pilots::town_wake`). Where they get up.
+    fn wake_in_town(&mut self, spot: pilots::TownSpot) -> wire::Wake {
+        let (wake, at) = pilots::town_wake(spot);
+        self.place = Place::Town;
+        self.game.plaza.enter_at(self.id, &self.callsign, RING_DECK, at);
+        self.named.clear();
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "woke in the town");
+        wake
+    }
+
+    /// Where on the ring's town's floor the pilot is, if they're down there: where the plaza last had
+    /// them (before their first pose, where they came in).
+    fn town_spot(&self) -> Option<pilots::TownSpot> {
+        if self.place != Place::Town {
+            return None;
+        }
+        if let Some(p) = self.game.plaza.pose_of(self.id).filter(|p| p.strip == RING_DECK) {
+            return Some(pilots::TownSpot { x: p.x, s: p.s });
+        }
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let at = bc_sim::colony::deck::deck_at(self.game.plaza.where_is(self.id, tick)?)?;
+        (at.deck == bc_sim::colony::deck::RING).then_some(pilots::TownSpot { x: at.x, s: at.s })
+    }
+
     /// Back up the cap lift to the bay.
     async fn leave_city(&mut self) -> anyhow::Result<()> {
         if self.place != Place::City {
@@ -2327,6 +2362,8 @@ impl Session<'_> {
     /// slot is handed back.
     async fn leave(&mut self) {
         self.lie_down().await;
+        // Down in the ring's town: where, to wake there.
+        let town = if self.survival() { self.town_spot() } else { None };
         self.game.plaza.leave(self.id);
         self.unwatch().await;
         // Inside the colony, the suit doesn't sleep there: the colony's tugs bring it back to the
@@ -2503,6 +2540,7 @@ impl Session<'_> {
             if game.survival {
                 r.hangar = Some(self.hangar.clone());
                 r.body = self.body.clone();
+                r.town = town;
             } else {
                 r.credits = credits;
             }
