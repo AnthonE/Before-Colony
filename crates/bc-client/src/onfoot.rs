@@ -1061,8 +1061,13 @@ const TOWN_TRAFFIC: f32 = 230.0;
 impl TownFoot {
     /// Just out of lift `k`'s door.
     fn out(k: u16) -> Self {
+        Self::at(town_foot::out_of_the_lift(k))
+    }
+
+    /// Standing where `walker` stands: woken where they left the town (`town_foot::woken`).
+    fn at(walker: Walker) -> Self {
         Self {
-            walker: town_foot::out_of_the_lift(k),
+            walker,
             guide: None,
             lift: None,
             car: None,
@@ -1519,7 +1524,9 @@ pub fn drive_onfoot(
             // Gate's lift's door.
             (_, Some(Place::Town)) => {
                 if me.town.is_none() {
-                    me.town = Some(TownFoot::out(0));
+                    // Back where they left the town (the server's wake), else out of Hub Gate's lift.
+                    let woken = g.core.hangar.wake.take().and_then(|w| town_foot::woken(&w));
+                    me.town = Some(woken.map_or_else(|| TownFoot::out(0), TownFoot::at));
                     *town_cars = TownCars::default();
                 }
                 me.done(now);
