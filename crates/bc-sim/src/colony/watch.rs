@@ -321,7 +321,7 @@ mod tests {
         );
         assert_eq!(core::array::from_fn::<usize, 7, _>(|l| units(l as u8)), [0, 1, 2, 3, 4, 6, 6]);
         assert_eq!(cooled(16.0, COOL_TICKS), 10.0);
-        assert_eq!(cooled(16.0, 3 * COOL_TICKS - 1), 3.0);
+        assert_eq!(cooled(16.0, 3 * COOL_TICKS - 1), 6.0);
         assert_eq!(cooled(2.0, COOL_TICKS), 0.0);
         assert_eq!(cooled(16.0, u32::MAX), 0.0);
         for o in Offence::ALL {

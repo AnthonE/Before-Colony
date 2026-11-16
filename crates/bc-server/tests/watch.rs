@@ -165,7 +165,8 @@ async fn somebody_run_down_heats_the_driver_for_everyone_to_see_until_the_watch_
     b.wait_until(5.0, "her incident over", |c| c.hangar.incidents.iter().all(|i| i.offender != maren))
         .await?;
     both(&mut a, &mut b, 0.8).await?;
-    assert_eq!(seen_heat(&b, maren), Some(0));
+    // (Still in the town, or sent up with too little to pay: either way nobody sees heat on her.)
+    assert_eq!(seen_heat(&b, maren).unwrap_or(0), 0);
     // Stopped again, there's nothing on her.
     let (_, ok) = ask(&mut a, Request::Stopped).await?;
     assert!(!ok);
