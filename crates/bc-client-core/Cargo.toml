@@ -18,5 +18,8 @@ glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+bc-alloc.workspace = true
+
 [lints]
 workspace = true

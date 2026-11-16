@@ -43,9 +43,9 @@ export const townSampling = () => {
   clearInterval(w.__townTimer);
   w.__townSamples = [];
   w.__sampledSince = Date.now();
-  w.__townTimer = setInterval(() => {
+  w.__townSample = () => {
     const s = w.__bc ?? {};
-    w.__townSamples.push({
+    return {
       at: Date.now(),
       frames: s.frames ?? 0,
       place: s.place ?? "",
@@ -60,15 +60,18 @@ export const townSampling = () => {
       town_missing: s.town_missing ?? 0,
       town_cached: s.town_cached ?? 0,
       town_speed: s.town_speed ?? 0,
-    });
-  }, 250);
+    };
+  };
+  w.__townTimer = setInterval(() => w.__townSamples.push(w.__townSample()), 250);
 };
 
 /** Samples the town's numbers in the page from `start` (or from the page's load, with
- *  `page.addInitScript(townSampling)`) to `stop`, which hands them over. */
+ *  `page.addInitScript(townSampling)`) to `stop`, which hands them over; `now` is one sample, as
+ *  things stand. */
 export function townSampler(page: Page) {
   return {
     start: () => page.evaluate(townSampling),
+    now: (): Promise<TownSample> => page.evaluate(() => (window as any).__townSample()),
     stop: (): Promise<TownSample[]> =>
       page.evaluate(() => {
         const w = window as any;

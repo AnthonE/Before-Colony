@@ -40,7 +40,8 @@ test("the town's crowded street, streamed in and held", async ({ page }, info) =
     CELLS,
     { timeout: 600_000, polling: 250 },
   );
-  const loaded = (await town.stop()).filter((x) => x.town_cells > 0);
+  // (And the moment it was done: the sampler may not have caught it before it stopped.)
+  const loaded = [...(await town.stop()), await town.now()].filter((x) => x.town_cells > 0);
   const done = loaded.findIndex((x) => x.town_cells >= CELLS && x.town_missing === 0);
   const fill = loaded.slice(0, done < 0 ? loaded.length : done + 1);
   const span = (xs: typeof fill) => (xs.length ? xs[xs.length - 1] : undefined);
@@ -82,6 +83,7 @@ test("the town's crowded street, streamed in and held", async ({ page }, info) =
     },
     counts: {
       cells: s.town_cells,
+      pieces: s.town_pieces,
       tris: s.town_tris,
       people: s.town_people,
       cars: s.town_cars,
