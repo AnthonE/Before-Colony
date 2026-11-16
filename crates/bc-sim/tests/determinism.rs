@@ -1786,3 +1786,151 @@ fn street_golden_native() {
 fn street_golden_wasm() {
     assert_eq!(street_hash(), STREET_GOLDEN);
 }
+
+/// Hash of routes by the town's roads (`colony::roads`): from each lift's step and a spread of
+/// blocks' kerbs to every Watch station's door and others' kerbs, every waypoint.
+const ROUTE_GOLDEN: u64 = 0xffbc_6ca0_49a0_7b99;
+
+fn route_hash() -> u64 {
+    use bc_sim::colony::roads::{self, MOST, Waypoint};
+    use bc_sim::colony::town::{self, BlockId, DISTRICT_COUNT, LIFTS};
+
+    let kerb = |cell: u16, c: u8| {
+        let r = town::block_rect(BlockId::new(cell, c));
+        (0.5 * (r.x0 + r.x1), r.t0 - 2.0)
+    };
+    let mut from = Vec::new();
+    for k in 0..LIFTS {
+        from.push(town::out_of_the_lift(k));
+    }
+    for (cell, c) in [(3u16, 0u8), (40, 12), (77, 5), (101, 9), (143, 11)] {
+        from.push(kerb(cell, c));
+    }
+    let mut to = Vec::new();
+    for d in 0..DISTRICT_COUNT {
+        to.push(town::watch_door(d));
+    }
+    for (cell, c) in [(0u16, 6u8), (17, 3), (60, 8), (95, 1), (130, 10)] {
+        to.push(kerb(cell, c));
+    }
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for &a in &from {
+        for &b in &to {
+            let mut out = [Waypoint::default(); MOST];
+            let n = roads::route(a, b, &mut out);
+            fnv(&mut h, n as u32);
+            for w in &out[..n.min(MOST)] {
+                fnv(&mut h, w.x.to_bits());
+                fnv(&mut h, w.t.to_bits());
+            }
+        }
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn route_golden_native() {
+    let h = route_hash();
+    assert_eq!(h, route_hash(), "must be reproducible within a process");
+    assert_eq!(h, ROUTE_GOLDEN, "the routes' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn route_golden_wasm() {
+    assert_eq!(route_hash(), ROUTE_GOLDEN);
+}
+
+/// Hash of the town's census (`colony::census`, `docs/LIFE.md` 7.2): who everyone round a stretch
+/// of the ring is, and everyone on a spread of blocks and the rim walks by id.
+const CENSUS_GOLDEN: u64 = 0xe29c_5779_73b7_29de;
+
+fn census_hash() -> u64 {
+    use bc_sim::colony::census::{self, Job};
+    use bc_sim::colony::street;
+    use bc_sim::colony::town::{CELLS, COLUMNS};
+    use bc_sim::world::COLONY_HALF_WIDTH as HALF;
+
+    let mut ids = Vec::new();
+    street::each_person(-HALF, HALF, -400.0, 2_000.0, 77_777, 0.0, &mut |p| ids.push(p.id));
+    for block in (0..u32::from(CELLS) * u32::from(COLUMNS)).step_by(7) {
+        for j in 0..16 {
+            ids.push(block << 4 | j);
+        }
+    }
+    for k in 0..4u32 {
+        for slot in (0..700).step_by(3) {
+            ids.push(0xF000_0000 | k << 16 | slot);
+        }
+    }
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for id in ids {
+        let who = census::identity(id);
+        let (kind, b) = match who.job {
+            Job::Block(b) => (0, b),
+            Job::Place(p, b) => (1 + p as u32, b),
+        };
+        for v in [
+            id,
+            u32::from(who.given),
+            u32::from(who.family),
+            u32::from(who.home.cell) << 8 | u32::from(who.home.column),
+            kind,
+            u32::from(b.cell) << 8 | u32::from(b.column),
+        ] {
+            fnv(&mut h, v);
+        }
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn census_golden_native() {
+    let h = census_hash();
+    assert_eq!(h, census_hash(), "must be reproducible within a process");
+    assert_eq!(h, CENSUS_GOLDEN, "the census' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn census_golden_wasm() {
+    assert_eq!(census_hash(), CENSUS_GOLDEN);
+}
+
+/// Hash of the cars parked at the town's kerbs (`colony::street::each_parked`): every one round the
+/// whole ring, and the bays a spread of points stand in.
+const PARKED_GOLDEN: u64 = 0xd2e1_e54e_7a9e_9e77;
+
+fn parked_hash() -> u64 {
+    use bc_sim::colony::street;
+    use bc_sim::colony::town::ROUND;
+    use bc_sim::world::COLONY_HALF_WIDTH as HALF;
+
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    street::each_parked(-HALF, HALF, -300.0, ROUND - 300.0, &mut |p| {
+        for v in [p.kerb, p.x.to_bits(), p.t.to_bits(), p.yaw.to_bits(), p.seed] {
+            fnv(&mut h, v);
+        }
+    });
+    for j in 0..2_000 {
+        let (x, t) = (-HALF + j as f32 * 1.003, j as f32 * 9.41);
+        fnv(&mut h, street::kerb_at(x, t).unwrap_or(u32::MAX));
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn parked_golden_native() {
+    let h = parked_hash();
+    assert_eq!(h, parked_hash(), "must be reproducible within a process");
+    assert_eq!(h, PARKED_GOLDEN, "the parked cars' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn parked_golden_wasm() {
+    assert_eq!(parked_hash(), PARKED_GOLDEN);
+}

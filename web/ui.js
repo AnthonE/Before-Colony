@@ -652,11 +652,22 @@
       show($("survival-field"), survival);
       showTabs();
     }
+    // (A new pilot wakes on the street, in the ring's town, unless the server starts them in the bay.)
+    const town = survival && game?.start === "town";
     $("play-blurb").textContent = !st ? "Launch into the First Colony's sector at L1."
+      : town ? "You are an Arrival. You wake on foot in the ring's town, at Hub Gate's lift, with 2,000 " +
+        "credits the Charter Board advanced you. A worn-out Argo stands in your bay, up the spoke. Work " +
+        "your way up to a Lodestar."
       : survival ? "You are an Arrival. You wake on foot in your hangar bay in the docking hub, a worn-out " +
         "Argo in the gantry and 2,000 credits the Charter Board advanced you. Work your way up to a Lodestar."
       : "Pick a suit and launch into the sector, where the Almagest's drones patrol.";
     show($("colony-arrival"), survival);
+    $("colony-woke").textContent = town
+      ? "You woke on the street of the ring's town, at Hub Gate's lift, with a pilot's reflexes, an " +
+        "advance of 2,000 credits and memories of another world. A worn-out Argo stands in your bay, up " +
+        "the spoke."
+      : "You woke in a hangar bay in its docking hub with a pilot's reflexes, a worn-out Argo in the " +
+        "gantry, an advance of 2,000 credits and memories of another world.";
 
     // The server, as a row: up or not, its name, its rules, who's on it.
     const host = serverHost();
@@ -846,7 +857,7 @@
         ? who + "Your hangar is kept while you're away: its stores, its suit, its jobs, your orders on the exchange." +
           (v.place === "city" ? " You wake in your bay next time, not down here."
             : v.place === "base" ? " You wake in your bay next time, not out on the row."
-            : v.place === "town" ? " You wake in your bay next time, not down in the town." : "")
+            : v.place === "town" ? " You wake here in the town next time, where you left it, and so does what the Watch wants of you." : "")
         : "Playing as a guest: your hangar, and everything in it, is gone when you leave. Connect a wallet to keep it.";
       // (This button isn't the way home from the town: the lift is.)
       if (v.place === "town") $("pause-who").textContent += " The way back up to your bay is a spoke's lift: E at its door.";
@@ -898,8 +909,8 @@
     const playing = s === "playing";
     const bayLine = $("bay-line");
     bayLine.textContent = v.bayLine || "";
-    // (Under the town's sky the line needs something dark behind it.)
-    bayLine.classList.toggle("backed", v.place === "town");
+    // (Under the town's sky, and on the bay's pale walls, the line needs something dark behind it.)
+    bayLine.classList.toggle("backed", v.place === "town" || v.place === "hangar");
     show(bayLine, playing && !!v.bayLine && v.panel === "none");
     const radar = playing && !!v.radar && v.panel === "none" && !v.help;
     show($("radar"), radar);
@@ -935,7 +946,9 @@
         n.classList.toggle("bad", !!v.newsBad);
         show(n, true);
         clearTimeout(newsTimer);
-        newsTimer = setTimeout(() => show(n, false), 5000);
+        // (Long enough to read: a long line, such as the arrival's, stays longer.)
+        const words = v.news.split(/\s+/).length;
+        newsTimer = setTimeout(() => show(n, false), Math.min(12000, Math.max(5000, words * 400)));
       }
     }
 

@@ -9,9 +9,12 @@
 //!   packet rings into `send_datagram`.
 //!
 //! [`start`] boots everything in-process, which is also how the integration tests run a real server.
+// (`/status`'s `json!` is deep.)
+#![recursion_limit = "256"]
 
 pub mod charter;
 pub mod config;
+pub mod dispatch;
 pub mod elo;
 pub mod floor;
 pub mod homes;
@@ -26,6 +29,7 @@ pub mod radio;
 pub mod street;
 pub mod telemetry;
 pub mod visitors;
+pub mod watch;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -116,6 +120,24 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
     let online = shared.as_ref().map(|g| g.online.clone());
     let floor_game = shared.clone().filter(|g| g.colony);
     let nonce_game = shared.clone();
+    // The dev hooks (tests and playtests only): an incident of the Watch's raised by hand.
+    let incident: Option<http::IncidentFn> = shared.clone().filter(|g| g.dev_hooks).map(|g| {
+        let raise = move |ask: &http::IncidentAsk| {
+            use bc_sim::colony::watch::{MAX_HEAT, Offence};
+            let cause = match ask.cause.as_deref() {
+                None => Offence::HitSomeone,
+                Some(c) => Offence::from_slug(c).ok_or_else(|| format!("no such offence: {c}"))?,
+            };
+            if !(1..=MAX_HEAT).contains(&ask.level) || !ask.x.is_finite() || !ask.s.is_finite() {
+                return Err(format!("a level is 1 to {MAX_HEAT}, at a place on the ring's floor"));
+            }
+            let tick = g.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            let id = g.watch.raise((ask.x, ask.s), ask.level, cause, tick);
+            tracing::info!(id, level = ask.level, cause = cause.slug(), "an incident raised by hand");
+            Ok(id)
+        };
+        Arc::new(raise) as http::IncidentFn
+    });
     let http_state = http::HttpState {
         // A CA-issued certificate is validated by the browser: nothing to pin.
         cert_hash_hex: pinned.then(|| hex::encode(cert_hash)),
@@ -137,6 +159,7 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
             None => crate::floor::json(None, None, |_| false),
         }),
         cors_origins: cfg.cors_origins.clone().into(),
+        incident,
     };
     let router = http::router(http_state);
     let mut http_shutdown = shutdown_rx.clone();

@@ -155,8 +155,13 @@ pub(super) async fn run(
         proving_sent: Instant::now() - MARKET_EVERY,
         homes_seen: 0,
         homes_sent: Instant::now() - MARKET_EVERY,
-        street_seen: None,
+        street_sent: Default::default(),
+        car: None,
         fare: None,
+        heat_sent: 0,
+        incidents_seen: None,
+        watch_news_seen: game.watch.news_seq(),
+        units_sent: (Instant::now(), false),
         homes_near: Vec::new(),
         knocks_heard: game.homes.with(|h| h.knocks_for("", u64::MAX).1),
         waking: None,
@@ -239,11 +244,20 @@ struct Session<'a> {
     /// covered; and the last knock heard at one of their doors.
     homes_seen: u64,
     homes_sent: Instant,
-    /// The town's street as last sent (`crate::street::Street::version`; none: not yet, this time
-    /// down there).
-    street_seen: Option<u64>,
+    /// The town's street as last sent (`crate::street::Street::update_for`: nothing yet, this time
+    /// down there), and the car they hold in it (at its wheel, or just out of it).
+    street_sent: crate::street::Sent,
+    car: Option<crate::street::Held>,
     /// The fare in their car in the town: who, the lift whose square they asked for, their pay.
     fare: Option<(u32, u16, u64)>,
+    /// The Watch (`crate::watch`): the heat last sent them, the incidents as last sent (none: not
+    /// yet, this time down in the town), and the newest of its news they've heard.
+    heat_sent: u8,
+    incidents_seen: Option<u64>,
+    watch_news_seen: u64,
+    /// The Watch's units near them (`crate::dispatch`): when they were last sent, and whether any
+    /// were.
+    units_sent: (Instant, bool),
     homes_near: Vec<(i32, i32, u8)>,
     knocks_heard: u64,
     /// Back from asleep in a bed at home: where they get up, for the next `Update::Place`.
@@ -489,6 +503,15 @@ impl Session<'_> {
         // Word kept for them while they were away (`PilotRecord::word`), told once.
         let word = self.record.as_mut().map(|r| std::mem::take(&mut r.word)).unwrap_or_default();
         self.bests = self.record.as_ref().map_or_else(Bests::default, |r| r.proving);
+        // Where in the ring's town they logged out, if they did: they wake there (and the record
+        // has them there no more till they leave it so again).
+        let left_in_town = self.record.as_mut().and_then(|r| r.town.take());
+        // And what the Watch wanted of them then: still theirs, cooled by the time away.
+        if let Some(r) = self.record.as_mut().filter(|r| r.heat > 0.0) {
+            let away = pilots::unix_now().saturating_sub(r.seen_unix);
+            let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            self.game.watch.resume(self.id, std::mem::take(&mut r.heat), away, tick);
+        }
         if let Some(r) = self.record.as_mut() {
             // Woken, or gone: either way it's no longer out there asleep (in a hide spot or not).
             r.sleeper = None;
@@ -552,6 +575,13 @@ impl Session<'_> {
             }
             // Asleep in a bed at home when they left: they wake there.
             self.waking = self.wake_at_home().await;
+            // Logged out down in the ring's town: they wake where they were (O1).
+            if self.waking.is_none()
+                && self.place == Place::Hangar
+                && let Some(spot) = left_in_town
+            {
+                self.waking = Some(self.wake_in_town(spot));
+            }
             self.settle(true);
             self.send_place().await?;
             if self.place == Place::City {
@@ -759,7 +789,11 @@ impl Session<'_> {
                                         && matches!(self.place, Place::City | Place::Base | Place::Town) =>
                                 {
                                     let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-                                    self.game.plaza.accept(self.id, p.seq, p.pose, Instant::now(), tick);
+                                    let taken = self.game.plaza.accept(self.id, p.seq, p.pose, Instant::now(), tick);
+                                    // Down in the town: what the Watch makes of how they drive.
+                                    if taken == crate::plaza::Verdict::Taken && self.place == Place::Town {
+                                        self.game.watch.moved(self.id, &self.callsign, &p.pose, tick);
+                                    }
                                 }
                                 Ok(_) => {}
                                 Err(_) => NetStats::add(&self.stats.malformed, 1),
@@ -1266,6 +1300,9 @@ impl Session<'_> {
                         && self.game.street.hit(person, &pose, tick)
                     {
                         tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "knocked somebody down in the town");
+                        // (Somebody run down: the Watch knows.)
+                        let o = bc_sim::colony::watch::Offence::HitSomeone;
+                        self.game.watch.offend(self.id, &self.callsign, o, (pose.x, pose.s), tick);
                     }
                 }
                 Ok(())
@@ -1288,6 +1325,25 @@ impl Session<'_> {
                 self.fare = Some((person, to, pay));
                 self.send(&Update::Fare { to: Some(to), pay }).await?;
                 self.note(format!("A FARE FOR {} · {pay} CR", crate::street::gate_name(to)), true).await
+            }
+            Request::TakeParked { .. } | Request::Jack { .. } | Request::TakeLeft { .. } => {
+                self.take_car(&req).await
+            }
+            Request::LeaveCar { x_cm, s_cm, yaw_mrad } => {
+                // Out of the car they hold, where it stands: there for anyone.
+                let Some(held) = self.car.filter(|_| self.place == Place::Town) else {
+                    return self.note("you've no car to leave", false).await;
+                };
+                let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+                let Some(pose) = self.game.plaza.pose_of(self.id) else { return Ok(()) };
+                let at = (x_cm as f32 / 100.0, s_cm as f32 / 100.0, yaw_mrad as f32 / 1_000.0);
+                match self.game.street.leave(held, self.id, at, &pose, tick) {
+                    Ok(_) => {
+                        self.car = None;
+                        Ok(())
+                    }
+                    Err(why) => self.note(why, false).await,
+                }
             }
             Request::DropFare => {
                 let Some((person, to, pay)) = self.fare else { return Ok(()) };
@@ -1314,35 +1370,30 @@ impl Session<'_> {
                 self.save().await;
                 Ok(())
             }
-            Request::Fine { heat } => {
-                // Caught by the Watch in the town: its fine, as much of it as the bay has.
-                if self.place != Place::Town || heat == 0 {
+            Request::Stopped => {
+                // Stopped by one of the Watch's cars in the town (the client's word): the fine of the
+                // heat held on them.
+                let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+                if self.place != Place::Town || self.game.watch.stop(self.id, tick).is_none() {
                     return self.note("the Watch has nothing on you", false).await;
                 }
-                let owed = wire::watch_fine(heat);
-                let fine = owed.min(self.hangar.credits);
-                self.hangar.credits -= fine;
-                // (Their car goes with it, and whoever was riding in it.)
-                self.lose_fare().await?;
-                tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, heat, fine, "fined by the Watch");
-                if fine < owed {
-                    // Nothing left to fine: the Watch walks them to a lift and sends them home.
-                    self.game.plaza.leave(self.id);
-                    self.place = Place::Hangar;
-                    self.send_place().await?;
-                    let had = if fine == 0 {
-                        "NOTHING TO FINE".to_string()
-                    } else {
-                        format!("{} CR WAS ALL YOU HAD", thousands(fine))
-                    };
-                    self.note(format!("THE WATCH HAS YOU · {had} · SENT UP TO YOUR BAY"), true).await?;
-                    self.send_hangar().await?;
-                    self.publish_hangar();
-                } else {
-                    self.note(format!("THE WATCH HAS YOU · FINED {} CR", thousands(fine)), true).await?;
-                    self.send_hangar().await?;
+                self.pay_the_watch().await
+            }
+            Request::Offence { what } => {
+                // Something only their own screen saw them do: it can only add heat.
+                let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+                if self.place == Place::Town
+                    && let Some(pose) = self.game.plaza.pose_of(self.id)
+                {
+                    self.game.watch.report(self.id, &self.callsign, what, (pose.x, pose.s), tick);
                 }
-                self.save().await;
+                Ok(())
+            }
+            Request::Sighted => {
+                if self.place == Place::Town {
+                    let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+                    self.game.watch.sighted(self.id, tick);
+                }
                 Ok(())
             }
             Request::Watch { item } => {
@@ -1582,6 +1633,31 @@ impl Session<'_> {
         Some(wake)
     }
 
+    /// Back from logging out down in the ring's town at `spot`: they wake there, on foot, out of any
+    /// wall (`pilots::town_wake`). Where they get up.
+    fn wake_in_town(&mut self, spot: pilots::TownSpot) -> wire::Wake {
+        let (wake, at) = pilots::town_wake(spot);
+        self.place = Place::Town;
+        self.game.plaza.enter_at(self.id, &self.callsign, RING_DECK, at);
+        self.named.clear();
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "woke in the town");
+        wake
+    }
+
+    /// Where on the ring's town's floor the pilot is, if they're down there: where the plaza last had
+    /// them (before their first pose, where they came in).
+    fn town_spot(&self) -> Option<pilots::TownSpot> {
+        if self.place != Place::Town {
+            return None;
+        }
+        if let Some(p) = self.game.plaza.pose_of(self.id).filter(|p| p.strip == RING_DECK) {
+            return Some(pilots::TownSpot { x: p.x, s: p.s });
+        }
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let at = bc_sim::colony::deck::deck_at(self.game.plaza.where_is(self.id, tick)?)?;
+        (at.deck == bc_sim::colony::deck::RING).then_some(pilots::TownSpot { x: at.x, s: at.s })
+    }
+
     /// Back up the cap lift to the bay.
     async fn leave_city(&mut self) -> anyhow::Result<()> {
         if self.place != Place::City {
@@ -1664,12 +1740,78 @@ impl Session<'_> {
                 .await;
         }
         self.lose_fare().await?;
+        self.let_go_of_the_car();
         self.game.plaza.leave(self.id);
         self.place = Place::Hangar;
         self.send_place().await?;
         self.send_hangar().await?;
         self.publish_hangar();
         Ok(())
+    }
+
+    /// A car taken in the town (`crate::street`): from a kerb, out of the traffic, or where it was
+    /// left, if it could be (by where the plaza has them). The Watch minds it if it was somebody
+    /// else's (worse in sight of one of its cars, or one of its own); refused, a `note` says why.
+    async fn take_car(&mut self, req: &Request) -> anyhow::Result<()> {
+        use bc_sim::colony::watch::Offence;
+        if self.place != Place::Town {
+            return self.note("you're not down in the town", false).await;
+        }
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        // Where they stood to ask (their client is at the wheel already, and its pose may be here
+        // before the ask).
+        let now = std::time::Instant::now();
+        let Some(pose) = self.game.plaza.stood_for(self.id, std::time::Duration::from_millis(1_500), now)
+        else {
+            return self.note("there's no car there", false).await;
+        };
+        let street = &self.game.street;
+        let taken = match *req {
+            Request::TakeParked { kerb } => {
+                street.take_parked(kerb, &pose, tick).map(|h| (h, Some(Offence::TookACar)))
+            }
+            Request::Jack { car } => street.jack(car, &pose, tick).map(|(h, kind)| {
+                let o = if kind == bc_sim::colony::street::Kind::Watch {
+                    Offence::TookTheWatchs
+                } else {
+                    Offence::Jacked
+                };
+                (h, Some(o))
+            }),
+            Request::TakeLeft { id } => street.take_left(id, &pose).map(|h| {
+                let theirs = h.left_by != Some(self.id);
+                (h, theirs.then_some(Offence::TookACar))
+            }),
+            _ => return Ok(()),
+        };
+        let (held, offence) = match taken {
+            Ok(t) => t,
+            Err(why) => return self.note(why, false).await,
+        };
+        // (One they held and never said where they left: gone.)
+        if let Some(old) = self.car.replace(held) {
+            self.game.street.drop_held(old);
+        }
+        if let Some(o) = offence {
+            self.game.watch.report(self.id, &self.callsign, o, (pose.x, pose.s), tick);
+        }
+        Ok(())
+    }
+
+    /// Out of the town holding a car (up the lift, or gone): left where they were at its wheel, or
+    /// gone if they'd got out of it without saying where.
+    fn let_go_of_the_car(&mut self) {
+        let Some(held) = self.car.take() else { return };
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let left = self
+            .game
+            .plaza
+            .pose_of(self.id)
+            .filter(|p| p.driving())
+            .is_some_and(|p| self.game.street.leave(held, self.id, (p.x, p.s, p.yaw), &p, tick).is_ok());
+        if !left {
+            self.game.street.drop_held(held);
+        }
     }
 
     /// A fare left behind (the pilot's gone up the lift, or the Watch has them): back on the
@@ -2184,19 +2326,115 @@ impl Session<'_> {
         {
             self.send_proving().await?;
         }
-        // Down in the town: its street, whenever it changes (and first on the way in).
+        // Down in the town: what's been taken out of its crowd in the districts round them, whenever
+        // it changes (and first on the way in, and as they come near another district). Whatever's
+        // stood out of everyone's sight long enough goes back.
         if self.place == Place::Town {
             let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-            let down = self.game.street.view(tick);
-            let version = self.game.street.version();
-            if self.street_seen != Some(version) {
-                self.street_seen = Some(version);
-                self.send(&Update::Street { down }).await?;
+            let town = self.game.plaza.in_town_at();
+            let sights: Vec<(f32, f32)> = town.iter().map(|&(_, x, s)| (x, s)).collect();
+            self.game.street.sweep(tick, &sights);
+            let (_, lt) = bc_sim::colony::town::out_of_the_lift(0);
+            let at = town.iter().find(|p| p.0 == self.id).map_or(bc_sim::colony::town::deck_s(lt), |p| p.2);
+            if let Some(update) = self.game.street.update_for(at, tick, &mut self.street_sent) {
+                self.send(&update).await?;
             }
         } else {
-            self.street_seen = None;
+            self.street_sent = Default::default();
+            if let Some(held) = self.car.take() {
+                self.game.street.drop_held(held);
+            }
         }
+        self.watch_tick(settle).await?;
         self.homes_tick(settle).await
+    }
+
+    /// The Watch, on the session's tick: their heat cooled (not under the eye of one of its cars on
+    /// their beats, down in the town), sent them when it's changed, and the fine of a stop taken;
+    /// down in the town its incidents whenever they change; and anywhere, its news.
+    async fn watch_tick(&mut self, settle: bool) -> anyhow::Result<()> {
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let town = self.place == Place::Town;
+        let at = self.game.plaza.pose_of(self.id).filter(|_| town).map(|p| (p.x, p.s));
+        self.game.watch.tick(self.id, at, tick);
+        self.pay_the_watch().await?;
+        self.send_heat().await?;
+        if town {
+            let incidents = self.game.watch.incidents(tick);
+            let version = self.game.watch.version();
+            if self.incidents_seen != Some(version) {
+                self.incidents_seen = Some(version);
+                self.send(&Update::Incidents { incidents }).await?;
+            }
+        } else {
+            self.incidents_seen = None;
+        }
+        // Down in the town, its units near them a few times a second (and once more when none are).
+        if let Some(at) = at
+            && self.units_sent.0.elapsed() >= crate::dispatch::SEND_EVERY
+        {
+            let units = self.game.dispatch.near(at, crate::dispatch::SEND_NEAR, crate::dispatch::SEND_MOST);
+            let any = !units.is_empty();
+            if std::mem::replace(&mut self.units_sent, (Instant::now(), any)).1 || any {
+                self.send(&Update::Units { units }).await?;
+            }
+        }
+        if settle && self.game.watch.news_seq() != self.watch_news_seen {
+            let (latest, news) = self.game.watch.news_since(self.watch_news_seen);
+            self.watch_news_seen = latest;
+            for text in news {
+                self.send(&Update::News { text }).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Their heat, if it's changed since it was last sent: the level and what raised it.
+    async fn send_heat(&mut self) -> anyhow::Result<()> {
+        let (level, cause) = self.game.watch.heat(self.id);
+        if level == self.heat_sent {
+            return Ok(());
+        }
+        self.heat_sent = level;
+        self.send(&Update::Heat { level, cause }).await
+    }
+
+    /// What a stop owes the Watch (`crate::watch::Watch::take_fine`: the level they were stopped
+    /// at, by its units, `crate::dispatch`, or on the client's word): its fine, as much of it as
+    /// the bay has (their car goes with it, and whoever was riding in it). With nothing left to
+    /// fine, the Watch walks them to a lift and sends them home.
+    async fn pay_the_watch(&mut self) -> anyhow::Result<()> {
+        let Some(heat) = self.game.watch.take_fine(self.id) else { return Ok(()) };
+        // Their car goes with the Watch, whichever way they were stopped.
+        if let Some(held) = self.car.take() {
+            self.game.street.drop_held(held);
+        }
+        // Their heat is nothing now: they hear so first.
+        self.send_heat().await?;
+        let owed = wire::watch_fine(heat);
+        let fine = owed.min(self.hangar.credits);
+        self.hangar.credits -= fine;
+        self.lose_fare().await?;
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, heat, fine, "fined by the Watch");
+        if fine < owed && self.place == Place::Town {
+            // Nothing left to fine: the Watch walks them to a lift and sends them home.
+            self.game.plaza.leave(self.id);
+            self.place = Place::Hangar;
+            self.send_place().await?;
+            let had = if fine == 0 {
+                "NOTHING TO FINE".to_string()
+            } else {
+                format!("{} CR WAS ALL YOU HAD", thousands(fine))
+            };
+            self.note(format!("THE WATCH HAS YOU · {had} · SENT UP TO YOUR BAY"), true).await?;
+            self.send_hangar().await?;
+            self.publish_hangar();
+        } else {
+            self.note(format!("THE WATCH HAS YOU · FINED {} CR", thousands(fine)), true).await?;
+            self.send_hangar().await?;
+        }
+        self.save().await;
+        Ok(())
     }
 
     /// The register of homes, on the session's tick: in the city, the held homes of the buildings
@@ -2327,7 +2565,14 @@ impl Session<'_> {
     /// slot is handed back.
     async fn leave(&mut self) {
         self.lie_down().await;
+        // Down in the ring's town: where, to wake there.
+        let town = if self.survival() { self.town_spot() } else { None };
+        // And what the Watch wants of them (kept with them: a reload doesn't clear it).
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let heat = self.game.watch.points(self.id, tick);
+        self.let_go_of_the_car();
         self.game.plaza.leave(self.id);
+        self.game.watch.leave(self.id);
         self.unwatch().await;
         // Inside the colony, the suit doesn't sleep there: the colony's tugs bring it back to the
         // bay, and the pilot hears so when they're back (a trainer goes back to its gantry: the
@@ -2503,6 +2748,8 @@ impl Session<'_> {
             if game.survival {
                 r.hangar = Some(self.hangar.clone());
                 r.body = self.body.clone();
+                r.town = town;
+                r.heat = heat;
             } else {
                 r.credits = credits;
             }

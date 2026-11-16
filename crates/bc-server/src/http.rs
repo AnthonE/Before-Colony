@@ -6,6 +6,10 @@
 //! Pros pass for this server must carry (`crate::elo::Nonces`). The JSON routes
 //! answer pages on the store's origin too (CORS,
 //! `Config::cors_origins`), since the store serves the game's page from its own site.
+//!
+//! With the dev hooks on (`Config::dev_hooks`, never in a deployment), `POST /dev/incident` raises
+//! one of the Watch's incidents by hand (`crate::watch::Watch::raise`). Without them the route isn't
+//! there at all.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,14 +17,27 @@ use std::sync::Arc;
 use axum::Json;
 use axum::Router;
 use axum::extract::{Request, State};
-use axum::http::{HeaderMap, HeaderValue, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use axum::routing::get;
+use axum::routing::{get, post};
 use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 
 type StatusFn = Arc<dyn Fn() -> serde_json::Value + Send + Sync>;
+/// Raises an incident as asked: its id, or why not.
+pub type IncidentFn = Arc<dyn Fn(&IncidentAsk) -> Result<u32, String> + Send + Sync>;
+
+/// `POST /dev/incident`'s body: where on the ring's floor (across it, round it, m), how bad (1 to
+/// 5) and what for (an offence's slug; `hit_someone` if none).
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct IncidentAsk {
+    pub x: f32,
+    pub s: f32,
+    pub level: u8,
+    #[serde(default)]
+    pub cause: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct HttpState {
@@ -37,6 +54,8 @@ pub struct HttpState {
     pub floor: StatusFn,
     /// `/nonce`: a fresh nonce for a pass, or null when this server takes none.
     pub nonce: StatusFn,
+    /// `POST /dev/incident`, with the dev hooks on (none: no such route).
+    pub incident: Option<IncidentFn>,
     /// Origins allowed to read the JSON routes from another site.
     pub cors_origins: Arc<[String]>,
 }
@@ -44,18 +63,20 @@ pub struct HttpState {
 pub fn router(state: HttpState) -> Router {
     let web_dir = state.web_dir.clone();
     let origins = state.cors_origins.clone();
-    let api = Router::new()
+    let mut api = Router::new()
         .route("/cert-hash", get(cert_hash))
         .route("/status", get(status))
         .route("/status.json", get(launcher_status))
         .route("/online.json", get(online))
         .route("/floor.json", get(floor))
-        .route("/nonce", get(nonce))
-        .with_state(state)
-        .layer(middleware::from_fn(move |req: Request, next: Next| {
-            let origins = origins.clone();
-            async move { cors(&origins, req, next).await }
-        }));
+        .route("/nonce", get(nonce));
+    if state.incident.is_some() {
+        api = api.route("/dev/incident", post(incident));
+    }
+    let api = api.with_state(state).layer(middleware::from_fn(move |req: Request, next: Next| {
+        let origins = origins.clone();
+        async move { cors(&origins, req, next).await }
+    }));
     let mut router = api;
     if let Some(dir) = web_dir {
         router = router.fallback_service(ServeDir::new(dir).precompressed_br().precompressed_gzip());
@@ -113,6 +134,15 @@ async fn floor(State(s): State<HttpState>) -> Json<serde_json::Value> {
 
 async fn nonce(State(s): State<HttpState>) -> Json<serde_json::Value> {
     Json((s.nonce)())
+}
+
+async fn incident(
+    State(s): State<HttpState>,
+    Json(ask): Json<IncidentAsk>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let raise = s.incident.as_ref().ok_or((StatusCode::NOT_FOUND, String::new()))?;
+    let id = raise(&ask).map_err(|why| (StatusCode::BAD_REQUEST, why))?;
+    Ok(Json(serde_json::json!({ "id": id })))
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! The ring's town, drawn (`docs/FREE_ROAM.md`, V1): its streets, blocks, canal, lifts, faces and
 //! ceiling a cell round the ring at a time (`bc_client_core::town_mesh`, the same boxes the walker
-//! and the cars meet), in the station language at a town's scale and painted like the anime
-//! (`shaders/town.wgsl`).
+//! and the cars meet), in the station language at a town's scale, painted like the anime unless the
+//! look is plain (`Gfx::paint`, `shaders/town.wgsl`).
 //!
 //! - **Round the view.** The town is drawn in the frame upright where the view stands
 //!   ([`TownAt`]): the floor level underfoot, rising ahead and behind until the ceiling hides it.
@@ -9,9 +9,14 @@
 //!   (`town_mesh::seen_from`), so nothing is ever far from the origin, however far round the pilot
 //!   has gone. It's on the city's render layer: while the view is in the town the camera sees that
 //!   layer and nothing of space.
-//! - **Streamed.** The cells within sight (3.3 km: where the rising floor meets the ceiling) are
-//!   built a few a frame, the nearest first and in full, the rest without their small things; a
-//!   wall of haze closes the tunnel where the built cells end.
+//! - **Streamed, at three distances.** The cells within sight (3.3 km: where the rising floor meets
+//!   the ceiling) are built within the frame's budget a part at a time (`town_mesh::CellBuild`), the
+//!   nearest first: those near in full, each its own mesh; past them a face a quad, merged four
+//!   cells to a mesh; past a kilometre each building its box in the haze, a district to a mesh
+//!   ([`Piece`]). A piece still to build has last frame's in its place, so nothing goes missing
+//!   while one tier gives way to the next; pieces are kept a while once out of sight, and a wall of
+//!   haze closes the tunnel where the built cells end. What it costs is [`TownStats`] (`?perf=1`,
+//!   `window.__bc`'s `town_*`).
 //! - **Lit by the colony's hour** ([`ColonyDay`], `city_hour`'s colour script): the light from the
 //!   louvres overhead, leaning along the ring by the hour; the sky's light in the ceiling's glass;
 //!   and the haze, which the town's shader lays down in painted layers.
@@ -22,12 +27,13 @@
 //!   picked nearest first up to the tier's caps.
 
 use std::collections::HashMap;
+use std::ops::Range;
 
 use bc_client_core::life::{self as plan, Lights, Livery, Slots};
 use bc_client_core::life_mesh::{self, Body, Gait};
 use bc_client_core::station::{PAINT, PAINTS};
 use bc_client_core::town as town_foot;
-use bc_client_core::town_mesh::{self, Detail, seen_from};
+use bc_client_core::town_mesh::{self, CellBuild, Detail, seen_from};
 use bc_client_core::vehicle::Vehicle;
 use bc_sim::colony::deck::{RING, round_from};
 use bc_sim::colony::street;
@@ -55,10 +61,17 @@ use crate::gfx::{Gfx, GfxTier};
 use crate::sky::Sun;
 use crate::view::VisTime;
 
-/// How many cells either side of the view's are built in full, and how many at all (High; fewer on
-/// the lower tiers): 26 cells is 3.4 km, past where the rising floor meets the ceiling.
+/// How many cells either side of the view's are built in full, how many a face a quad before the
+/// haze's boxes (8: past a kilometre), and how many at all (High; fewer on the lower tiers): 26
+/// cells is 3.4 km, past where the rising floor meets the ceiling.
 const NEAR_CELLS: i32 = 4;
+const MID_CELLS: i32 = 8;
 const REACH_CELLS: i32 = 26;
+/// Cells to a far piece smaller than a district (three to a district).
+const QUAD: u16 = 4;
+/// How many cells a district at the end of sight may run on past it and still be drawn whole
+/// (behind the haze's wall there), not as quads.
+const SLACK: i32 = 4;
 /// The haze's density against the hour's (`city_hour`'s is the cylinder's, 6 km across): the town's
 /// far end is lost in it.
 const HAZE: f32 = 3.3;
@@ -79,6 +92,7 @@ impl Plugin for TownPlugin {
             .init_resource::<TownCars>()
             .init_resource::<Streamer>()
             .init_resource::<TownLife>()
+            .init_resource::<TownStats>()
             .add_systems(
                 Update,
                 (stream_town, draw_life, light_town, publish_stats).chain().in_set(crate::view::Vis::Fx),
@@ -118,9 +132,10 @@ pub struct TownCars {
     pub driving: Option<(Vehicle, u32)>,
     pub left: Vec<(Vehicle, u32)>,
     pub taken: Vec<(i32, i32)>,
-    /// The Watch's cars after the pilot, and after the other wanted pilots near
-    /// (`bc_client_core::watch`).
+    /// The Watch's units near the pilot, the server's (`bc_client_core::watch`): its cars, and its
+    /// hounds (where over the floor each is).
     pub watch: Vec<Vehicle>,
+    pub hounds: Vec<Vehicle>,
     /// The pilots' cars the town's people step aside from: the pilot's own, and the others' near.
     pub movers: Vec<town_foot::Mover>,
     /// The town's people knocked down: the server's word, and the pilot's own hits till it comes.
@@ -168,28 +183,76 @@ impl MaterialExtension for TownExt {
     }
 }
 
-/// A cell as built: its entity, how much of it, when it was last wanted, and its triangles.
-struct Built {
-    entity: Entity,
+/// A piece of the town built as one mesh: `count` cells from `first` (a cell, a [`QUAD`] or a
+/// district) at a detail.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct Piece {
+    first: u16,
+    count: u16,
     detail: Detail,
-    wanted: u64,
-    tris: u32,
 }
 
-/// The town's root, its material, its cells as built, the haze's walls where they end, and the
+impl Piece {
+    const fn cell(cell: u16, detail: Detail) -> Self {
+        Self { first: cell, count: 1, detail }
+    }
+
+    fn cells(self) -> Range<u16> {
+        self.first..self.first + self.count
+    }
+
+    /// Whether it and `o` have a cell in common.
+    fn meets(self, o: Piece) -> bool {
+        self.first < o.first + o.count && o.first < self.first + self.count
+    }
+
+    /// The same cells at the other details, the likeliest first: what stands in for it, built, when
+    /// nothing was shown there last frame.
+    fn others(self) -> [Piece; 2] {
+        let at = |detail| Piece { detail, ..self };
+        match self.detail {
+            Detail::Near => [at(Detail::Far), at(Detail::Haze)],
+            Detail::Far => [at(Detail::Near), at(Detail::Haze)],
+            Detail::Haze => [at(Detail::Far), at(Detail::Near)],
+        }
+    }
+}
+
+/// A piece as built: its entity, the frame it was last wanted, its triangles, and where round the
+/// ring the view stood when it was last placed.
+struct Built {
+    entity: Entity,
+    wanted: u64,
+    tris: u32,
+    placed: f32,
+}
+
+/// The town's root, its material, its pieces as built, the haze's walls where they end, and the
 /// kerbs' cars.
 #[derive(Resource, Default)]
 pub struct Streamer {
     root: Option<Entity>,
     material: Handle<TownMaterial>,
-    cells: HashMap<u16, Built>,
+    /// The pieces built: those shown, the rest kept (hidden) for when they're in sight again, up to
+    /// [`cache`]'s many.
+    pieces: HashMap<Piece, Built>,
+    /// The piece being built a part at a time, if one is.
+    building: Option<(Piece, CellBuild)>,
+    /// This frame's pieces in sight, nearest first, each at the detail it's wanted at.
+    sight: Vec<Piece>,
+    /// This frame's pieces shown, and last frame's: what's shown where a piece is still to build.
+    shown: Vec<Piece>,
+    last: Vec<Piece>,
+    /// The cells in sight that something shown covers.
+    covered: u32,
     frame: u64,
     caps: Option<([Entity; 2], Handle<StandardMaterial>)>,
-    /// The slowest frame's building lately, ms.
-    build_ms: (f32, f32),
-    build_window: f32,
-    /// Cells built whose signs wait for the letters to be measured (`station::SignAtlas`).
-    unsigned: Vec<(u16, Entity)>,
+    /// The slowest frame's building lately.
+    spent: Slowest,
+    /// The pieces in sight not built yet.
+    missing: u32,
+    /// Pieces built whose signs wait for the letters to be measured (`station::SignAtlas`).
+    unsigned: Vec<(Piece, Entity)>,
 }
 
 /// One of the town's life's pools: its entities, who each shows, and which are shown.
@@ -209,9 +272,13 @@ struct Seen<T> {
     s: f32,
     yaw: f32,
     what: T,
-    /// Knocked down: lying where they fell.
+    /// Knocked down: lying where they fell. (A car: one of the Watch's Sirius hounds, a small body
+    /// of its livery flown over the road.)
     lie: bool,
 }
+
+/// A Sirius hound as drawn: how much smaller than a car, and how far over the road, m.
+const HOUND: (f32, f32) = (0.32, 3.2);
 
 /// A car to draw: its look, its lights, its seed.
 #[derive(Clone, Copy)]
@@ -232,6 +299,54 @@ pub struct TownLife {
     ids: Vec<u64>,
     seats: Vec<usize>,
     drawn: (u32, u32),
+    /// The slowest frame's placing of them lately.
+    spent: Slowest,
+}
+
+/// The slowest frame's spell at something lately, ms: this second's and the last's.
+#[derive(Default, Clone, Copy, Debug)]
+struct Slowest {
+    this: f32,
+    last: f32,
+    window: f32,
+}
+
+impl Slowest {
+    fn add(&mut self, ms: f32, dt: f32) {
+        self.this = self.this.max(ms);
+        self.window += dt;
+        if self.window >= 1.0 {
+            self.window = 0.0;
+            self.last = std::mem::take(&mut self.this);
+        }
+    }
+
+    fn ms(&self) -> f32 {
+        self.this.max(self.last)
+    }
+}
+
+/// What the town costs to draw, while the view is in it: what `?perf=1`'s readout shows and
+/// `window.__bc` has (`town_*`, [`publish_stats`]).
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq)]
+pub struct TownStats {
+    /// The cells in sight shown, the pieces they're shown in, and their triangles.
+    pub cells: u32,
+    pub pieces: u32,
+    pub tris: u32,
+    /// The slowest frame's building of cells lately, and its placing of the town's people and cars,
+    /// ms.
+    pub build_ms: f32,
+    pub life_ms: f32,
+    /// The pieces in sight still to build, and the pieces built (shown or kept).
+    pub missing: u32,
+    pub cached: u32,
+    /// The people and the cars drawn.
+    pub people: u32,
+    pub cars: u32,
+    /// The meshes on the town's layer in view (of the camera or a shadow's cascade: Bevy's
+    /// `ViewVisibility`, last frame's), each drawn once a pass it's in: the draws, near enough.
+    pub draws: u32,
 }
 
 /// One of the town's life's entities.
@@ -254,6 +369,7 @@ pub fn setup_town(
     mut standard: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut streamer: ResMut<Streamer>,
+    gfx: Res<Gfx>,
 ) {
     let layer = RenderLayers::layer(CITY_LAYER);
     let root =
@@ -265,7 +381,7 @@ pub fn setup_town(
         extension: TownExt {
             town: TownParams {
                 paint: PAINT.map(|[r, g, b]| Vec4::new(r, g, b, 1.0)),
-                day: Vec4::new(0.0, 1.0, 0.0, 1.0),
+                day: Vec4::new(0.0, 1.0, 0.0, painted(&gfx)),
                 haze: Vec4::new(0.4, 0.55, 0.8, 7e-4),
                 sky: Vec4::new(0.75, 0.9, 1.1, 1.0),
             },
@@ -296,17 +412,91 @@ pub fn setup_town(
     streamer.caps = Some(([cap(&mut commands), cap(&mut commands)], haze));
 }
 
-/// How far the tier builds: the cells in full either side of the view's, and the cells at all.
-fn reach(tier: GfxTier) -> (i32, i32) {
+/// `town.wgsl`'s `day.w`: 1 to paint the town in bands, as the rest of the colony is (`?look=plain`
+/// leaves it unpainted, to compare).
+fn painted(gfx: &Gfx) -> f32 {
+    if gfx.paint { 1.0 } else { 0.0 }
+}
+
+/// How far the tier builds: the cells in full either side of the view's, the cells a face a quad,
+/// and the cells at all.
+fn reach(tier: GfxTier) -> (i32, i32, i32) {
     match tier {
-        GfxTier::Low => (2, 12),
-        GfxTier::Medium => (3, 20),
-        GfxTier::High | GfxTier::Ultra => (NEAR_CELLS, REACH_CELLS),
+        GfxTier::Low => (2, 5, 12),
+        GfxTier::Medium => (3, 6, 20),
+        GfxTier::High | GfxTier::Ultra => (NEAR_CELLS, MID_CELLS, REACH_CELLS),
     }
 }
 
-/// Keeps the cells within sight built round the view, each turned to the view's frame, and the
-/// town shown only while the view is in it.
+/// How many pieces are kept built: twice those in sight and a few, so the ones just passed, and a
+/// piece's other detail, are there again without building them when the view turns back or comes
+/// nearer (a near cell is half a megabyte at most, a district in the haze less).
+fn cache(in_sight: usize) -> usize {
+    2 * in_sight + 8
+}
+
+/// The pieces in sight of cell `here`, nearest first (with how many cells off each is): the cells
+/// within `near` in full (and one further that was), each its own piece; past them out to `mid`,
+/// a face a quad, by [`QUAD`]s of cells (a quad with a cell in full in it, as cells); and past
+/// `mid` out to `far`, boxes in the haze, a district at a time (as quads where it's only partly
+/// so, or runs on past the end of sight).
+fn choose(
+    here: u16,
+    (near, mid, far): (i32, i32, i32),
+    was_near: impl Fn(u16) -> bool,
+    out: &mut Vec<(i32, Piece)>,
+) {
+    let cells = i32::from(town::CELLS);
+    let here = i32::from(here);
+    let step = |c: u16| {
+        let d = (i32::from(c) - here).rem_euclid(cells);
+        d.min(cells - d)
+    };
+    let full = |c: u16| {
+        let s = step(c);
+        s <= near || (s <= near + 1 && was_near(c))
+    };
+    let span =
+        |cells: Range<u16>| cells.map(step).fold((i32::MAX, i32::MIN), |(a, b), s| (a.min(s), b.max(s)));
+    let per = i32::from(town::CELLS_PER_DISTRICT);
+    out.clear();
+    for d in (here - far).div_euclid(per)..=(here + far).div_euclid(per) {
+        let first = (d.rem_euclid(i32::from(town::DISTRICT_COUNT)) * per) as u16;
+        let district = Piece { first, count: per as u16, detail: Detail::Haze };
+        let (lo, hi) = span(district.cells());
+        if lo > far {
+            continue;
+        }
+        if lo > mid && hi <= far + SLACK {
+            out.push((lo, district));
+            continue;
+        }
+        for q in (first..first + per as u16).step_by(usize::from(QUAD)) {
+            let quad = Piece { first: q, count: QUAD, detail: Detail::Haze };
+            let (lo, _) = span(quad.cells());
+            if lo > far {
+                continue;
+            }
+            if lo > mid {
+                out.push((lo, quad));
+            } else if !quad.cells().any(full) {
+                out.push((lo, Piece { detail: Detail::Far, ..quad }));
+            } else {
+                for c in quad.cells().filter(|&c| step(c) <= far) {
+                    out.push((step(c), Piece::cell(c, if full(c) { Detail::Near } else { Detail::Far })));
+                }
+            }
+        }
+    }
+    out.sort_by_key(|(step, _)| *step);
+}
+
+/// Keeps the pieces within sight built round the view, each turned to the view's frame, and the
+/// town shown only while the view is in it. A piece is built a part at a time within the frame's
+/// budget (nearest first, the one under way finished first); till it's built, what was shown there
+/// last frame stays (or failing that, its cells at another detail), and it's kept once out of sight
+/// (up to [`cache`]'s many, the longest unwanted going first); the pieces shown are turned only
+/// when the view has moved.
 #[allow(clippy::too_many_arguments)]
 fn stream_town(
     mut commands: Commands,
@@ -318,6 +508,7 @@ fn stream_town(
     mut meshes: ResMut<Assets<Mesh>>,
     mut tfs: Query<(&mut Transform, &mut Visibility)>,
     (mut atlas, mut standard): (ResMut<crate::station::SignAtlas>, ResMut<Assets<StandardMaterial>>),
+    mut chosen: Local<Vec<(i32, Piece)>>,
 ) {
     let Some(root) = streamer.root else { return };
     if view.is_changed()
@@ -331,103 +522,165 @@ fn stream_town(
     if !view.active {
         return;
     }
-    streamer.frame += 1;
-    let frame = streamer.frame;
-    let (near, far) = reach(gfx.tier);
-    let cells = i32::from(town::CELLS);
-    let here = i32::from(town::cell_at(town::town_t(at.s)));
+    let s = &mut *streamer;
+    s.frame += 1;
+    let frame = s.frame;
+    let (near, mid, far) = reach(gfx.tier);
+    let here = town::cell_at(town::town_t(at.s));
     let budget = if view.sync { f32::INFINITY } else { (time.delta_secs() * 1000.0 * 0.2).clamp(2.0, 5.0) };
     let start = Instant::now();
-    let material = streamer.material.clone();
+    let place = |p: Piece| seen_from(at.s, 0.0, town::deck_s(town_mesh::cell_start(p.first)), 0.0);
+
+    // The pieces in sight, nearest first; a cell shown in full last frame stays so a cell further.
+    let shown_last = &s.shown;
+    choose(here, (near, mid, far), |c| shown_last.contains(&Piece::cell(c, Detail::Near)), &mut chosen);
+    s.sight.clear();
+    s.sight.extend(chosen.iter().map(|(_, p)| *p));
+
+    // What's missing, built within the budget a part at a time: the piece under way first, if it's
+    // still in sight as it's being built, then the nearest.
+    if s.building.as_ref().is_some_and(|(p, _)| !s.sight.contains(p)) {
+        s.building = None;
+    }
     let layer = RenderLayers::layer(CITY_LAYER);
-    // Nearest first: this cell, then one either side, and so on out.
-    for step in 0..=far {
-        for d in if step == 0 { vec![0] } else { vec![step, -step] } {
-            let cell = (here + d).rem_euclid(cells) as u16;
-            // A cell built in full stays so a cell further out than it's built at.
-            let have = streamer.cells.get(&cell).map(|b| b.detail);
-            let want = if step <= near || (have == Some(Detail::Near) && step <= near + 1) {
-                Detail::Near
-            } else {
-                Detail::Far
-            };
-            if let Some(b) = streamer.cells.get_mut(&cell) {
-                b.wanted = frame;
-                if b.detail == want {
-                    continue;
-                }
+    let mut fresh = Vec::new();
+    while start.elapsed().as_secs_f32() * 1000.0 <= budget {
+        if s.building.is_none() {
+            match s.sight.iter().find(|p| !s.pieces.contains_key(*p)) {
+                Some(&p) => s.building = Some((p, CellBuild::range(p.first, p.count, p.detail))),
+                None => break,
             }
-            if start.elapsed().as_secs_f32() * 1000.0 > budget {
-                continue;
+        }
+        let Some((_, job)) = s.building.as_mut() else { break };
+        job.step();
+        if !job.done() {
+            continue;
+        }
+        let Some((key, job)) = s.building.take() else { break };
+        let mesh = job.finish();
+        let tris = mesh.triangles() as u32;
+        let (translation, rotation) = place(key);
+        let mut e = commands.spawn((
+            Mesh3d(meshes.add(to_mesh(mesh))),
+            MeshMaterial3d(s.material.clone()),
+            Transform { translation, rotation, ..default() },
+            Visibility::Hidden,
+            layer.clone(),
+            ChildOf(root),
+        ));
+        // (In the haze, past where the light's cascades reach: it neither casts nor takes a shadow.)
+        if key.detail == Detail::Haze {
+            e.insert((NotShadowCaster, NotShadowReceiver));
+        }
+        let entity = e.id();
+        s.pieces.insert(key, Built { entity, wanted: 0, tris, placed: at.s });
+        s.unsigned.push((key, entity));
+        fresh.push((key, entity));
+    }
+    s.spent.add(start.elapsed().as_secs_f32() * 1000.0, time.delta_secs());
+
+    // What's shown: each piece in sight that's built; where one isn't yet, what was shown there last
+    // frame (or failing that, its cells built at another detail), and nothing else over it.
+    std::mem::swap(&mut s.shown, &mut s.last);
+    s.shown.clear();
+    s.missing = 0;
+    let (built, last, shown) = (&s.pieces, &s.last, &mut s.shown);
+    for &p in s.sight.iter().filter(|p| !built.contains_key(*p)) {
+        s.missing += 1;
+        let mut stood = false;
+        for &q in last.iter().filter(|q| q.meets(p) && built.contains_key(*q)) {
+            stood = true;
+            if !shown.contains(&q) {
+                shown.push(q);
             }
-            let mesh = town_mesh::cell(cell, want);
-            let tris = mesh.triangles() as u32;
-            let entity = commands
-                .spawn((
-                    Mesh3d(meshes.add(to_mesh(mesh))),
-                    MeshMaterial3d(material.clone()),
-                    Transform::default(),
-                    layer.clone(),
-                    ChildOf(root),
-                ))
-                .id();
-            if let Some(old) =
-                streamer.cells.insert(cell, Built { entity, detail: want, wanted: frame, tris })
-            {
-                commands.entity(old.entity).despawn();
-            }
-            streamer.unsigned.retain(|(c, _)| *c != cell);
-            streamer.unsigned.push((cell, entity));
+        }
+        if !stood
+            && let Some(q) = p.others().into_iter().find(|q| built.contains_key(q))
+            && !shown.contains(&q)
+        {
+            shown.push(q);
         }
     }
-    let spent = start.elapsed().as_secs_f32() * 1000.0;
-    streamer.build_ms.0 = streamer.build_ms.0.max(spent);
-    streamer.build_window += time.delta_secs();
-    if streamer.build_window >= 1.0 {
-        streamer.build_window = 0.0;
-        streamer.build_ms = (0.0, streamer.build_ms.0);
+    let standing = shown.len();
+    for &p in s.sight.iter().filter(|p| built.contains_key(*p)) {
+        if !shown[..standing].iter().any(|q| q.meets(p)) {
+            shown.push(p);
+        }
     }
-    // Their signs, once the letters are measured: stencilled on each cell's own faces, so they go
+    // (One built this frame is shown from the start, so nothing's missing for a frame between it and
+    // what stood in for it.)
+    for (key, entity) in fresh {
+        if shown.contains(&key) {
+            commands.entity(entity).insert(Visibility::Inherited);
+        }
+    }
+    let mut covered = [false; town::CELLS as usize];
+    for p in shown.iter() {
+        for c in p.cells() {
+            covered[usize::from(c)] = true;
+        }
+    }
+    let cells = i32::from(town::CELLS);
+    s.covered =
+        (-far..=far).filter(|d| covered[(i32::from(here) + d).rem_euclid(cells) as usize]).count() as u32;
+    for p in s.sight.iter().chain(shown.iter()) {
+        if let Some(b) = s.pieces.get_mut(p) {
+            b.wanted = frame;
+        }
+    }
+
+    // The pieces kept out of sight, the longest unwanted going first past the cache's size (they're
+    // quick to build again).
+    let cap = cache(s.sight.len());
+    if s.pieces.len() > cap {
+        let mut old: Vec<(Piece, u64)> =
+            s.pieces.iter().filter(|(_, b)| b.wanted != frame).map(|(k, b)| (*k, b.wanted)).collect();
+        old.sort_unstable_by_key(|(_, wanted)| *wanted);
+        for (key, _) in old.into_iter().take(s.pieces.len() - cap) {
+            if let Some(b) = s.pieces.remove(&key) {
+                commands.entity(b.entity).despawn();
+            }
+        }
+        let built = &s.pieces;
+        s.unsigned.retain(|(key, entity)| built.get(key).is_some_and(|b| b.entity == *entity));
+    }
+
+    // Their signs, once the letters are measured: stencilled on each piece's own faces, so they go
     // when it does.
-    if atlas.ready() && !streamer.unsigned.is_empty() {
-        for (cell, entity) in std::mem::take(&mut streamer.unsigned) {
-            let signs = town_mesh::cell_signs(cell);
-            if !signs.is_empty() && streamer.cells.get(&cell).is_some_and(|b| b.entity == entity) {
+    if atlas.ready() && !s.unsigned.is_empty() {
+        for (key, entity) in std::mem::take(&mut s.unsigned) {
+            let signs = town_mesh::piece_signs(key.first, key.count);
+            if !signs.is_empty() && s.pieces.get(&key).is_some_and(|b| b.entity == entity) {
                 atlas.hang_on(&signs, entity, Some(CITY_LAYER), &mut commands, &mut meshes, &mut standard);
             }
         }
     }
-    // The cells no longer in sight go (they're quick to build again).
-    let gone: Vec<u16> =
-        streamer.cells.iter().filter(|(_, b)| b.wanted + 120 < frame).map(|(c, _)| *c).collect();
-    for cell in gone {
-        if let Some(b) = streamer.cells.remove(&cell) {
-            commands.entity(b.entity).despawn();
-        }
-    }
-    // Each where the view has it.
-    for (cell, b) in &streamer.cells {
+
+    // Each shown where the view has it (turned again only when the view has moved), the rest hidden.
+    for (key, b) in &mut s.pieces {
         let Ok((mut tf, mut vis)) = tfs.get_mut(b.entity) else { continue };
-        let (p, turn) = seen_from(at.s, 0.0, town::deck_s(town_mesh::cell_start(*cell)), 0.0);
-        tf.translation = p;
-        tf.rotation = turn;
-        let want = if b.wanted == frame { Visibility::Inherited } else { Visibility::Hidden };
-        if *vis != want {
-            *vis = want;
+        let on = s.shown.contains(key);
+        if on && b.placed != at.s {
+            let (translation, rotation) = place(*key);
+            tf.translation = translation;
+            tf.rotation = rotation;
+            b.placed = at.s;
         }
+        vis.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
     }
+
     // The haze's walls, where the cells end.
-    if let Some((caps, _)) = &streamer.caps {
+    if let Some((caps, _)) = &s.caps {
         // (From the view's cell's start: the cells out to `far` either side of it are built.)
-        let cell_s = town::deck_s(town_mesh::cell_start(here as u16));
+        let cell_s = town::deck_s(town_mesh::cell_start(here));
         let back = round_from(RING, at.s, cell_s);
         for (cap, d) in
             caps.iter().zip([back + (far + 1) as f32 * town::CELL, back - far as f32 * town::CELL])
         {
             if let Ok((mut tf, _)) = tfs.get_mut(*cap) {
-                let (p, turn) = seen_from(0.0, 0.0, d, town::ROOF * 0.5);
-                tf.translation = p;
-                tf.rotation = turn;
+                let (translation, rotation) = seen_from(0.0, 0.0, d, town::ROOF * 0.5);
+                let scale = tf.scale;
+                tf.set_if_neq(Transform { translation, rotation, scale });
             }
         }
     }
@@ -477,6 +730,7 @@ fn draw_life(
     crowd: Res<crate::people::Crowd>,
     scene: Option<Res<crate::life::LifeScene>>,
     streamer: Res<Streamer>,
+    time: Res<Time<Real>>,
     mut life: ResMut<TownLife>,
     cams: Query<&Transform, (With<MainCamera>, Without<TownLifeSlot>)>,
     mut shown: Query<
@@ -488,6 +742,7 @@ fn draw_life(
     if !view.active {
         return;
     }
+    let start = Instant::now();
     let life = &mut *life;
     // The pools, the first time: hidden, under the town's root (so they go when it does).
     let pools = life.pools.get_or_insert_with(|| {
@@ -649,8 +904,11 @@ fn draw_life(
     if let Some((v, seed)) = &own.driving {
         cars.push(Seen { d2: -1.0, ..standing(v, *seed, 3 << 40, true) });
     }
-    // The Watch's cars after the pilot: its livery, the bar on the roof flashing.
-    for (k, v) in own.watch.iter().enumerate() {
+    // The Watch's units near the pilot: its livery, the bar on the roof flashing; and its hounds,
+    // small and flown over the road, flashing too.
+    for (k, (v, hound)) in
+        own.watch.iter().map(|v| (v, false)).chain(own.hounds.iter().map(|v| (v, true))).enumerate()
+    {
         let look = CarLook {
             livery: livery(street::Kind::Watch, 0, district),
             lights: Lights {
@@ -661,7 +919,7 @@ fn draw_life(
             seed: k as u32,
         };
         let d2 = near(v.x, round_from(RING, at.s, v.s));
-        cars.push(Seen { d2, id: 4 << 40 | k as u64, x: v.x, s: v.s, yaw: v.yaw, what: look, lie: false });
+        cars.push(Seen { d2, id: 4 << 40 | k as u64, x: v.x, s: v.s, yaw: v.yaw, what: look, lie: hound });
     }
     cars.retain(|c| c.d2 <= reach * reach);
     cars.sort_by(|a, b| a.d2.total_cmp(&b.d2));
@@ -708,7 +966,7 @@ fn draw_life(
                     c.x,
                     c.s,
                     c.yaw,
-                    Vec3::ONE,
+                    Vec3::splat(if c.lie { HOUND.0 } else { 1.0 }),
                     m,
                     plan::car_tag(&c.what.livery, c.what.lights, 1.0, c.what.seed),
                 )
@@ -726,9 +984,17 @@ fn draw_life(
                 };
                 (p.x, p.s, p.yaw, Vec3::new(wide, tall, wide), m, plan::figure_tag(&o, 1.0, w.seed))
             };
-            // (Someone knocked down lies on their back where they fell.)
+            // (Someone knocked down lies on their back where they fell; a hound flies over the road.)
             let lie = !is_car && life.people[a + n].lie;
-            let (translation, turn) = seen_from(at.s, x, s, if lie { 0.22 } else { 0.0 });
+            let hound = is_car && life.cars[a + n].lie;
+            let up = if lie {
+                0.22
+            } else if hound {
+                HOUND.1
+            } else {
+                0.0
+            };
+            let (translation, turn) = seen_from(at.s, x, s, up);
             let fallen =
                 if lie { Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2) } else { Quat::IDENTITY };
             tf.set_if_neq(Transform {
@@ -754,6 +1020,7 @@ fn draw_life(
         pool.shown.copy_from_slice(&used);
     }
     life.drawn = (pe as u32, ce as u32);
+    life.spent.add(start.elapsed().as_secs_f32() * 1000.0, time.delta_secs());
 }
 
 /// Where a pilot in the town (as the plaza has them) is drawn, and how their figure is turned
@@ -864,7 +1131,7 @@ fn light_town(
     }
     if let Some(mut m) = materials.get_mut(&streamer.material) {
         let seconds = (time.now % 3_600.0) as f32;
-        m.extension.town.day = Vec4::new(seconds, d.daylight, d.lamps, 1.0);
+        m.extension.town.day = Vec4::new(seconds, d.daylight, d.lamps, painted(&gfx));
         m.extension.town.haze = haze.extend(density);
         m.extension.town.sky = sky.extend(gain);
     }
@@ -877,25 +1144,47 @@ fn light_town(
     }
 }
 
-/// `window.__bc.town_cells`, `town_tris`, `town_ms`, `town_people` and `town_cars`: what's built and
-/// shown, the most a frame spent building cells lately, and the people and the cars drawn.
+/// [`TownStats`], and `window.__bc`'s `town_cells`, `town_pieces`, `town_tris`, `town_ms` (the build's),
+/// `town_life_ms`, `town_missing`, `town_cached`, `town_people`, `town_cars` and `town_draws` from
+/// it.
 fn publish_stats(
     view: Res<TownView>,
     streamer: Res<Streamer>,
     life: Res<TownLife>,
+    meshes: Query<(&ViewVisibility, &RenderLayers), With<Mesh3d>>,
+    mut stats: ResMut<TownStats>,
     status: Option<ResMut<crate::dev_hooks::DevStatus>>,
 ) {
-    let Some(mut status) = status else { return };
-    let (cells, tris, ms, drawn) = if view.active {
-        let shown = streamer.cells.values().filter(|b| b.wanted == streamer.frame);
-        let (n, tris) = shown.fold((0u32, 0u32), |(n, t), b| (n + 1, t + b.tris));
-        (n, tris, streamer.build_ms.0.max(streamer.build_ms.1), life.drawn)
+    let now = if view.active {
+        let shown = streamer.shown.iter().filter_map(|p| streamer.pieces.get(p));
+        let (pieces, tris) = shown.fold((0u32, 0u32), |(n, t), b| (n + 1, t + b.tris));
+        let town = RenderLayers::layer(CITY_LAYER);
+        let draws = meshes.iter().filter(|(seen, layers)| seen.get() && layers.intersects(&town)).count();
+        TownStats {
+            cells: streamer.covered,
+            pieces,
+            tris,
+            build_ms: streamer.spent.ms(),
+            life_ms: life.spent.ms(),
+            missing: streamer.missing,
+            cached: streamer.pieces.len() as u32,
+            people: life.drawn.0,
+            cars: life.drawn.1,
+            draws: draws as u32,
+        }
     } else {
-        (0, 0, 0.0, (0, 0))
+        TownStats::default()
     };
-    status.set("town_cells", cells);
-    status.set("town_tris", tris);
-    status.set("town_ms", ms);
-    status.set("town_people", drawn.0);
-    status.set("town_cars", drawn.1);
+    stats.set_if_neq(now);
+    let Some(mut status) = status else { return };
+    status.set("town_cells", now.cells);
+    status.set("town_pieces", now.pieces);
+    status.set("town_tris", now.tris);
+    status.set("town_ms", now.build_ms);
+    status.set("town_life_ms", now.life_ms);
+    status.set("town_missing", now.missing);
+    status.set("town_cached", now.cached);
+    status.set("town_people", now.people);
+    status.set("town_cars", now.cars);
+    status.set("town_draws", now.draws);
 }

@@ -239,6 +239,40 @@ pub struct PilotRecord {
     /// wakes an Arrival.
     #[serde(default)]
     pub body: bc_econ::body::Body,
+    /// Survival: where on the ring's town's floor they were when they left it by logging out down
+    /// there: they wake there (`docs/FREE_ROAM.md`, O1). None if they left from anywhere else (the
+    /// bay, up a lift, their suit), or the record's older than that: they wake in the bay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub town: Option<TownSpot>,
+    /// How much the Watch wanted them when they left (its heat's points, `bc_sim::colony::watch`):
+    /// it's waiting when they're back, cooled by the time they were away (`seen_unix` on). A reload
+    /// doesn't clear it.
+    #[serde(default, skip_serializing_if = "cold")]
+    pub heat: f32,
+}
+
+fn cold(heat: &f32) -> bool {
+    *heat <= 0.0
+}
+
+/// A spot on the ring's town's floor, as the plaza has a pilot there: `x` across the ring, `s` round
+/// the ring's deck (`bc_sim::colony::deck`'s), m.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TownSpot {
+    pub x: f32,
+    pub s: f32,
+}
+
+/// Where a pilot who left the town at `spot` wakes there (`bc_sim::colony::town::wake_spot`: the
+/// spot, out of any wall; else at the nearest Watch station's door), as the place's wake tells the
+/// client (its `home` [`WAKE_IN_TOWN`](bc_sim::colony::town::WAKE_IN_TOWN), its `x` and `s` the
+/// spot packed: `town::pack_spot`), and where the plaza has them come in: `(s, x)` on the ring's
+/// deck.
+pub fn town_wake(spot: TownSpot) -> (bc_econ::wire::Wake, (f32, f32)) {
+    use bc_sim::colony::town;
+    let (px, pt) = town::wake_spot(spot.x, town::town_t(spot.s));
+    let (x, t) = town::unpack_spot((px, pt));
+    (bc_econ::wire::Wake { home: town::WAKE_IN_TOWN, s: pt, x: px, storey: 0 }, (town::deck_s(t), x))
 }
 
 impl PilotRecord {
@@ -257,6 +291,8 @@ impl PilotRecord {
             proving: bc_econ::proving::Bests::default(),
             word: Vec::new(),
             body: bc_econ::body::Body::default(),
+            town: None,
+            heat: 0.0,
         }
     }
 }
@@ -840,6 +876,31 @@ mod tests {
         r.word.push("THE COLONY'S TUGS BROUGHT YOUR SUIT IN".into());
         let again: PilotRecord = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
         assert_eq!(again, r);
+    }
+
+    #[test]
+    fn where_a_pilot_left_the_town_is_kept_and_they_wake_there_clear_of_its_walls() {
+        use bc_sim::colony::town;
+        let mut r = PilotRecord::new(&id(14));
+        // None kept: none written, and an older record reads as none.
+        let none = serde_json::to_value(&r).unwrap();
+        assert!(none.get("town").is_none(), "{none}");
+        assert_eq!(serde_json::from_value::<PilotRecord>(none).unwrap().town, None);
+        let (x, t) = (-60.0, 40.0);
+        r.town = Some(TownSpot { x, s: town::deck_s(t) });
+        let again: PilotRecord = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(again, r);
+        // Woken there: told so in the wake, and come in there.
+        let (wake, (s, wx)) = town_wake(r.town.unwrap());
+        assert_eq!(wake.home, town::WAKE_IN_TOWN);
+        let (ux, ut) = town::unpack_spot((wake.x, wake.s));
+        assert!((ux - x).abs() < 0.05 && (ut - t).abs() < 0.2 && ux == wx && town::deck_s(ut) == s);
+        // In a wall: out of it.
+        let mut wall = None;
+        town::each_block_box(town::BlockId::new(40, 2), &mut |b| wall = wall.or(Some(b)));
+        let b = wall.unwrap();
+        let (wake, (s, x)) = town_wake(TownSpot { x: b.x0 + 0.5, s: town::deck_s(0.5 * (b.t0 + b.t1)) });
+        assert!(town::stands_clear(x, town::town_t(s)), "{wake:?}");
     }
 
     /// `a`'s record, saying their suit `suit` of this run is asleep in a hide spot as of `tick`.

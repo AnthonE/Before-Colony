@@ -36,6 +36,18 @@ pub fn out_of_the_lift(k: u16) -> Walker {
     w
 }
 
+/// Back where they logged out down in the town, if the place's `wake` says so (its `home`
+/// `bc_sim::colony::town::WAKE_IN_TOWN`, its `x` and `s` the spot, `town::pack_spot`): standing
+/// there, facing fore. (A wake that's a home's bed is the city's.)
+pub fn woken(w: &bc_econ::wire::Wake) -> Option<Walker> {
+    (w.home == town::WAKE_IN_TOWN).then(|| {
+        let (x, t) = town::unpack_spot((w.x, w.s));
+        let mut walker = Walker::at(DeckPos::new(RING, x, town::deck_s(t), 0.0).walker(), -Vec3::X);
+        walker.grounded = true;
+        walker
+    })
+}
+
 /// Where a walker's feet are on the ring's floor (`s` in its round).
 pub fn feet(w: &Walker) -> DeckPos {
     DeckPos::from_walker(RING, w.feet).wrapped()
@@ -70,6 +82,7 @@ pub fn pose_of(w: &Walker) -> PersonPose {
         running: flat > 5.0,
         ride: 0,
         jets: 0,
+        heat: 0,
     }
 }
 
@@ -231,53 +244,34 @@ pub fn car_at_hand(at: DeckPos, taken: &[(i32, i32)], left: &[Vehicle]) -> Optio
     best.map(|(_, v, k)| (v, k))
 }
 
-/// How many parking bays there are along a cell's length of kerb, and how far apart their middles
-/// are, m (`town.wgsl` paints a tick between each): a whole number round the ring, so the same bays
-/// whichever way round they're counted.
-pub const BAYS_PER_CELL: u16 = 21;
-pub const BAY: f32 = town::CELL / BAYS_PER_CELL as f32;
-/// How far in from a street's kerb a parked car's middle is, m.
-const BAY_IN: f32 = 1.5;
+pub use bc_sim::colony::street::{BAY, BAYS_PER_CELL};
 
 /// The cars parked at the kerbs of the streets between the town's columns, within `reach` m of
-/// `(x, s)`: a closed form of the place, the same on every screen. One bay in three or so has a car
-/// in it, nose the way its side of the street is driven (traffic keeps right). Each is a
-/// [`Vehicle`] standing where it is, in the deck's `s` nearest the asker's.
+/// `(x, s)`: `bc_sim::colony::street::each_parked`'s, a closed form of the place, the same on every
+/// screen. Each is a [`Vehicle`] standing where it is, in the deck's `s` nearest the asker's.
 pub fn each_parked(x: f32, s: f32, reach: f32, mut f: impl FnMut(Vehicle)) {
     let t = town::town_t(s);
-    let half = town::STREET * 0.5;
-    let bays = i32::from(town::CELLS) * i32::from(BAYS_PER_CELL);
-    for c in 0..town::COLUMNS {
-        let (_, x1, _, hi) = town::column(c);
-        // The street along this column's far edge, if a street is what's there.
-        if hi != half || (x1 - x).abs() > reach + half {
-            continue;
+    // The square round the reach, a bay over, and then the reach itself.
+    let (x0, x1, t0, t1) = (x - reach - 1.0, x + reach + 1.0, t - reach - BAY, t + reach + BAY);
+    bc_sim::colony::street::each_parked(x0, x1, t0, t1, &mut |p| {
+        let ps = s + (p.t - t);
+        if (p.x - x).hypot(ps - s) <= reach {
+            f(Vehicle::new(Kind::Car, RING_FLOOR, ps, p.x, p.yaw));
         }
-        let (b0, b1) = (((t - reach) / BAY).floor() as i32, ((t + reach) / BAY).ceil() as i32);
-        for g in b0..=b1 {
-            let bay = g.rem_euclid(bays);
-            let cell = (bay / i32::from(BAYS_PER_CELL)) as u16;
-            // Only along a block's side: not across the cross streets at a cell's ends.
-            let row = town::block_rect(town::BlockId::new(cell, c));
-            let along = (bay as f32 + 0.5) * BAY;
-            if along < row.t0 + 10.0 || along > row.t1 - 10.0 {
-                continue;
-            }
-            for side in [-1.0f32, 1.0] {
-                let h = town::mix(u32::from(c) * 2 + u32::from(side > 0.0), bay as u32, 0xCA5);
-                if !h.is_multiple_of(3) {
-                    continue;
-                }
-                let px = x1 + side * (half - BAY_IN);
-                // Keeping right: on the +x side of the street's middle, the way `t` grows.
-                let yaw = if side > 0.0 { std::f32::consts::PI } else { 0.0 };
-                let ps = s + ((g as f32 + 0.5) * BAY - t);
-                if (px - x).hypot(ps - s) <= reach {
-                    f(Vehicle::new(Kind::Car, RING_FLOOR, ps, px, yaw));
-                }
-            }
-        }
-    }
+    });
+}
+
+/// Which kerb's bay a [`Vehicle`] from [`each_parked`] stands in (`bc_sim::colony::street::kerb`), if
+/// it stands in one: how the server names it.
+pub fn kerb_of(v: &Vehicle) -> Option<u32> {
+    bc_sim::colony::street::kerb_at(v.x, town::town_t(v.s))
+}
+
+/// The car parked in bay `kerb` (`bc_sim::colony::street::kerb`) as [`each_parked`] has it, if one is
+/// (its `s` within the ring's deck's round).
+pub fn parked_car(kerb: u32) -> Option<Vehicle> {
+    let p = bc_sim::colony::street::parked(kerb)?;
+    Some(Vehicle::new(Kind::Car, RING_FLOOR, town::deck_s(p.t), p.x, p.yaw))
 }
 
 /// Which parked car a [`Vehicle`] from [`each_parked`] is: its street and side, and its bay round
@@ -699,6 +693,22 @@ mod tests {
     }
 
     #[test]
+    fn woken_in_the_town_a_pilot_stands_where_the_server_says_and_a_bed_is_not_the_towns() {
+        let (x, t) = (-60.0, 40.0);
+        let (px, pt) = town::wake_spot(x, t);
+        let w = bc_econ::wire::Wake { home: town::WAKE_IN_TOWN, s: pt, x: px, storey: 0 };
+        let walker = woken(&w).expect("in the town");
+        let at = feet(&walker);
+        assert!(
+            (at.x - x).abs() < 0.05 && deck::round_from(RING, town::deck_s(t), at.s).abs() < 0.2,
+            "{at:?}"
+        );
+        let (lo, hi) = (walker.feet - Vec3::new(0.3, -0.1, 0.3), walker.feet + Vec3::new(0.3, 1.8, 0.3));
+        assert!(walker.grounded && !deck::solid(RING, lo, hi));
+        assert!(woken(&bc_econ::wire::Wake { home: 77, ..w }).is_none());
+    }
+
+    #[test]
     fn out_of_every_lift_a_pilot_stands_on_its_square_and_can_turn_and_ride_back_up() {
         for k in 0..town::LIFTS {
             let mut w = out_of_the_lift(k);
@@ -780,9 +790,17 @@ mod tests {
         for (i, v) in cars.iter().enumerate() {
             assert!(v.fits(v.s, v.x, v.yaw), "{v:?} is in a wall");
             assert_eq!(town::ground_at(v.x, town::town_t(v.s)), town::Ground::Road, "{v:?}");
+            // Its bay, as the server names it, has it in it.
+            let kerb = kerb_of(v).expect("in a bay");
+            let p = bc_sim::colony::street::parked(kerb).expect("a car in its bay");
+            assert!((p.x - v.x).abs() < 1e-3 && deck::round_from(RING, town::deck_s(p.t), v.s).abs() < 0.02);
+            // And told the kerb (the server's taken set), a client finds the same car.
+            let told = parked_car(kerb).expect("the same car");
+            assert_eq!((parked_id(&told), told.yaw), (parked_id(v), v.yaw));
             for o in &cars[i + 1..] {
                 assert!((o.x - v.x).hypot(o.s - v.s) > 4.5, "{v:?} and {o:?}");
                 assert_ne!(parked_id(v), parked_id(o));
+                assert_ne!(kerb_of(o), Some(kerb));
             }
         }
         // A pilot walked to the nearest stands at its side and can take it; driven off, it goes.

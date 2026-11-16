@@ -611,6 +611,7 @@ mod tests {
                 running: (t / 90 + u32::from(i)).is_multiple_of(4),
                 ride: if t % 1_800 > 1_780 { 3 } else { 0 },
                 jets: 0,
+                heat: 0,
             },
         }
     }
