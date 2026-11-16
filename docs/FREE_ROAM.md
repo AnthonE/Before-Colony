@@ -194,6 +194,13 @@ What it needs, in order:
 - **A budget the client keeps**: so many people and cars drawn at full detail, so many as instanced
   impostors, the rest not at all; pooled figures, as `life` pools its people.
 
+Built so far (protocol 47): the census (`colony::census`, `CENSUS_GOLDEN`), the parked cars at their kerbs
+(`street::each_parked`, `PARKED_GOLDEN`) and routes on the town's roads (`colony::roads`, `ROUTE_GOLDEN`),
+all closed forms; the taken set on the server (`bc-server`'s `street`): per district, fixed sets of the
+people down or away as fares, the kerbs emptied, the traffic's cars taken and the cars left about, each
+take checked against the pilot's pose and sent to the districts round each pilot when their version
+moves. Promotion into the tick and the wire's tiers are still to do.
+
 ### 4. The Watch as infrastructure (W)
 
 The police force, before any heat: the dispatch, the units and their movement, so that the moment X1 adds
@@ -212,6 +219,13 @@ heat, something already comes.
   mechanics can tune it later without code.
 - **Seen by everyone:** an incident is news, as `OPEN_CITY.md`'s X2 wants (the radio, the map), on the
   control stream.
+
+Built so far (protocol 47), on the server outside the tick: heat is the server's (from what it sees and
+what the client reports, which can only add), an incident queue and its news, and each station's cars
+and hounds sent by road (`colony::watch::ANSWERS`, the server's `dispatch`): they hold a cordon for the
+level's time and go home, chase a wanted pilot, and stop and fine them with no word from the client.
+Clients draw the units the server sends (`units`). `/dev/incident` (with `--dev-hooks`) raises one.
+Patrols while nothing happens, and the units promoted into the tick, are still to do.
 
 ### 5. Many sectors for one town (D)
 
@@ -236,6 +250,12 @@ is one closed form, so neighbours can't disagree about it. This is `SCALE.md`'s 
 - **Numbers on screen**: `perf.rs`' readout with the town's counts (chunks, people, cars, draws), and a
   showcase camera on a crowded street that the browser suite times.
 
+Built so far: cells built a part at a time under the frame's budget and cached once out of sight; three
+tiers (near cells whole, a quad a face to about 1 km, boxes in the haze past it, the far ones merged by
+four cells and by district: 171k triangles to 94k on the crowded camera); `town.wgsl`'s distant path;
+the town's numbers in `?perf=1`; showcase camera 9, timed nightly (`perf`); and the painted look as the
+default (`?look=plain` for the old one). The floating origin and instancing are still to do.
+
 ### 7. Start on foot (O)
 
 When the town has a street to wake in: a new pilot wakes in the town (a flat of the colony's, or a bunk at
@@ -249,11 +269,11 @@ The suit stays exactly as it is.
 | FR0 | This plan | written |
 | F1 | The ring at 3 km, the hub on its own turn | done (protocol 42) |
 | T1 | The town's plan as a closed form on the ring's deck, its goldens | done (protocol 43) |
-| V1 | The town drawn in the station language, painted like the anime: chunks, a floating origin, level of detail; a showcase camera; the anime look made the default | to do |
-| P1 | Ambient people and traffic on the town's plan; the census | to do |
-| W1 | The Watch's stations, patrols and dispatch, with incidents from a test hook | to do |
-| P2 | Promotion and release: the taken set, the pools in the tick, the wire's tiers | to do |
-| O1 | A new pilot wakes in the town | to do |
+| V1 | The town drawn in the station language, painted like the anime: chunks, a floating origin, level of detail; a showcase camera; the anime look made the default | done but the floating origin and instancing (protocol 47) |
+| P1 | Ambient people and traffic on the town's plan; the census | done (protocol 47) |
+| W1 | The Watch's stations, patrols and dispatch, with incidents from a test hook | done but patrols (protocol 47) |
+| P2 | Promotion and release: the taken set, the pools in the tick, the wire's tiers | the taken set (protocol 47) |
+| O1 | A new pilot wakes in the town | done (protocol 47): and a returning one where they left it |
 | D1 | The town split into district sectors | when one sector isn't enough |
 
 Each phase follows `CLAUDE.md`'s rules: the tick allocation-free and lock-free, closed forms deterministic
