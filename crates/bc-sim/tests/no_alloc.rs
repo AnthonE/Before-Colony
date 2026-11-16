@@ -884,6 +884,9 @@ fn the_towns_roads_census_and_kerbs_answer_without_allocating() {
         });
         let _ = town::wake_spot(-39.5, 11.0);
     });
-    assert!(turns > 400 && homes > 20_000 && parked > 10_000, "{turns} waypoints, {homes} homes, {parked} cars");
+    assert!(
+        turns > 400 && homes > 20_000 && parked > 10_000,
+        "{turns} waypoints, {homes} homes, {parked} cars"
+    );
     assert_eq!(n, 0, "heap operations in the town's roads, census and kerbs: {n}");
 }

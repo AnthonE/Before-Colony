@@ -340,8 +340,12 @@ fn starts(xs: &[f32; LINES], a: At) -> [Option<(usize, i32, f32, Move)>; 2] {
                 CELL - off,
                 Move { axis: ALONG, dir: 1, len: CELL - off },
             ));
-            let back = may_drive(i, -1)
-                .then_some((state(i, kb, ALONG), kb, off, Move { axis: ALONG, dir: -1, len: off }));
+            let back = may_drive(i, -1).then_some((
+                state(i, kb, ALONG),
+                kb,
+                off,
+                Move { axis: ALONG, dir: -1, len: off },
+            ));
             [ahead, back]
         }
         At::Cross(k, x, j) => [
@@ -784,7 +788,8 @@ mod tests {
         }
         // Every cross street, from rim road to rim road, but over a lift's square and the median at
         // its foot (the boulevard runs on under the lintel).
-        let (fore, aft) = (xs[BOULEVARD_LINES.0 - 1] + STREET * 0.5, xs[BOULEVARD_LINES.1 + 1] - STREET * 0.5);
+        let (fore, aft) =
+            (xs[BOULEVARD_LINES.0 - 1] + STREET * 0.5, xs[BOULEVARD_LINES.1 + 1] - STREET * 0.5);
         for k in 0..i32::from(CELLS) {
             for dir in [1, -1] {
                 let t = lane_t(k, dir);

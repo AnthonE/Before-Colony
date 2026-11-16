@@ -83,7 +83,10 @@ async fn left_in_town(dir: &Path) -> anyhow::Result<(f32, f32)> {
     let end = Instant::now() + Duration::from_secs(5);
     loop {
         if let Some(t) = record(dir).and_then(|r| r.get("town").cloned()) {
-            return Ok((t["x"].as_f64().unwrap_or(f64::NAN) as f32, t["s"].as_f64().unwrap_or(f64::NAN) as f32));
+            return Ok((
+                t["x"].as_f64().unwrap_or(f64::NAN) as f32,
+                t["s"].as_f64().unwrap_or(f64::NAN) as f32,
+            ));
         }
         anyhow::ensure!(Instant::now() < end, "the record doesn't keep the town: {:?}", record(dir));
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -99,7 +102,8 @@ fn woke_at(b: &BotClient) -> (f32, f32) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_pilot_who_logs_out_in_the_town_wakes_there_and_one_who_rode_up_wakes_in_the_bay() -> anyhow::Result<()> {
+async fn a_pilot_who_logs_out_in_the_town_wakes_there_and_one_who_rode_up_wakes_in_the_bay()
+-> anyhow::Result<()> {
     let dir = std::env::temp_dir().join(format!("bc-town-wake-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
 

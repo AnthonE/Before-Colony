@@ -906,7 +906,10 @@ mod tests {
         for (x, t) in [(-42.5f32, 11.0f32), (999.0, ROUND - 0.01), (-1_000.0, 0.0), (310.7, -77.3)] {
             let (ux, ut) = unpack_spot(pack_spot(x, t));
             let dt = wrap(ut - t);
-            assert!((ux - x).abs() <= 1.0 / 64.0 + 1e-4 && dt.min(ROUND - dt) < 0.15, "({x}, {t}): ({ux}, {ut})");
+            assert!(
+                (ux - x).abs() <= 1.0 / 64.0 + 1e-4 && dt.min(ROUND - dt) < 0.15,
+                "({x}, {t}): ({ux}, {ut})"
+            );
         }
         // Somewhere clear: there.
         let (x, t) = (-60.0, 40.0);
@@ -920,7 +923,10 @@ mod tests {
         let (x, t) = (b.x0 + 0.6, 0.5 * (b.t0 + b.t1));
         assert!(!stands_clear(x, t));
         let (ux, ut) = unpack_spot(wake_spot(x, t));
-        assert!(stands_clear(ux, ut) && libm::hypotf(ux - x, ut - t) < WAKE_REACH as f32 + 0.5, "({ux}, {ut})");
+        assert!(
+            stands_clear(ux, ut) && libm::hypotf(ux - x, ut - t) < WAKE_REACH as f32 + 0.5,
+            "({ux}, {ut})"
+        );
         // Out on the canal's water, or deep in a tower: at the nearest Watch station's door.
         for (x, t) in [(0.5 * (CANAL.0 + CANAL.1), CELL * 30.5), (0.5 * (b.x0 + b.x1), 0.5 * (b.t0 + b.t1))] {
             let (ux, ut) = unpack_spot(wake_spot(x, t));
@@ -928,7 +934,8 @@ mod tests {
             let d = cell_at(t) / CELLS_PER_DISTRICT;
             let near = [d, (d + 1) % DISTRICT_COUNT, (d + DISTRICT_COUNT - 1) % DISTRICT_COUNT];
             assert!(
-                near.iter().any(|&d| (ux - watch_door(d).0).abs() < 0.05 && (ut - watch_door(d).1).abs() < 0.2),
+                near.iter()
+                    .any(|&d| (ux - watch_door(d).0).abs() < 0.05 && (ut - watch_door(d).1).abs() < 0.2),
                 "({x}, {t}): ({ux}, {ut})"
             );
         }

@@ -691,7 +691,10 @@ mod tests {
         let w = bc_econ::wire::Wake { home: town::WAKE_IN_TOWN, s: pt, x: px, storey: 0 };
         let walker = woken(&w).expect("in the town");
         let at = feet(&walker);
-        assert!((at.x - x).abs() < 0.05 && deck::round_from(RING, town::deck_s(t), at.s).abs() < 0.2, "{at:?}");
+        assert!(
+            (at.x - x).abs() < 0.05 && deck::round_from(RING, town::deck_s(t), at.s).abs() < 0.2,
+            "{at:?}"
+        );
         let (lo, hi) = (walker.feet - Vec3::new(0.3, -0.1, 0.3), walker.feet + Vec3::new(0.3, 1.8, 0.3));
         assert!(walker.grounded && !deck::solid(RING, lo, hi));
         assert!(woken(&bc_econ::wire::Wake { home: 77, ..w }).is_none());

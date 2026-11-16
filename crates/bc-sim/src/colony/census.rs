@@ -150,7 +150,8 @@ pub fn identity(id: u32) -> Identity {
             _ => {
                 let d = district_by(mix(h, 10, 0x30B), false);
                 Job::Block(
-                    block_in(d, mix(h, 11, 0x30B), is_work).unwrap_or(BlockId::new(d * CELLS_PER_DISTRICT + 2, 0)),
+                    block_in(d, mix(h, 11, 0x30B), is_work)
+                        .unwrap_or(BlockId::new(d * CELLS_PER_DISTRICT + 2, 0)),
                 )
             }
         }

@@ -396,7 +396,7 @@ pub struct Parked {
 /// edge, on its aft side (`aft`) or its fore: which bay a parked car is in, so that which are empty
 /// can be told in a few bits.
 pub const fn kerb(column: u8, aft: bool, bay: u32) -> u32 {
-    ((column as u32) << 1 | aft as u32) << 16 | bay % BAYS
+    (((column as u32) << 1 | aft as u32) << 16) | (bay % BAYS)
 }
 
 /// Whether bay `bay` along the street at column `column`'s far edge has a car in it, on its aft side
