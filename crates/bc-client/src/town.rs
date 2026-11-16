@@ -121,9 +121,10 @@ pub struct TownCars {
     pub driving: Option<(Vehicle, u32)>,
     pub left: Vec<(Vehicle, u32)>,
     pub taken: Vec<(i32, i32)>,
-    /// The Watch's cars after the pilot, and after the other wanted pilots near
-    /// (`bc_client_core::watch`).
+    /// The Watch's units near the pilot, the server's (`bc_client_core::watch`): its cars, and its
+    /// hounds (where over the floor each is).
     pub watch: Vec<Vehicle>,
+    pub hounds: Vec<Vehicle>,
     /// The pilots' cars the town's people step aside from: the pilot's own, and the others' near.
     pub movers: Vec<town_foot::Mover>,
     /// The town's people knocked down: the server's word, and the pilot's own hits till it comes.
@@ -220,9 +221,13 @@ struct Seen<T> {
     s: f32,
     yaw: f32,
     what: T,
-    /// Knocked down: lying where they fell.
+    /// Knocked down: lying where they fell. (A car: one of the Watch's Sirius hounds, a small body
+    /// of its livery flown over the road.)
     lie: bool,
 }
+
+/// A Sirius hound as drawn: how much smaller than a car, and how far over the road, m.
+const HOUND: (f32, f32) = (0.32, 3.2);
 
 /// A car to draw: its look, its lights, its seed.
 #[derive(Clone, Copy)]
@@ -757,8 +762,11 @@ fn draw_life(
     if let Some((v, seed)) = &own.driving {
         cars.push(Seen { d2: -1.0, ..standing(v, *seed, 3 << 40, true) });
     }
-    // The Watch's cars after the pilot: its livery, the bar on the roof flashing.
-    for (k, v) in own.watch.iter().enumerate() {
+    // The Watch's units near the pilot: its livery, the bar on the roof flashing; and its hounds,
+    // small and flown over the road, flashing too.
+    for (k, (v, hound)) in
+        own.watch.iter().map(|v| (v, false)).chain(own.hounds.iter().map(|v| (v, true))).enumerate()
+    {
         let look = CarLook {
             livery: livery(street::Kind::Watch, 0, district),
             lights: Lights {
@@ -769,7 +777,7 @@ fn draw_life(
             seed: k as u32,
         };
         let d2 = near(v.x, round_from(RING, at.s, v.s));
-        cars.push(Seen { d2, id: 4 << 40 | k as u64, x: v.x, s: v.s, yaw: v.yaw, what: look, lie: false });
+        cars.push(Seen { d2, id: 4 << 40 | k as u64, x: v.x, s: v.s, yaw: v.yaw, what: look, lie: hound });
     }
     cars.retain(|c| c.d2 <= reach * reach);
     cars.sort_by(|a, b| a.d2.total_cmp(&b.d2));
@@ -816,7 +824,7 @@ fn draw_life(
                     c.x,
                     c.s,
                     c.yaw,
-                    Vec3::ONE,
+                    Vec3::splat(if c.lie { HOUND.0 } else { 1.0 }),
                     m,
                     plan::car_tag(&c.what.livery, c.what.lights, 1.0, c.what.seed),
                 )
@@ -834,9 +842,17 @@ fn draw_life(
                 };
                 (p.x, p.s, p.yaw, Vec3::new(wide, tall, wide), m, plan::figure_tag(&o, 1.0, w.seed))
             };
-            // (Someone knocked down lies on their back where they fell.)
+            // (Someone knocked down lies on their back where they fell; a hound flies over the road.)
             let lie = !is_car && life.people[a + n].lie;
-            let (translation, turn) = seen_from(at.s, x, s, if lie { 0.22 } else { 0.0 });
+            let hound = is_car && life.cars[a + n].lie;
+            let up = if lie {
+                0.22
+            } else if hound {
+                HOUND.1
+            } else {
+                0.0
+            };
+            let (translation, turn) = seen_from(at.s, x, s, up);
             let fallen =
                 if lie { Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2) } else { Quat::IDENTITY };
             tf.set_if_neq(Transform {

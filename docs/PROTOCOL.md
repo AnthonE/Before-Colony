@@ -17,7 +17,11 @@ and `incidents` (below). And the town's taken set (`docs/FREE_ROAM.md`, P2; the 
 whole when its version moves, with the kerbs emptied and the cars left about, and the traffic's
 cars taken ring-wide; `take_parked`, `jack`, `leave_car` and `take_left` are the server's to check,
 and the Watch hears of a car taken from them, so the client no longer reports one as an `offence`
-(the server still takes the report) (below).
+(the server still takes the report) (below). And the Watch's units are the server's
+(`docs/FREE_ROAM.md`, W1; `bc_sim::colony::watch::ANSWERS`, the server's `dispatch`), sent
+out of its stations by road to its incidents and after whoever it wants, and they stop a wanted pilot
+themselves, so the fine needs no `stopped` (still taken, and only ever costing the client that sends
+it; nor does it need `sighted`: a unit near holds the heat). The server sends `units` (below).
 
 v43 (from v42): the ring's town (`docs/FREE_ROAM.md`, T1; `colony::town`, `content::town::TOWN_VERSION`
 1). Nothing on the wire changes shape, but the ring's deck now has the town standing on it, which both
@@ -694,7 +698,7 @@ Client → server (`Request`):
 | `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
 | `eject` | `destruct` (default false) | in flight, under any rules: eject from the suit, or (`destruct`, doomed) blow it up aboard. Nothing answers but the loss (`sortie`, and under survival the tugs' `news` on the wreck 45 s on) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
-| `stopped` | | in the ring's town: one of the Watch's cars has the pilot stopped at its side. The fine of the heat the server holds (150 × level² cr) is paid from the bay, as much as there is (with less, all of it, and `place: hangar`), the heat cleared (`heat`) and their incident over; a `note` answers. Nothing on them, or not in the town: refused (v47) |
+| `stopped` | | in the ring's town: one of the Watch's cars has the pilot stopped at its side. The fine of the heat the server holds (150 × level² cr) is paid from the bay, as much as there is (with less, all of it, and `place: hangar`), the heat cleared (`heat`) and their incident over; a `note` answers. Nothing on them, or not in the town: refused (v47). The server's own units stop a pilot the same way without it (`units`, below); a client needn't send it |
 | `offence` | `what` (`took_a_car`, `jacked`, `took_the_watchs`, `knock`) | in the ring's town: what only the client saw the pilot do. It can only add heat: the same one is taken at most once a second, any other offence's slug is ignored (a hit and reckless driving are the server's to see), and the server judges whether the Watch saw it (a car taken in sight of one of its cars on their beats is worse). Nothing answers but `heat` (v47) |
 | `sighted` | | in the ring's town: one of the Watch's cars after the pilot (the client's) has them in sight, so their heat doesn't cool; taken at most once a second, and it never adds or takes heat (v47) |
 | `take_parked` | `kerb` (`colony::street::kerb`: `(column << 1 \| aft) << 16 \| bay`) | in the ring's town, on foot within 8 m of the car parked in that bay: take it. Refused with a `note` if there's none, it's further off, or it's gone from its kerb already. Taken, the kerb is empty for everyone near (`street`), and it's `took_a_car` to the Watch (worse in sight of one of its cars). Nothing else answers (v47) |
@@ -784,7 +788,20 @@ and a client forgets any district not in `near`; `lanes` whenever they change. E
 at most 24 people down or away, 32 kerbs, 16 of the traffic's cars and 16 cars left about, the
 oldest letting go to make room. A car left about goes once it has stood two minutes out of every
 pilot's sight (1 km), and its kerb has its car again, or the traffic its car, once that place is
-out of sight too; v47). A suit (in the bay, or out) carries
+out of sight too; v47).
+`units` {`units`: [{`id` (the unit's number, the same while the server runs; its station is
+`id` / 7), `kind` (`car` or `hound`), `x`, `s` (on the ring's floor), `heading` (the walker's yaw:
+0 faces −s), `state` (`driving`: to an incident or after a wanted pilot; `cordon`: holding one round
+an incident; `returning`: back to its station, where it's free again)}]} (the Watch's units out
+within 1,200 m of the pilot down in the ring's town, nearest first, at most 24, about three times a
+second while any are, and once more, empty, when none are left; v47). Each level sends what
+`bc_sim::colony::watch::ANSWERS` says (level 1: a car and a hound from the nearest station by road;
+level 5: six of each from the four nearest), at a share of a car's 17 m/s or a hound's 22 m/s, to
+places round the incident at the level's cordon (30 m to 100 m), held for its time (30 s to 90 s).
+Those sent after a pilot find the way to their last pose again every 1.5 s; held under 2.5 m/s with
+one within its reach (a car's 10 m, a hound's 14 m) for 2.5 s, or with one within 80 m for 8 s and
+the walk over at 4 m/s, the pilot is stopped: the fine as for `stopped`, and a `note`. While one is
+within 90 m of them their heat doesn't cool. A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`), and `grade`, its propellant's (absent:
 `standard`); a part on the shelf carries its own `faults`.

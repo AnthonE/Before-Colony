@@ -12,6 +12,7 @@
 
 pub mod charter;
 pub mod config;
+pub mod dispatch;
 pub mod elo;
 pub mod floor;
 pub mod homes;

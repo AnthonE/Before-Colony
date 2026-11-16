@@ -1,8 +1,10 @@
 //! Heat and the Watch's tables (`docs/OPEN_CITY.md`, "Heat and the Watch"; `docs/FREE_ROAM.md`, 4):
-//! what each offence adds to a pilot's heat, the levels it climbs through, how fast it cools, how
-//! many of the Watch's cars each level sends and what its fine is; and what the Watch's own cars on
-//! their beats see. The server keeps every pilot's heat by these (`bc-server`'s `watch`) and the
-//! client draws it (`bc_client_core::watch`): data, so the mechanics can tune it without code.
+//! what each offence adds to a pilot's heat, the levels it climbs through, how fast it cools, what
+//! each level sends out of the Watch's stations ([`ANSWERS`]: its cars and hounds, how fast, from how
+//! many stations, the cordon they hold) and what its fine is; and what the Watch's own cars on their
+//! beats see. The server keeps every pilot's heat by these (`bc-server`'s `watch`), sends its units
+//! by them (`bc-server`'s `dispatch`), and the client draws both (`bc_client_core::watch`): data, so
+//! the mechanics can tune it without code.
 //!
 //! Heat is on the tick's clock ([`Heat`]): it falls a level each [`COOL_TICKS`] without an offence,
 //! and doesn't fall while one of the Watch's cars has the pilot in sight ([`Heat::hold`]). Nothing
@@ -107,8 +109,129 @@ pub const MOST: f32 = LEVELS[LEVELS.len() - 1] + 3.0;
 /// How long without an offence before the heat falls a level, s and ticks.
 pub const COOL: f32 = 28.0;
 pub const COOL_TICKS: u32 = 28 * TICK_HZ;
-/// The Watch's cars sent at each level of heat.
-pub const UNITS: [u8; MAX_HEAT as usize + 1] = [0, 1, 2, 3, 4, 6];
+
+/// What the Watch sends out of its stations (`docs/FREE_ROAM.md`, 4; `docs/OPEN_CITY.md`, "Heat and
+/// the Watch"): its cars, and its Sirius hounds, the drones it flies low over the roads. (Its suits,
+/// the Aldebaran, the Regulus and the Fomalhaut, come later.)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnitKind {
+    Car,
+    Hound,
+}
+
+impl UnitKind {
+    pub const ALL: [UnitKind; 2] = [UnitKind::Car, UnitKind::Hound];
+
+    /// How many every station of the Watch's keeps.
+    pub const fn kept(self) -> u8 {
+        match self {
+            UnitKind::Car => 3,
+            UnitKind::Hound => 4,
+        }
+    }
+
+    /// How fast it goes along the roads at full haste, m/s.
+    pub const fn speed(self) -> f32 {
+        match self {
+            UnitKind::Car => 17.0,
+            UnitKind::Hound => 22.0,
+        }
+    }
+
+    /// How near a pilot it stops them, m: a car's officers out of it, a hound's grip from above
+    /// the road.
+    pub const fn reach(self) -> f32 {
+        match self {
+            UnitKind::Car => 10.0,
+            UnitKind::Hound => 14.0,
+        }
+    }
+
+    /// Its name on the wire.
+    pub const fn slug(self) -> &'static str {
+        match self {
+            UnitKind::Car => "car",
+            UnitKind::Hound => "hound",
+        }
+    }
+
+    pub fn from_slug(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.slug() == s)
+    }
+}
+
+/// The units every station keeps, of every kind.
+pub const STATION_UNITS: usize = UnitKind::Car.kept() as usize + UnitKind::Hound.kept() as usize;
+
+/// What the Watch sends at a level of heat or of an incident: how many of each kind, from how many
+/// of its stations (the nearest by road first), how hard they drive, and the cordon they hold round
+/// the place once there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Answer {
+    pub cars: u8,
+    pub hounds: u8,
+    /// The most stations it's sent from, nearest by road first.
+    pub stations: u8,
+    /// The share of its kind's top speed each drives at.
+    pub haste: f32,
+    /// How far round the place its units stand, m, and how long they hold there, s.
+    pub cordon: f32,
+    pub hold: f32,
+}
+
+const fn answer_of(cars: u8, hounds: u8, stations: u8, haste: f32, cordon: f32, hold: f32) -> Answer {
+    Answer { cars, hounds, stations, haste, cordon, hold }
+}
+
+/// What each level sends, 0 to [`MAX_HEAT`]: data, so the mechanics can tune it without code.
+pub const ANSWERS: [Answer; MAX_HEAT as usize + 1] = [
+    answer_of(0, 0, 0, 0.0, 0.0, 0.0),
+    answer_of(1, 1, 1, 0.7, 30.0, 30.0),
+    answer_of(2, 2, 2, 0.8, 45.0, 45.0),
+    answer_of(3, 3, 2, 0.9, 60.0, 60.0),
+    answer_of(4, 4, 3, 1.0, 80.0, 75.0),
+    answer_of(6, 6, 4, 1.0, 100.0, 90.0),
+];
+
+/// What the Watch sends at `level` (past the top, the top's).
+pub fn answer(level: u8) -> Answer {
+    ANSWERS[usize::from(level.min(MAX_HEAT))]
+}
+
+/// The Watch's cars sent at each level of heat ([`ANSWERS`]' cars).
+pub const UNITS: [u8; MAX_HEAT as usize + 1] = {
+    let mut u = [0; MAX_HEAT as usize + 1];
+    let mut k = 0;
+    while k < u.len() {
+        u[k] = ANSWERS[k].cars;
+        k += 1;
+    }
+    u
+};
+
+/// Units after a wanted pilot find the way to their last pose again this often, s.
+pub const REROUTE: f32 = 1.5;
+/// A pilot slower than this, m/s, with one of the Watch's units within its reach for this long, s,
+/// is stopped.
+pub const CATCH: (f32, f32) = (2.5, 2.5);
+/// Stopped where no unit can come to their side (a park, a quay) with one within this far, m, the
+/// officers walk over at this pace, m/s, after this wait, s.
+pub const AFOOT: (f32, f32, f32) = (80.0, 4.0, 8.0);
+/// A unit this near a wanted pilot has them in sight, m: their heat doesn't cool under its eye.
+pub const UNIT_SIGHT: f32 = 90.0;
+
+/// How long a pilot held at `far` m from the nearest of the Watch's units (none within
+/// [`AFOOT`]'s reach: never) and slow is free yet, s: within the unit's `reach`, [`CATCH`]'s
+/// wait; further, the officers' walk over.
+pub fn catch_after(far: f32, reach: f32) -> Option<f32> {
+    if far <= reach {
+        Some(CATCH.1)
+    } else if far <= AFOOT.0 {
+        Some(AFOOT.2 + far / AFOOT.1)
+    } else {
+        None
+    }
+}
 /// What the Watch's fine at level 1 is, credits: it goes with the level's square.
 pub const FINE: u64 = 150;
 
@@ -332,6 +455,38 @@ mod tests {
         // What a client may say it did: never a hit or reckless driving (the server sees those).
         assert!(!Offence::HitSomeone.reported() && !Offence::Reckless.reported());
         assert!(!Offence::TookACarInSight.reported() && !Offence::JackedInSight.reported());
+    }
+
+    #[test]
+    fn each_level_sends_more_from_further_and_the_stations_have_them() {
+        assert_eq!(answer(0), Answer { cars: 0, hounds: 0, stations: 0, haste: 0.0, cordon: 0.0, hold: 0.0 });
+        assert_eq!(answer(9), answer(MAX_HEAT));
+        for w in ANSWERS.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            assert!(b.cars >= a.cars && b.hounds >= a.hounds && b.stations >= a.stations, "{a:?} {b:?}");
+            assert!(b.cars + b.hounds > a.cars + a.hounds, "{b:?} sends no more than {a:?}");
+            assert!(b.haste >= a.haste && b.cordon > a.cordon && b.hold > a.hold, "{a:?} {b:?}");
+        }
+        for (l, a) in ANSWERS.iter().enumerate().skip(1) {
+            // The stations it calls on keep enough of each kind, and it drives no faster than flat out.
+            let n = u32::from(a.stations);
+            assert!(u32::from(a.cars) <= n * u32::from(UnitKind::Car.kept()), "level {l}: {a:?}");
+            assert!(u32::from(a.hounds) <= n * u32::from(UnitKind::Hound.kept()), "level {l}: {a:?}");
+            assert!((0.5..=1.0).contains(&a.haste), "level {l}: {a:?}");
+            assert!(u16::from(a.stations) <= town::DISTRICT_COUNT);
+        }
+        assert_eq!(UNITS, ANSWERS.map(|a| a.cars));
+        assert_eq!(STATION_UNITS, 7);
+        for k in UnitKind::ALL {
+            assert_eq!(UnitKind::from_slug(k.slug()), Some(k));
+            assert!(k.speed() > 10.0 && k.reach() > 5.0);
+        }
+        assert_eq!(UnitKind::from_slug("tank"), None);
+        // Held slow: within reach, a moment; further, the walk over; too far, never.
+        assert_eq!(catch_after(5.0, UnitKind::Car.reach()), Some(CATCH.1));
+        assert_eq!(catch_after(40.0, UnitKind::Car.reach()), Some(AFOOT.2 + 10.0));
+        assert_eq!(catch_after(AFOOT.0 + 1.0, UnitKind::Hound.reach()), None);
+        assert!(UNIT_SIGHT > AFOOT.0);
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! for agents alike.
 
 use bc_proto::Part;
-use bc_sim::colony::watch::Offence;
+use bc_sim::colony::watch::{Offence, UnitKind};
 use bc_sim::content::city::PlaceKind;
 use bc_sim::content::{Grade, Kit};
 use serde::{Deserialize, Serialize};
@@ -555,6 +555,34 @@ pub struct Incident {
     pub offender: u16,
 }
 
+/// One of the Watch's units out in the ring's town (`docs/FREE_ROAM.md`, 4: the server's, sent out
+/// of its stations by road): which (its number, the same as long as the server runs), what (a car,
+/// a Sirius hound), where on the ring's floor (across it, round it: the deck's own `s`, m), the way
+/// it faces (the walker's yaw: 0 faces −s, τ/4 faces +x) and what it's doing. Everyone down in the
+/// town is told those near them ([`Update::Units`]).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Unit {
+    pub id: u16,
+    #[serde(with = "unit_kind_serde")]
+    pub kind: UnitKind,
+    pub x: f32,
+    pub s: f32,
+    pub heading: f32,
+    pub state: UnitState,
+}
+
+/// What one of the Watch's units is doing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnitState {
+    /// On its way to an incident, or after a wanted pilot.
+    Driving,
+    /// Holding a cordon round an incident's place.
+    Cordon,
+    /// Back to its station, where it's free again.
+    Returning,
+}
+
 /// Where the pilot is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -684,6 +712,11 @@ pub enum Update {
     /// they change.
     Incidents {
         incidents: Vec<Incident>,
+    },
+    /// The Watch's units out near the pilot in the ring's town, nearest first, a few times a second
+    /// while any are (and once more, empty, when none are left).
+    Units {
+        units: Vec<Unit>,
     },
 }
 
@@ -1084,6 +1117,20 @@ mod offence_serde {
     }
 }
 
+mod unit_kind_serde {
+    use bc_sim::colony::watch::UnitKind;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(k: &UnitKind, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(k.slug())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<UnitKind, D::Error> {
+        let s = String::deserialize(d)?;
+        UnitKind::from_slug(&s).ok_or_else(|| serde::de::Error::custom(format!("no such unit: {s}")))
+    }
+}
+
 mod opt_offence_serde {
     use bc_sim::colony::watch::Offence;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -1365,6 +1412,28 @@ mod tests {
         let moved = Update::Street { near: vec![0, 1, 2], districts: vec![], lanes: None };
         assert_eq!(String::from_utf8(encode(&moved)).unwrap(), r#"{"t":"street","near":[0,1,2]}"#);
         assert_eq!(decode::<Update>(&encode(&moved)), Some(moved));
+    }
+
+    #[test]
+    fn the_watchs_units_go_round() {
+        let car = Unit {
+            id: 12,
+            kind: UnitKind::Car,
+            x: 29.0,
+            s: 10_500.5,
+            heading: 1.5,
+            state: UnitState::Driving,
+        };
+        let hound = Unit { id: 13, kind: UnitKind::Hound, state: UnitState::Cordon, ..car };
+        let all = Update::Units { units: vec![car, hound] };
+        let json = String::from_utf8(encode(&all)).unwrap();
+        assert!(json.starts_with(r#"{"t":"units","units":[{"id":12,"kind":"car","#), "{json}");
+        assert!(json.contains(r#""kind":"hound""#) && json.contains(r#""state":"cordon""#), "{json}");
+        assert_eq!(decode::<Update>(json.as_bytes()), Some(all));
+        let none = Update::Units { units: vec![] };
+        assert_eq!(String::from_utf8(encode(&none)).unwrap(), r#"{"t":"units","units":[]}"#);
+        let odd = r#"{"t":"units","units":[{"id":1,"kind":"tank","x":0.0,"s":0.0,"heading":0.0,"state":"driving"}]}"#;
+        assert_eq!(decode::<Update>(odd.as_bytes()), None);
     }
 
     #[test]
