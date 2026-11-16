@@ -108,11 +108,13 @@ async function main() {
     perf: params.get("perf") === "1",
     calm: params.get("calm") === "1" || matchMedia("(prefers-reduced-motion: reduce)").matches,
     tonemap: params.get("tonemap") || "",
-    // `?look=0`: the plain look (no grade, vignette or lit smoke), to compare against.
+    // `?look=0`: the plain look (no grade, vignette or lit smoke, nor the painted bands), to compare
+    // against.
     look: params.get("look") !== "0",
-    // `?look=anime`: the painted look on trial (docs/RING.md, "The look"): the colony, the bays and the
-    // stations shaded in painted bands.
-    paint: params.get("look") === "anime",
+    // The painted look (docs/RING.md, "The look"): the colony, the town, the bays and the stations
+    // shaded in painted bands; `?look=plain` leaves them unpainted, to compare (`?look=anime`, from
+    // when it was on trial, is the default now).
+    paint: !["plain", "0"].includes(params.get("look")),
     // `?life=0`: no traffic or people in the colony's city, to compare and to measure.
     life: params.get("life") !== "0",
     // `?ssao=0`: no screen-space ambient occlusion (WebGPU), to compare against.

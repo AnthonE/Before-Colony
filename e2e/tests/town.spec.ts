@@ -1,5 +1,7 @@
+import { writeFileSync } from "node:fs";
 import { chromium, expect, test, type Page } from "@playwright/test";
 import { bc, collectConsole } from "./util";
+import { quantiles, townSampler, townSampling, type TownSample } from "./perf";
 
 // The ring's town, in the browser (`scripts/e2e.sh town`: survival as the game runs it, the retired
 // cylinder's inside shut, no drones; `docs/FREE_ROAM.md`). A new pilot wakes on the street at Hub
@@ -52,11 +54,40 @@ async function downToTheTown(page: Page) {
 
 const errors = (logs: string[]) => logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
 
+/** What the town cost to draw over each stretch of the walk (`marks`: when each ended), to
+ *  artifacts/perf-town.json: the build's and the life's ms, the frame rate, the cells and draws. */
+function townReport(samples: TownSample[], marks: [string, number][], from: number) {
+  const out: Record<string, unknown> = {};
+  let t0 = from;
+  for (const [name, t1] of marks) {
+    const xs = samples.filter((x) => x.at >= t0 && x.at < t1 && x.place === "town");
+    out[name] = {
+      secs: (t1 - t0) / 1000,
+      frames: xs.length ? xs[xs.length - 1].frames - xs[0].frames : 0,
+      town_ms: quantiles(xs.map((x) => x.town_ms)),
+      life_ms: quantiles(xs.map((x) => x.town_life_ms)),
+      fps: quantiles(xs.map((x) => x.fps)),
+      cells: quantiles(xs.map((x) => x.town_cells)),
+      missing: quantiles(xs.map((x) => x.town_missing)),
+      cached: quantiles(xs.map((x) => x.town_cached)),
+      draws: quantiles(xs.map((x) => x.town_draws)),
+    };
+    t0 = t1;
+  }
+  return out;
+}
+
 test("a new pilot wakes in the town, walks it, drives a car off, rides up to their bay and back down", async ({
   page,
 }) => {
   test.setTimeout(1_500_000);
   const logs = collectConsole(page);
+  // (What the town costs to draw is sampled from the page's load to the lift again:
+  // artifacts/perf-town.json.)
+  await page.addInitScript(townSampling);
+  const sampler = townSampler(page);
+  const loaded = Date.now();
+  const marks: [string, number][] = [];
   await page.goto("/?autoplay=1&name=Tester&quality=low");
 
   // Awake at Hub Gate's lift's door, on the floor of its square, in Charter Square, told where
@@ -71,6 +102,7 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   s = await until(page, "the town drawn", (s) => s.town_cells > 10 && s.town_tris > 20_000, 240_000);
   s = await until(page, "its life", (s) => s.town_people > 3 && s.town_cars > 3, 120_000);
   console.log(`the town: ${s.town_cells} cells, ${s.town_tris} triangles, ${s.town_people} people, ${s.town_cars} cars`);
+  marks.push(["drawn", Date.now()]);
   let status = await (await page.request.get("/status")).json();
   expect(status.game.town.people).toBe(1);
   expect(status.game.hangars.find((h: any) => h.name === "Tester")?.place).toBe("town");
@@ -85,6 +117,7 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   // Space the handbrake), and left where it stands.
   await push(page, { cmd: "walk_to", spot: "car" });
   s = await until(page, "a car at hand", (s) => s.focus === "car" && !s.town_walking_to, 600_000);
+  marks.push(["walk", Date.now()]);
   await expect(page.locator("#use")).toContainText("TAKE THE CAR");
   const [cx, cs] = townFeet(s);
   await push(page, { cmd: "use" });
@@ -100,10 +133,15 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   expect(Math.hypot(dx - cx, ds - cs)).toBeGreaterThan(1);
   if (s.town_driving) await push(page, { cmd: "use" });
   s = await until(page, "out of the car", (s) => s.town_driving === false, 60_000);
+  marks.push(["drive", Date.now()]);
 
   // Back to the lift, and up to the bay.
   await push(page, { cmd: "walk_to", spot: "lift" });
   await until(page, "back at the lift", (s) => s.focus === "lift" && !s.town_walking_to, 900_000);
+  marks.push(["back", Date.now()]);
+  const perf = townReport(await sampler.stop(), marks, loaded);
+  console.log(`the town's cost: ${JSON.stringify(perf)}`);
+  writeFileSync("artifacts/perf-town.json", JSON.stringify(perf, null, 2));
   await expect(page.locator("#use")).toContainText("UP TO YOUR BAY");
   await push(page, { cmd: "use" });
   await until(page, "their bay", (s) => s.place === "hangar" && s.seq === "walking", 120_000);

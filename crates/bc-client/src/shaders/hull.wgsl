@@ -31,7 +31,7 @@ struct Hull {
     // x: seconds (embers flicker).
     time: vec4<f32>,
     // x: patchwork, how much plates differ from their neighbours in tone and sheen (0: alike);
-    // y: 1 to paint it (`paint_bands`, below: the look on trial, `?look=anime`).
+    // y: 1 to paint it (`paint_bands`, below: the painted look, unless `?look=plain`).
     look: vec4<f32>,
 };
 

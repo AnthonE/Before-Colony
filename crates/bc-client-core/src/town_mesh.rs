@@ -392,25 +392,80 @@ pub enum Detail {
 
 /// Cell `cell`'s mesh, in the frame upright at its start ([`cell_start`]).
 pub fn cell(cell: u16, detail: Detail) -> PieceMesh {
-    let cell = cell % CELLS;
-    let t0 = cell_start(cell);
-    let t1 = t0 + CELL;
-    let mut b = Builder { mesh: PieceMesh::default(), t0 };
+    let mut build = CellBuild::new(cell, detail);
+    while !build.done() {
+        build.step();
+    }
+    build.finish()
+}
+
+/// A cell's mesh built a part at a time, so a frame's budget can stop between parts: its floor, each
+/// column's buildings, then the rest (the railings, the lifts' feet, the lamps and trees, the faces
+/// and the ceiling). Finished, it's [`cell`]'s mesh exactly.
+pub struct CellBuild {
+    cell: u16,
+    detail: Detail,
+    part: u8,
+    b: Builder,
+}
+
+impl CellBuild {
+    pub fn new(cell: u16, detail: Detail) -> Self {
+        let cell = cell % CELLS;
+        Self { cell, detail, part: 0, b: Builder { mesh: PieceMesh::default(), t0: cell_start(cell) } }
+    }
+
+    pub fn cell(&self) -> u16 {
+        self.cell
+    }
+
+    pub fn detail(&self) -> Detail {
+        self.detail
+    }
+
+    /// Whether every part is built.
+    pub fn done(&self) -> bool {
+        self.part > COLUMNS + 1
+    }
+
+    /// Builds the next part.
+    pub fn step(&mut self) {
+        let near = self.detail == Detail::Near;
+        match self.part {
+            0 => cell_floor(&mut self.b, self.cell),
+            p if p <= COLUMNS => cell_column(&mut self.b, self.cell, p - 1, near),
+            p if p == COLUMNS + 1 => cell_rest(&mut self.b, self.cell, near),
+            _ => return,
+        }
+        self.part += 1;
+    }
+
+    pub fn finish(self) -> PieceMesh {
+        self.b.mesh
+    }
+}
+
+/// A cell's paint, and its lift squares' (a lift's square is its own district's, the one that starts
+/// at the lift, either side of it).
+fn cell_paints(cell: u16) -> (u8, u8) {
     let district = cell / CELLS_PER_DISTRICT;
-    let kind = town::district(district).kind;
     let paint = district_paint(district);
-    // A lift's square is its own district's (the one that starts at the lift), either side of it.
     let square_paint = if cell % CELLS_PER_DISTRICT + 1 == CELLS_PER_DISTRICT {
         district_paint((district + 1) % town::DISTRICT_COUNT)
     } else {
         paint
     };
+    (paint, square_paint)
+}
+
+/// A cell's floor, a rectangle of it at a time: whatever the plan says it is.
+fn cell_floor(b: &mut Builder, cell: u16) {
+    let t0 = cell_start(cell);
+    let t1 = t0 + CELL;
+    let (paint, square_paint) = cell_paints(cell);
     let row = town::block_rect(BlockId::new(cell, 0));
     let ts = [t0, row.t0, row.t1, t1];
     let xs = x_breaks();
-    let near = detail == Detail::Near;
-
-    // The floor, a rectangle of it at a time: whatever the plan says it is.
     for (j, tw) in ts.windows(2).enumerate() {
         let (ta, tb) = (tw[0], tw[1]);
         let tm = 0.5 * (ta + tb);
@@ -513,46 +568,54 @@ pub fn cell(cell: u16, detail: Detail) -> PieceMesh {
             }
         }
     }
+}
 
-    // The buildings.
-    let style = style_of(kind);
-    for c in 0..COLUMNS {
-        let id = BlockId::new(cell, c);
-        let used = town::block_use(id);
-        let mut k = 0u32;
-        town::each_block_box(id, &mut |bx| {
-            let s = seed(id, k + 1);
-            match used {
-                BlockUse::Frames => {
-                    // A frame's columns and a crane's mast: steel, in safety paint.
-                    let mast = bx.x1 - bx.x0 > 2.0;
-                    b.solid(&bx, colour(Surface::Trim, if mast { 4 } else { 6 }, 0, s));
-                }
-                _ => {
-                    let tower = style == Style::Business && k == 1;
-                    let flags = style as u8 + if tower { TOWER } else { 0 };
-                    let paint = building_paint(paint, s);
-                    b.boxed(
-                        &bx,
-                        colour(Surface::Facade, paint, flags, s),
-                        Some(colour(Surface::Roof, paint, 0, s)),
-                        0.0,
-                    );
-                    if !tower {
-                        crown(&mut b, &bx, paint, flags, s);
-                    }
+/// The buildings of a cell's column `c`.
+fn cell_column(b: &mut Builder, cell: u16, c: u8, near: bool) {
+    let style = style_of(town::district(cell / CELLS_PER_DISTRICT).kind);
+    let (paint, _) = cell_paints(cell);
+    let id = BlockId::new(cell, c);
+    let used = town::block_use(id);
+    let mut k = 0u32;
+    town::each_block_box(id, &mut |bx| {
+        let s = seed(id, k + 1);
+        match used {
+            BlockUse::Frames => {
+                // A frame's columns and a crane's mast: steel, in safety paint.
+                let mast = bx.x1 - bx.x0 > 2.0;
+                b.solid(&bx, colour(Surface::Trim, if mast { 4 } else { 6 }, 0, s));
+            }
+            _ => {
+                let tower = style == Style::Business && k == 1;
+                let flags = style as u8 + if tower { TOWER } else { 0 };
+                let paint = building_paint(paint, s);
+                b.boxed(
+                    &bx,
+                    colour(Surface::Facade, paint, flags, s),
+                    Some(colour(Surface::Roof, paint, 0, s)),
+                    0.0,
+                );
+                if !tower {
+                    crown(b, &bx, paint, flags, s);
                 }
             }
-            k += 1;
-        });
-        if near && used == BlockUse::Frames {
-            frame_beams(&mut b, id);
         }
-        if near && used == BlockUse::Park {
-            park_trees(&mut b, id);
-        }
+        k += 1;
+    });
+    if near && used == BlockUse::Frames {
+        frame_beams(b, id);
     }
+    if near && used == BlockUse::Park {
+        park_trees(b, id);
+    }
+}
 
+/// The rest of a cell: the canal's railings, a lift's foot, the lamps and trees, the ring's faces and
+/// the ceiling.
+fn cell_rest(b: &mut Builder, cell: u16, near: bool) {
+    let t0 = cell_start(cell);
+    let t1 = t0 + CELL;
+    let (paint, _) = cell_paints(cell);
     // The canal's railings.
     if near {
         town::each_rail(cell, &mut |r| b.solid(&r, colour(Surface::Trim, 9, 0, 0)));
@@ -568,14 +631,14 @@ pub fn cell(cell: u16, detail: Detail) -> PieceMesh {
             }
             // Each cell draws the half of it on its own side of the avenue's middle.
             let (lo, hi) = if at <= t0 + 1.0 { (at, at + LIFT_HALF_T) } else { (at - LIFT_HALF_T, at) };
-            lift(&mut b, k, turn, (lo, hi), near);
+            lift(b, k, turn, (lo, hi), near);
         }
     }
 
     // Lamps along the boulevard's pavements, and trees along the rim walks.
     if near {
         for (x, t) in lamps(cell) {
-            lamp(&mut b, x, t, -x.signum());
+            lamp(b, x, t, -x.signum());
         }
         for (x, t, size, seed) in rim_trees(cell) {
             b.tree(x, t, size, seed);
@@ -589,7 +652,6 @@ pub fn cell(cell: u16, detail: Detail) -> PieceMesh {
         });
     }
     b.flat((-HALF, HALF), (t0, t1), ROOF, false, colour(Surface::Sky, 0, 0, 0), |x, t| [x, t]);
-    b.mesh
 }
 
 /// The signs stencilled in cell `cell`, in its mesh's frame: on a lift's shaft over the boulevard,

@@ -1,9 +1,13 @@
-//! `?perf=1`: a frame-time readout in the corner (fps, frame time, tier, entity count).
+//! `?perf=1`: a frame-time readout in the corner (fps, frame time, tier, entity count), and in the
+//! ring's town what it costs to draw (`town::TownStats`): its cells shown, built and still to build,
+//! their triangles, the most a frame spent building cells and placing its life lately, the people
+//! and the cars drawn, and the meshes in view.
 
 use bevy::diagnostic::{DiagnosticPath, DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 
 use crate::gfx::Gfx;
+use crate::town::{TownStats, TownView};
 
 pub struct PerfPlugin;
 
@@ -37,6 +41,7 @@ fn setup(mut commands: Commands, font: Res<crate::hud::UiFont>) {
 fn update(
     diagnostics: Res<DiagnosticsStore>,
     gfx: Res<Gfx>,
+    (town, view): (Res<TownStats>, Res<TownView>),
     time: Res<Time<Real>>,
     entities: Query<()>,
     mut last: Local<f32>,
@@ -57,5 +62,20 @@ fn update(
             gfx.backend,
             entities.iter().count()
         );
+        if view.active {
+            let s = *town;
+            t.push_str(&format!(
+                "\ntown: {} cells ({} built, {} to build)  {}k tris  build {:.1} ms  life {:.1} ms\n{} people  {} cars  {} meshes in view",
+                s.cells,
+                s.cached,
+                s.missing,
+                s.tris / 1000,
+                s.build_ms,
+                s.life_ms,
+                s.people,
+                s.cars,
+                s.draws
+            ));
+        }
     }
 }

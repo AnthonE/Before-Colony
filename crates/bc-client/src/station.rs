@@ -4,8 +4,8 @@
 //! - **The materials** ([`Stations`]): `shaders/station.wgsl` paints a face from what it carries
 //!   (white panels, the band in the lines' colours and its arrows, lanes, hazard stripes, light
 //!   strips, lit frames), at a suit's scale for the deck and a person's for the Muster (`base`), each
-//!   material made once at start-up and never changed. Under `?look=anime` they're painted as the
-//!   hull's are (`bc::anime`).
+//!   material made once at start-up and never changed. They're painted as the hull's are
+//!   (`bc::anime`) unless the look is plain (`?look=plain`).
 //! - **The signs** ([`SignAtlas`]): a camera of its own lays every letter out once in a texture with
 //!   the UI (the page's Chakra Petch), as the Proving Ground's board is drawn, and measures each; a
 //!   sign is its letters' quads on its face (`station::lay_out`), every sign of an ink one mesh.
@@ -85,7 +85,7 @@ pub struct StationParams {
     pub band: Vec4,
     pub lanes: Vec4,
     pub marks: Vec4,
-    /// x: 1 to paint it (`?look=anime`); y: the kick plate's paint.
+    /// x: 1 to paint it (unless `?look=plain`); y: the kick plate's paint.
     pub look: Vec4,
 }
 
