@@ -92,6 +92,7 @@ pub fn crowd(t: f64) -> Script {
             running: false,
             ride: 0,
             jets: 0,
+            heat: 0,
         };
         script.people.push((k as u16, NAMES[k].to_string(), pose));
         script.borrowed.push(w.id);
@@ -119,6 +120,7 @@ pub fn crowd(t: f64) -> Script {
             running: false,
             ride,
             jets: 0,
+            heat: 0,
         };
         script.people.push((100 + k as u16, name.to_string(), pose));
     }

@@ -10,6 +10,10 @@
 //! fields; and the ring's floor, the town (`docs/FREE_ROAM.md`), is another, [`RING_DECK`]: 18.85 km
 //! round and 2 km across, so on the wire its `s` goes in the long field and its `x` in the short one
 //! ([`PoseCodes`]). Nothing here allocates.
+//!
+//! How much the Watch wants each person ([`PersonPose::heat`], 0 to 5) rides in the plaza's
+//! datagrams beside their pose, written there by the server from the heat it holds
+//! (`docs/OPEN_CITY.md`, "Heat and the Watch"): a pose a client sends carries none.
 
 use crate::{BitReader, BitWriter, DecodeError, MAX_DATAGRAM, PACKET_KIND_BITS, PacketKind};
 
@@ -55,6 +59,10 @@ pub(crate) const JET_BITS: u32 = 2;
 /// A pose's body on the wire, bits (its strip apart).
 pub const POSE_BITS: u32 =
     X_BITS + S_BITS + H_BITS + YAW_BITS + PITCH_BITS + ROLL_BITS + SPEED_BITS + 2 + RIDE_BITS + JET_BITS;
+/// A person's heat in a plaza datagram ([`PersonPose::heat`]), and the most it is.
+pub const HEAT_BITS: u32 = 3;
+pub const MAX_HEAT: u8 = 5;
+const _: () = assert!((MAX_HEAT as u32) < (1 << HEAT_BITS));
 /// Trains on a strip's line (`bc_sim::colony::transit::TRAINS`).
 pub const MAX_TRAINS: u8 = 12;
 /// [`PersonPose::ride`] for a pilot driving a car, and riding a scooter.
@@ -76,7 +84,7 @@ const AGE_BITS: u32 = 6;
 /// Bits of a person's id: their session's (`ControlMsg::Welcome::client_slot`), never 0 or 65,535.
 pub const PERSON_ID_BITS: u32 = 16;
 /// What one person takes in a plaza datagram, bits.
-pub const PERSON_BITS: u32 = PERSON_ID_BITS + AGE_BITS + POSE_BITS;
+pub const PERSON_BITS: u32 = PERSON_ID_BITS + AGE_BITS + POSE_BITS + HEAT_BITS;
 /// The most people a plaza datagram carries.
 pub const MAX_PEOPLE: usize = 48;
 /// The most traders from the Elo Pros store standing on the Exchange floor at once (`docs/FLOOR.md`).
@@ -114,6 +122,9 @@ pub struct PersonPose {
     pub ride: u8,
     /// A Markab's jets firing: [`JET_LIFT`], [`JET_BOOST`].
     pub jets: u8,
+    /// How much the Watch wants them, 0 to [`MAX_HEAT`]: the server's, in the plaza's datagrams
+    /// only (never sent in a [`PosePacket`], nor in the tick's records of people).
+    pub heat: u8,
 }
 
 impl PersonPose {
@@ -230,6 +241,7 @@ impl PoseCodes {
             running: self.running,
             ride: self.ride,
             jets: self.jets,
+            heat: 0,
         }
     }
 
@@ -330,7 +342,8 @@ impl<'a> PlazaWriter<'a> {
         Self { w, count: 0 }
     }
 
-    /// Adds a person (their session's id, how long ago their pose was heard, s): false once full.
+    /// Adds a person (their session's id, how long ago their pose was heard, s, and the pose with
+    /// their heat): false once full.
     pub fn push(&mut self, id: u16, age: f32, pose: &PersonPose) -> bool {
         if self.count >= MAX_PEOPLE || self.w.bits_remaining() < PERSON_BITS as usize {
             return false;
@@ -338,6 +351,7 @@ impl<'a> PlazaWriter<'a> {
         self.w.write_bits(u32::from(id), PERSON_ID_BITS);
         self.w.write_bits(unit(age, 0.0, 0.64, AGE_BITS), AGE_BITS);
         pose.write_body(&mut self.w);
+        self.w.write_bits(u32::from(pose.heat.min(MAX_HEAT)), HEAT_BITS);
         self.count += 1;
         true
     }
@@ -382,7 +396,7 @@ impl<'a> PlazaReader<'a> {
     }
 
     /// The next person: their session's id, how long before the tick their pose was heard (s),
-    /// and the pose.
+    /// and the pose (with their heat).
     pub fn next_person(&mut self) -> Option<(u16, f32, PersonPose)> {
         let strip = self.strip?;
         if self.r.bits_remaining() < PERSON_BITS as usize {
@@ -390,7 +404,8 @@ impl<'a> PlazaReader<'a> {
         }
         let id = self.r.read_bits(PERSON_ID_BITS) as u16;
         let age = ununit(self.r.read_bits(AGE_BITS), 0.0, 0.64, AGE_BITS);
-        let pose = PersonPose::read_body(&mut self.r, strip);
+        let mut pose = PersonPose::read_body(&mut self.r, strip);
+        pose.heat = (self.r.read_bits(HEAT_BITS) as u8).min(MAX_HEAT);
         (!self.r.overflowed()).then_some((id, age, pose))
     }
 }
@@ -416,6 +431,7 @@ mod tests {
             running: i.is_multiple_of(3),
             ride: (i % 17) as u8,
             jets: (i % 4) as u8,
+            heat: (i % 6) as u8,
         }
     }
 
@@ -433,6 +449,12 @@ mod tests {
         assert_eq!((a.grounded, a.running, a.ride, a.jets), (b.grounded, b.running, b.ride, b.jets));
     }
 
+    /// The same, and the heat too (what the plaza's datagrams carry).
+    fn close_with_heat(a: &PersonPose, b: &PersonPose) {
+        close(a, b);
+        assert_eq!(a.heat, b.heat);
+    }
+
     #[test]
     fn a_pose_goes_round_within_half_a_step() {
         let mut buf = [0u8; 64];
@@ -443,7 +465,39 @@ mod tests {
             let q = PosePacket::decode(&buf[..n]).unwrap();
             assert_eq!((q.seq, q.pose.strip), (p.seq, p.pose.strip));
             close(&q.pose, &p.pose);
+            // A client's pose says nothing of its heat: that's the server's to say.
+            assert_eq!(q.pose.heat, 0);
         }
+    }
+
+    #[test]
+    fn a_persons_heat_rides_beside_their_pose_and_the_jets_are_only_a_markabs() {
+        let mut buf = [0u8; MAX_DATAGRAM];
+        let mut w = PlazaWriter::new(&mut buf, 42, Some(RING_DECK));
+        // Every heat, with a Markab's jets firing and without: neither says anything of the other.
+        let markab = |heat: u8, jets: u8| PersonPose {
+            strip: RING_DECK,
+            x: -40.0 + f32::from(heat),
+            s: 10_995.6,
+            ride: RIDE_MARKAB,
+            jets,
+            heat,
+            ..PersonPose::default()
+        };
+        let sent: [PersonPose; 12] = core::array::from_fn(|i| markab((i % 6) as u8, (i / 6 * 3) as u8));
+        for (i, p) in sent.iter().enumerate() {
+            assert!(w.push(i as u16 + 1, 0.0, p));
+        }
+        // A heat past the top goes as the top.
+        assert!(w.push(99, 0.0, &markab(7, 0)));
+        let n = w.finish();
+        let mut r = PlazaReader::new(&buf[..n]).unwrap();
+        for p in &sent {
+            let (_, _, got) = r.next_person().unwrap();
+            close_with_heat(&got, p);
+        }
+        assert_eq!(r.next_person().unwrap().2.heat, MAX_HEAT);
+        assert!(r.next_person().is_none());
     }
 
     #[test]
@@ -457,14 +511,14 @@ mod tests {
         }
         assert!(!w.push(1, 0.0, &pose(0)), "no more than {MAX_PEOPLE}");
         let n = w.finish();
-        assert!(n <= 719, "{n} B");
+        assert!(n <= 737, "{n} B");
         let mut r = PlazaReader::new(&buf[..n]).unwrap();
         assert_eq!((r.tick, r.strip), (123_456, Some(2)));
         let mut k = 0u32;
         while let Some((got, age, p)) = r.next_person() {
             assert_eq!(got, id(k));
             assert!((age - k as f32 * 0.01).abs() <= 0.006, "{age}");
-            close(&p, &PersonPose { strip: 2, ..pose(k) });
+            close_with_heat(&p, &PersonPose { strip: 2, ..pose(k) });
             k += 1;
         }
         assert_eq!(k, MAX_PEOPLE as u32);

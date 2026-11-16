@@ -1,8 +1,18 @@
-# Before Colony wire protocol (v43)
+# Before Colony wire protocol (v47)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v47 (from v46): the Watch's heat is the server's (`docs/OPEN_CITY.md`, "Heat and the Watch";
+`bc_sim::colony::watch`'s tables, the server's `watch`). A person in a plaza datagram takes 3 bits
+more after their pose, their heat (0 to 5), which the server writes from the heat it holds: 15.25
+bytes a person, at most 737 B for 48. A pose datagram is unchanged and carries no heat, and the
+jets' 2 bits are a Markab's jets again (a client had sent its heat in them, up to 3). On the hangar's
+messages, `fine` {`heat`} goes: `stopped` (no fields) is the client's word that one of the Watch's
+cars has them, and the fine is of the server's level; `offence` {`what`} reports what only a
+client sees, and `sighted` that one of its pursuing cars has it in sight; the server sends `heat`
+and `incidents` (below).
 
 v43 (from v42): the ring's town (`docs/FREE_ROAM.md`, T1; `colony::town`, `content::town::TOWN_VERSION`
 1). Nothing on the wire changes shape, but the ring's deck now has the town standing on it, which both
@@ -516,7 +526,7 @@ their own screen has it (`transit::train` is a closed form of the tick).
 | Datagram | Content | Size |
 |---|---|---|
 | kind 3, Pose (client → server, 15 Hz in the city or on the base's deck) | kind (4), seq (u16), strip (2: a strip, or 3 the base's deck), the pose (97) | 15 B |
-| kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (97) | 5 B + 14.125 B a person, at most 48 (683 B) |
+| kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), floor (3), then until the bits run out: per person their session's id (16), how long before the tick their pose was heard (6 bits, 10 ms steps), the pose (97) and their heat (3: 0 to 5, the server's; v47) | 5 B + 15.25 B a person, at most 48 (737 B) |
 
 A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
 (`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s over the reach
@@ -679,6 +689,9 @@ Client → server (`Request`):
 | `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
 | `eject` | `destruct` (default false) | in flight, under any rules: eject from the suit, or (`destruct`, doomed) blow it up aboard. Nothing answers but the loss (`sortie`, and under survival the tugs' `news` on the wreck 45 s on) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
+| `stopped` | | in the ring's town: one of the Watch's cars has the pilot stopped at its side. The fine of the heat the server holds (150 × level² cr) is paid from the bay, as much as there is (with less, all of it, and `place: hangar`), the heat cleared (`heat`) and their incident over; a `note` answers. Nothing on them, or not in the town: refused (v47) |
+| `offence` | `what` (`took_a_car`, `jacked`, `took_the_watchs`, `knock`) | in the ring's town: what only the client saw the pilot do. It can only add heat: the same one is taken at most once a second, any other offence's slug is ignored (a hit and reckless driving are the server's to see), and the server judges whether the Watch saw it (a car taken in sight of one of its cars on their beats is worse). Nothing answers but `heat` (v47) |
+| `sighted` | | in the ring's town: one of the Watch's cars after the pilot (the client's) has them in sight, so their heat doesn't cool; taken at most once a second, and it never adds or takes heat (v47) |
 
 **Desks** (`Request::desk`, the colony open: the Welcome's COLONY flag). A request marked with a
 desk above is that place's alone, and the server takes it only from a pilot on foot in the city
@@ -742,7 +755,15 @@ Proving Ground's board, in the colony: `course` and `drill`, the day's best as [
 `drill_par_ms`, and `mine` {`course_ms`, `drill_ms`}, the pilot's own bests; no keys of anyone's); `body`
 {`fed` (`well_fed`, `fed`, `peckish`, `hungry` or `starving`), `food_s`, `well_fed_s`} (the pilot's
 body, `docs/LIFE.md`: how fed they are, and the seconds awake the food in them, and its glow, last;
-sent on entering, after a meal, when the condition changes, and each minute on foot). A suit (in the bay, or out) carries
+sent on entering, after a meal, when the condition changes, and each minute on foot); `heat`
+{`level` (0 to 5), `cause` (an offence's slug: what raised it last; absent when it's nothing)} (how
+much the Watch wants the pilot, the server's, whenever it changes; v47); `incidents` {`incidents`:
+[{`id`, `x`, `s` (on the ring's floor), `level`, `cause`, `at`, `until` (sector ticks), `offender`
+(their session's id, as the plaza names people; 0: nobody's)}]} (to everyone down in the ring's
+town, whenever the list changes: one live incident an offender, raised as their heat rises, over
+60 s + 30 s a level after its last rise or when they're stopped; v47). One raised to level 3 or
+more is also `news` to every pilot (`THE WATCH WANTS MAREN · SOMEBODY RUN DOWN IN TOWER HILL ·
+◆◆◆`). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`), and `grade`, its propellant's (absent:
 `standard`); a part on the shelf carries its own `faults`.

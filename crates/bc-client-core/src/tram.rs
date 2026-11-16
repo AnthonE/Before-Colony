@@ -203,6 +203,7 @@ pub fn pose_riding(r: &Rider, w: &Walker, strip: u8) -> PersonPose {
         running: flat > 5.0,
         ride: r.k + 1,
         jets: 0,
+        heat: 0,
     }
 }
 

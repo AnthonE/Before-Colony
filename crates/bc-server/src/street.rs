@@ -133,9 +133,9 @@ impl Street {
         down.clone()
     }
 
-    /// How many are down (for `/status`).
-    pub fn count(&self) -> usize {
-        self.down.lock().map_or(0, |d| d.len())
+    /// How many are down at tick `tick`, lying in the street (for `/status`: not the fares away).
+    pub fn count(&self, tick: u32) -> usize {
+        self.down.lock().map_or(0, |d| d.iter().filter(|d| d.until > tick && !d.away).count())
     }
 }
 
@@ -204,7 +204,7 @@ mod tests {
         assert!(!street.hit(p.id, &at(1.0, 0), 900));
         assert!(!street.hit(p.id, &at(40.0, RIDE_CAR), 900));
         assert!(!street.hit(p.id ^ 0x5555, &at(1.0, RIDE_CAR), 900));
-        assert_eq!((street.version(), street.count()), (0, 0));
+        assert_eq!((street.version(), street.count(900)), (0, 0));
         // In a car at their side, a few ticks on: down, where they were, once.
         assert!(street.hit(p.id, &at(2.0, RIDE_CAR), 905));
         assert!(!street.hit(p.id, &at(2.0, RIDE_CAR), 906), "already down");
@@ -212,6 +212,7 @@ mod tests {
         assert_eq!(down.len(), 1);
         assert!(apart((down[0].x, down[0].s), (p.x, town::deck_s(p.t))) < 1.5, "{:?} vs {p:?}", down[0]);
         assert_eq!(down[0].until, 905 + DOWN_TICKS);
+        assert_eq!((street.count(906), street.count(905 + DOWN_TICKS)), (1, 0));
         let seen = street.version();
         // Their time up, they're gone from the list, and the count has moved for whoever watches.
         assert!(street.view(905 + DOWN_TICKS + 1).is_empty());

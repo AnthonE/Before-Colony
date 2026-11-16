@@ -50,6 +50,12 @@ pub struct HangarState {
     pub fare: Option<(u16, u64)>,
     /// The ring's town's people knocked down, as the server last said (`Update::Street`).
     pub street: Vec<bc_econ::wire::Down>,
+    /// How much the Watch wants the pilot, 0 to 5, as the server holds it, and what last raised it
+    /// (`Update::Heat`).
+    pub heat: u8,
+    pub heat_cause: Option<bc_sim::colony::watch::Offence>,
+    /// The incidents the Watch is answering in the town (`Update::Incidents`).
+    pub incidents: Vec<bc_econ::wire::Incident>,
     pub news: Vec<String>,
     /// In the city: the names of the people seen there, by the slot the plaza knows them by.
     pub people: std::collections::HashMap<u16, String>,
@@ -110,6 +116,8 @@ impl HangarState {
             Update::Body(view) => self.body = Some(view),
             Update::Street { down } => self.street = down,
             Update::Fare { to, pay } => self.fare = to.map(|k| (k, pay)),
+            Update::Heat { level, cause } => (self.heat, self.heat_cause) = (level, cause),
+            Update::Incidents { incidents } => self.incidents = incidents,
         }
         false
     }

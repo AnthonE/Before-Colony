@@ -1,18 +1,22 @@
-//! Heat and the Watch in the ring's town, a first pass (`docs/OPEN_CITY.md`, "Heat and the Watch";
-//! `docs/FREE_ROAM.md`, 4): what a pilot does in the street draws the Watch's eye, and its cars come.
+//! Heat and the Watch in the ring's town, as the client draws it (`docs/OPEN_CITY.md`, "Heat and the
+//! Watch"; `docs/FREE_ROAM.md`, 4): what a pilot does in the street draws the Watch's eye, and its
+//! cars come.
 //!
-//! - **Heat** ([`Heat`]) is how much the Watch wants a pilot, 0 to 5. Offences add to it
-//!   ([`Offence`]: a car taken from a kerb, a knock against another car, driving where people walk);
-//!   time without one lets it fall, a level at a time.
+//! - **Heat** is how much the Watch wants a pilot, 0 to 5, and it's the server's: it keeps every
+//!   pilot's by `bc_sim::colony::watch`'s tables (what each [`Offence`] adds, the levels, the
+//!   cool-down) and says so (`Update::Heat`; everyone else's rides in the plaza's poses). What only
+//!   this client sees it do (a car taken from a kerb or its driver, a knock) it reports
+//!   (`Request::Offence`), which can only ever add to it.
 //! - **The pursuit** ([`Pursuit`]) is as many of the Watch's cars as the heat says, come from out of
 //!   sight along the town's own roads: each drives `bc_sim::car`'s car round the blocks to the pilot
 //!   (along its road to the cross street nearest them, across to their street, and in), against the
-//!   same walls. A pilot who's stopped with one of them at their side for a few seconds is fined
-//!   ([`Pursuit::step`] says so), and the heat is paid off.
+//!   same walls. A pilot who's stopped with one of them at their side for a few seconds is stopped
+//!   ([`Pursuit::step`] says so: `Request::Stopped`), and the server takes its fine of the heat it
+//!   holds and clears it.
 //!
-//! This is the ambient tier's Watch: each client runs the pursuit of its own pilot, as it draws its
-//! own traffic. The fine is the server's (`Request::Fine`). The Watch in the tick, seen the same by
-//! everyone and answering with more than cars, is `docs/FREE_ROAM.md`'s W1 and P2.
+//! This is the ambient tier's Watch: each client draws the pursuit of its own pilot, as it draws its
+//! own traffic. The Watch's units on the server, seen the same by everyone and answering with more
+//! than cars, are `docs/FREE_ROAM.md`'s W1 and P2.
 
 use bc_sim::car::{Drive, RING_FLOOR, forward};
 use bc_sim::colony::deck::{self, DeckPos, RING};
@@ -20,108 +24,12 @@ use bc_sim::colony::{street, town};
 
 use crate::town::Obstacles;
 use crate::vehicle::{Kind, Vehicle};
-use glam::Vec3;
 
-/// What draws the Watch's eye.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Offence {
-    /// A car taken from a kerb.
-    TookACar,
-    /// The same, in sight of one of the Watch's own cars.
-    TookACarInSight,
-    /// A car taken from its driver, stopped in the road; the same in the Watch's sight; and one
-    /// of the Watch's own.
-    Jacked,
-    JackedInSight,
-    TookTheWatchs,
-    /// A knock against another car.
-    Knock,
-    /// A second of driving at speed where people walk.
-    Reckless,
-    /// Somebody run down.
-    HitSomeone,
-}
+pub use bc_sim::colony::watch::{COOL, MAX_HEAT, Offence, units};
 
-impl Offence {
-    /// What it adds to a pilot's heat.
-    pub fn points(self) -> f32 {
-        match self {
-            // (Nobody much minds a car borrowed from a kerb, till there's more.)
-            Offence::TookACar => 0.6,
-            Offence::TookACarInSight => 1.2,
-            // (Its driver's there to say so.)
-            Offence::Jacked => 1.2,
-            Offence::JackedInSight => 3.0,
-            Offence::TookTheWatchs => 6.0,
-            Offence::Knock => 1.0,
-            Offence::Reckless => 0.8,
-            Offence::HitSomeone => 4.0,
-        }
-    }
-}
-
-/// The most the Watch wants anyone.
-pub const MAX_HEAT: u8 = 5;
-/// The points each level starts at.
-const LEVELS: [f32; MAX_HEAT as usize] = [1.0, 3.0, 6.0, 10.0, 15.0];
-/// How long without an offence before the heat falls a level, s.
-pub const COOL: f32 = 28.0;
-/// The Watch's cars sent at each level of heat.
-const UNITS: [usize; MAX_HEAT as usize + 1] = [0, 1, 2, 3, 4, 6];
-
-/// How much the Watch wants a pilot.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Heat {
-    points: f32,
-    /// Since the last offence, s.
-    quiet: f32,
-}
-
-impl Heat {
-    /// 0 (nothing) to [`MAX_HEAT`].
-    pub fn level(&self) -> u8 {
-        LEVELS.iter().take_while(|at| self.points >= **at).count() as u8
-    }
-
-    /// An offence: true if the heat rose a level.
-    pub fn offend(&mut self, o: Offence) -> bool {
-        let before = self.level();
-        self.points = (self.points + o.points()).min(LEVELS[LEVELS.len() - 1] + 3.0);
-        self.quiet = 0.0;
-        self.level() > before
-    }
-
-    /// `dt` s on: true if the heat fell a level (after [`COOL`] s without an offence).
-    pub fn cool(&mut self, dt: f32) -> bool {
-        let level = self.level();
-        if level == 0 {
-            self.points = 0.0;
-            return false;
-        }
-        self.quiet += dt;
-        if self.quiet < COOL {
-            return false;
-        }
-        self.quiet = 0.0;
-        // To the level below's own start (none: nothing).
-        self.points = if level >= 2 { LEVELS[usize::from(level) - 2] } else { 0.0 };
-        true
-    }
-
-    /// Paid off (a fine): nothing wanted.
-    pub fn clear(&mut self) {
-        *self = Self::default();
-    }
-
-    /// The fine the Watch takes at this heat, credits.
-    pub fn fine(&self) -> u64 {
-        fine(self.level())
-    }
-}
-
-/// The Watch's fine at `level` of heat, credits (the server's: `bc_econ::wire::watch_fine`).
+/// The Watch's fine at `level` of heat, credits (the server's: `bc_sim::colony::watch::fine`).
 pub fn fine(level: u8) -> u64 {
-    bc_econ::wire::watch_fine(level)
+    bc_sim::colony::watch::fine(level)
 }
 
 /// The heat as the HUD shows it: a diamond a level ("◆◆"); nothing at 0. (Only the lit ones: the
@@ -132,41 +40,18 @@ pub fn stars(level: u8) -> String {
 
 /// Whether one of the Watch's own cars on its beat is within `reach` m of `at` at tick `tick`.
 pub fn watch_car_near(at: DeckPos, reach: f32, (tick, frac): (u32, f32)) -> bool {
-    let t = town::town_t(at.s);
-    let mut near = false;
-    street::each_car(at.x - reach, at.x + reach, t - reach, t + reach, tick, frac, &mut |c| {
-        near |= c.kind == street::Kind::Watch && (c.x - at.x).hypot(c.t - t) <= reach;
-    });
-    near
+    bc_sim::colony::watch::car_near(at.x, at.s, reach, tick, frac)
 }
 
 /// Whether one of the Watch's own cars on its beat within `reach` m of `at` has a clear line to
 /// it: nothing of the town's (a building, a lift's pier) between them at eye height.
 pub fn watch_car_sees(at: DeckPos, reach: f32, (tick, frac): (u32, f32)) -> bool {
-    let t = town::town_t(at.s);
-    let mut seen = false;
-    street::each_car(at.x - reach, at.x + reach, t - reach, t + reach, tick, frac, &mut |c| {
-        let (dx, dt) = (c.x - at.x, c.t - t);
-        let far = dx.hypot(dt);
-        if seen || c.kind != street::Kind::Watch || far > reach {
-            return;
-        }
-        let steps = (far / 2.5).ceil().max(1.0) as u32;
-        seen = (1..steps).all(|k| {
-            let u = k as f32 / steps as f32;
-            let (x, s) = (at.x + dx * u, at.s + dt * u);
-            !deck::solid(RING, Vec3::new(x - 0.3, 1.0, -s - 0.3), Vec3::new(x + 0.3, 1.6, -s + 0.3))
-        });
-    });
-    seen
+    bc_sim::colony::watch::car_sees(at.x, at.s, reach, tick, frac)
 }
 
 /// Whether a car driven at `at` is where people walk: on a block, a pavement or a rim walk.
 pub fn where_people_walk(at: DeckPos) -> bool {
-    matches!(
-        town::ground_at(at.x, town::town_t(at.s)),
-        town::Ground::Block(_) | town::Ground::Pavement | town::Ground::RimWalk
-    )
+    bc_sim::colony::watch::where_people_walk(at.x, at.s)
 }
 
 /// One of the Watch's cars in pursuit.
@@ -245,7 +130,7 @@ impl Pursuit {
     /// pilot among `cars`; those called off (the heat fallen, or paid) driven away till they're
     /// gone. True when one of them has the pilot: stopped, at its side, for long enough.
     pub fn step(&mut self, heat: u8, at: DeckPos, speed: f32, dt: f32, cars: &Obstacles) -> bool {
-        let want = UNITS[usize::from(heat.min(MAX_HEAT))];
+        let want = units(heat);
         let after = self.units.iter().filter(|u| !u.leaving).count();
         if after < want {
             if let Some(car) = self.spawn(at) {
@@ -391,41 +276,6 @@ pub fn facing(v: &Vehicle) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn heat_rises_with_what_a_pilot_does_and_falls_when_they_stop() {
-        let mut h = Heat::default();
-        assert_eq!((h.level(), stars(h.level())), (0, String::new()));
-        assert!(!h.offend(Offence::TookACar), "a car from a kerb, unseen: nothing yet");
-        assert!(h.offend(Offence::Knock));
-        assert_eq!((h.level(), stars(h.level()).as_str()), (1, "◆"));
-        assert!(!h.offend(Offence::Knock), "still the first level");
-        assert!(h.offend(Offence::Knock));
-        assert_eq!(h.level(), 2);
-        // In sight of the Watch it's worse; and it never goes past the top.
-        for _ in 0..20 {
-            h.offend(Offence::TookACarInSight);
-        }
-        assert_eq!((h.level(), stars(h.level()).as_str()), (MAX_HEAT, "◆◆◆◆◆"));
-        assert_eq!((fine(1), fine(3), h.fine()), (150, 1_350, 3_750));
-        // Quiet, it falls a level every while; an offence starts the wait again.
-        let mut fell = 0;
-        for k in 0..(COOL * 60.0 * 2.5) as u32 {
-            fell += u32::from(h.cool(1.0 / 60.0));
-            if k == (COOL * 60.0 * 1.5) as u32 {
-                h.offend(Offence::Reckless);
-                assert_eq!(h.level(), 4);
-            }
-        }
-        assert_eq!((fell, h.level()), (1, 4), "one level in a quiet stretch, then the wait began again");
-        for _ in 0..(COOL * 60.0 * 5.0) as u32 {
-            h.cool(1.0 / 60.0);
-        }
-        assert_eq!(h.level(), 0);
-        h.offend(Offence::TookACarInSight);
-        h.clear();
-        assert_eq!(h.level(), 0);
-    }
 
     #[test]
     fn the_watchs_cars_come_round_the_blocks_stop_a_stopped_pilot_and_go_when_called_off() {
