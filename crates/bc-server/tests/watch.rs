@@ -203,9 +203,11 @@ async fn the_watchs_car_taken_is_news_and_a_broke_pilot_is_sent_up_to_their_bay(
         a.request(&Request::Offence { what: Offence::TookTheWatchs }).await?;
     }
     a.wait_until(5.0, "the top", |c| c.hangar.heat == 5).await?;
-    // Everyone hears of it (the news is said once a second).
-    b.wait_until(5.0, "the news", |c| c.hangar.news.iter().any(|n| n.contains("THE WATCH WANTS MAREN")))
-        .await?;
+    // Everyone hears of it, as it rose to each level from the third (the news is said once a second).
+    b.wait_until(5.0, "the news", |c| {
+        c.hangar.news.iter().any(|n| n.contains("THE WATCH WANTS MAREN") && n.ends_with("◆◆◆◆◆"))
+    })
+    .await?;
     let said: Vec<&String> =
         b.core.hangar.news.iter().filter(|n| n.contains("THE WATCH WANTS MAREN")).collect();
     assert!(
