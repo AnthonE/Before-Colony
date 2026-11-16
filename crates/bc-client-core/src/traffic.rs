@@ -211,6 +211,18 @@ impl Traffic {
             .copied()
     }
 
+    /// The cars out of the traffic now are `ids` (`crate::taken`: the server's word, and the pilot's
+    /// own a moment sooner): any of them held or in reach is gone, and one no longer in it drives
+    /// in its place again.
+    pub fn set_taken(&mut self, ids: &[u32]) {
+        if self.taken != ids {
+            self.taken.clear();
+            self.taken.extend_from_slice(ids);
+            self.held.retain(|id, _| !ids.contains(id));
+            self.shown.retain(|c| !ids.contains(&c.car.id));
+        }
+    }
+
     /// The pilot takes car `id` out of the traffic: it's theirs, and gone from here.
     pub fn take(&mut self, id: u32) {
         if self.taken.len() >= MAX_TAKEN {
