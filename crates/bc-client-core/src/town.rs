@@ -36,6 +36,18 @@ pub fn out_of_the_lift(k: u16) -> Walker {
     w
 }
 
+/// Back where they logged out down in the town, if the place's `wake` says so (its `home`
+/// `bc_sim::colony::town::WAKE_IN_TOWN`, its `x` and `s` the spot, `town::pack_spot`): standing
+/// there, facing fore. (A wake that's a home's bed is the city's.)
+pub fn woken(w: &bc_econ::wire::Wake) -> Option<Walker> {
+    (w.home == town::WAKE_IN_TOWN).then(|| {
+        let (x, t) = town::unpack_spot((w.x, w.s));
+        let mut walker = Walker::at(DeckPos::new(RING, x, town::deck_s(t), 0.0).walker(), -Vec3::X);
+        walker.grounded = true;
+        walker
+    })
+}
+
 /// Where a walker's feet are on the ring's floor (`s` in its round).
 pub fn feet(w: &Walker) -> DeckPos {
     DeckPos::from_walker(RING, w.feet).wrapped()
@@ -673,6 +685,19 @@ mod tests {
     }
 
     #[test]
+    fn woken_in_the_town_a_pilot_stands_where_the_server_says_and_a_bed_is_not_the_towns() {
+        let (x, t) = (-60.0, 40.0);
+        let (px, pt) = town::wake_spot(x, t);
+        let w = bc_econ::wire::Wake { home: town::WAKE_IN_TOWN, s: pt, x: px, storey: 0 };
+        let walker = woken(&w).expect("in the town");
+        let at = feet(&walker);
+        assert!((at.x - x).abs() < 0.05 && deck::round_from(RING, town::deck_s(t), at.s).abs() < 0.2, "{at:?}");
+        let (lo, hi) = (walker.feet - Vec3::new(0.3, -0.1, 0.3), walker.feet + Vec3::new(0.3, 1.8, 0.3));
+        assert!(walker.grounded && !deck::solid(RING, lo, hi));
+        assert!(woken(&bc_econ::wire::Wake { home: 77, ..w }).is_none());
+    }
+
+    #[test]
     fn out_of_every_lift_a_pilot_stands_on_its_square_and_can_turn_and_ride_back_up() {
         for k in 0..town::LIFTS {
             let mut w = out_of_the_lift(k);
@@ -754,9 +779,14 @@ mod tests {
         for (i, v) in cars.iter().enumerate() {
             assert!(v.fits(v.s, v.x, v.yaw), "{v:?} is in a wall");
             assert_eq!(town::ground_at(v.x, town::town_t(v.s)), town::Ground::Road, "{v:?}");
+            // Its bay, as the server names it, has it in it.
+            let kerb = kerb_of(v).expect("in a bay");
+            let p = bc_sim::colony::street::parked(kerb).expect("a car in its bay");
+            assert!((p.x - v.x).abs() < 1e-3 && deck::round_from(RING, town::deck_s(p.t), v.s).abs() < 0.02);
             for o in &cars[i + 1..] {
                 assert!((o.x - v.x).hypot(o.s - v.s) > 4.5, "{v:?} and {o:?}");
                 assert_ne!(parked_id(v), parked_id(o));
+                assert_ne!(kerb_of(o), Some(kerb));
             }
         }
         // A pilot walked to the nearest stands at its side and can take it; driven off, it goes.
