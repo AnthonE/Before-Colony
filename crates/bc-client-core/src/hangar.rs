@@ -48,8 +48,10 @@ pub struct HangarState {
     /// News, oldest first. The UI takes it.
     /// The fare in the pilot's car in the town: the lift whose square they asked for, and their pay.
     pub fare: Option<(u16, u64)>,
-    /// The ring's town's people knocked down, as the server last said (`Update::Street`).
+    /// The ring's town's people knocked down (or away as fares) round the pilot, as the server last
+    /// said (`Update::Street`), and all it said of what's been taken out of the town's crowd there.
     pub street: Vec<bc_econ::wire::Down>,
+    pub taken: crate::taken::Said,
     /// How much the Watch wants the pilot, 0 to 5, as the server holds it, and what last raised it
     /// (`Update::Heat`).
     pub heat: u8,
@@ -114,7 +116,10 @@ impl HangarState {
             Update::Proving(view) => self.proving = Some(view),
             Update::Homes(view) => self.homes = view,
             Update::Body(view) => self.body = Some(view),
-            Update::Street { down } => self.street = down,
+            Update::Street { near, districts, lanes } => {
+                self.taken.apply(&near, districts, lanes);
+                self.street = self.taken.down();
+            }
             Update::Fare { to, pay } => self.fare = to.map(|k| (k, pay)),
             Update::Heat { level, cause } => (self.heat, self.heat_cause) = (level, cause),
             Update::Incidents { incidents } => self.incidents = incidents,

@@ -114,6 +114,33 @@ pub enum Request {
     },
     /// Stopped in the square the fare asked for: set them down, and be paid.
     DropFare,
+    /// On foot in the ring's town, at the side of a car parked at a kerb
+    /// (`bc_sim::colony::street::kerb`): take it. The server checks the car is there, near the
+    /// pilot and not already taken; everyone near sees the kerb empty ([`Update::Street`]), and the
+    /// Watch minds (it's somebody's). Refused with a `note`.
+    TakeParked {
+        kerb: u32,
+    },
+    /// On foot in the ring's town, at the side of a car of the traffic stopped for them
+    /// (`bc_sim::colony::street::Car::id`): take it from its driver. The server checks its lane runs
+    /// beside the pilot with its place no further on than a held car falls behind
+    /// (`street::PATIENCE`); everyone sees it gone from the traffic, and the Watch minds.
+    Jack {
+        car: u32,
+    },
+    /// Out of the car the server has them holding (one taken from a kerb, the traffic or where it
+    /// was left), standing where it is: its middle on the ring's floor, across it and round it (the
+    /// deck's `s`), cm, and the way it faces (the walker's yaw), mrad. Left there for anyone
+    /// ([`LeftCar`]); within a few metres of where the pilot is, or refused.
+    LeaveCar {
+        x_cm: i32,
+        s_cm: i32,
+        yaw_mrad: i32,
+    },
+    /// On foot in the ring's town, at the side of a car left about ([`LeftCar::id`]): take it.
+    TakeLeft {
+        id: u32,
+    },
     /// Stopped by the Watch in the ring's town (one of its cars at their side): the fine of the heat
     /// the server holds on them ([`watch_fine`]) is paid from the bay's credits, as much of it as
     /// there is, and the heat is cleared ([`Update::Heat`]). Nothing on them: refused.
@@ -339,6 +366,10 @@ impl Request {
             | Request::Hit { .. }
             | Request::TakeFare { .. }
             | Request::DropFare
+            | Request::TakeParked { .. }
+            | Request::Jack { .. }
+            | Request::LeaveCar { .. }
+            | Request::TakeLeft { .. }
             | Request::BoardTrainer
             | Request::Withdraw { .. }
             | Request::Deliver { .. }
@@ -455,6 +486,43 @@ pub struct Down {
     /// Not lying there but gone from the street: a fare in a pilot's car.
     #[serde(default)]
     pub away: bool,
+}
+
+/// A car a pilot took from the ring's town's street and left about (`docs/FREE_ROAM.md`, P2's taken
+/// set): where it stands on the ring's floor (across it, round it in the deck's `s`, m) and the way it
+/// faces, where it came from (its look is that one's, on every screen: the kerb's car, or the
+/// traffic's car `street::car` names), who left it (their session's id, as the plaza's datagrams name
+/// them) and the sector's tick they did. Anyone may take it ([`Request::TakeLeft`]).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LeftCar {
+    pub id: u32,
+    pub x: f32,
+    pub s: f32,
+    pub yaw: f32,
+    /// From a kerb's bay (`bc_sim::colony::street::kerb`), or out of the traffic
+    /// (`street::Car::id`): one of the two.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kerb: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub car: Option<u32>,
+    pub by: u16,
+    pub at: u32,
+}
+
+/// One of the ring's town's districts (`content::town::DISTRICTS`, 0 to 11) as the server holds what
+/// has been taken out of its crowd: its people down (or away in a pilot's car), its kerbs whose cars
+/// have been driven off (`bc_sim::colony::street::kerb`), and the cars left about in it; and its
+/// version, which moves whenever any of them does.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TakenDistrict {
+    pub district: u16,
+    pub version: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub down: Vec<Down>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kerbs: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left: Vec<LeftCar>,
 }
 
 /// What a fare pays for each kilometre round the ring between its two squares, credits.
@@ -586,10 +654,18 @@ pub enum Update {
     /// The pilot's body (survival): how fed they are, and for how long. On entering, after a meal,
     /// when the condition changes, and each minute on foot.
     Body(crate::body::BodyView),
-    /// The ring's town's street, to everyone down in it, whenever it changes: its people knocked
-    /// down.
+    /// The ring's town's street as the server holds it (`docs/FREE_ROAM.md`, P2's taken set): what's
+    /// been taken out of the crowd in the districts round the pilot (their own, by where the plaza
+    /// has them, and the one either side: `near`; the client forgets any other), each of `districts`
+    /// whole, sent when its version moves or the pilot comes near it; and the traffic's cars taken
+    /// out of their lanes anywhere round the ring (a lane's places go all the way round), when that
+    /// changes (absent: as last sent).
     Street {
-        down: Vec<Down>,
+        near: Vec<u16>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        districts: Vec<TakenDistrict>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lanes: Option<Vec<u32>>,
     },
     /// The fare in the pilot's car (the ring's town): the lift whose square they asked for, and
     /// what they pay there; none, set down or lost.
@@ -849,6 +925,10 @@ pub fn apply(
         | Request::Hit { .. }
         | Request::TakeFare { .. }
         | Request::DropFare
+        | Request::TakeParked { .. }
+        | Request::Jack { .. }
+        | Request::LeaveCar { .. }
+        | Request::TakeLeft { .. }
         | Request::WatchBoard { .. }
         | Request::UseKit { .. }
         | Request::Eject { .. }
@@ -1113,6 +1193,13 @@ mod tests {
             (r#"{"t":"stopped"}"#, Request::Stopped),
             (r#"{"t":"offence","what":"took_a_car"}"#, Request::Offence { what: Offence::TookACar }),
             (r#"{"t":"sighted"}"#, Request::Sighted),
+            (r#"{"t":"take_parked","kerb":131077}"#, Request::TakeParked { kerb: 131_077 }),
+            (r#"{"t":"jack","car":65539}"#, Request::Jack { car: 65_539 }),
+            (
+                r#"{"t":"leave_car","x_cm":-4210,"s_cm":1100250,"yaw_mrad":3142}"#,
+                Request::LeaveCar { x_cm: -4_210, s_cm: 1_100_250, yaw_mrad: 3_142 },
+            ),
+            (r#"{"t":"take_left","id":9}"#, Request::TakeLeft { id: 9 }),
         ];
         for (json, req) in cases {
             assert_eq!(decode::<Request>(json.as_bytes()).as_ref(), Some(req), "{json}");
@@ -1168,6 +1255,10 @@ mod tests {
             (Request::Hit { person: 7 }, None),
             (Request::TakeFare { person: 7 }, None),
             (Request::DropFare, None),
+            (Request::TakeParked { kerb: 1 }, None),
+            (Request::Jack { car: 1 }, None),
+            (Request::LeaveCar { x_cm: 0, s_cm: 0, yaw_mrad: 0 }, None),
+            (Request::TakeLeft { id: 1 }, None),
             (Request::BoardTrainer, None),
             (Request::Withdraw { id: 1 }, None),
             (Request::Deliver { id: 1, qty: 1 }, None),
@@ -1185,7 +1276,7 @@ mod tests {
             .iter()
             .map(|(r, _)| serde_json::to_value(r).unwrap()["t"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(tags.len(), 42, "every request: {tags:?}");
+        assert_eq!(tags.len(), 46, "every request: {tags:?}");
         // Each refusal says where to go, as the server's notes and the e2e read them.
         for (k, place) in [
             (Floor, "the exchange floor's counter"),
@@ -1249,6 +1340,31 @@ mod tests {
         let Some(Update::Incidents { incidents }) = decode::<Update>(bare.as_bytes()) else { panic!() };
         assert_eq!((incidents[0].offender, incidents[0].cause), (0, Offence::Reckless));
         assert_eq!((watch_fine(1), watch_fine(3), watch_fine(7)), (150, 1_350, 3_750));
+    }
+
+    #[test]
+    fn the_streets_taken_set_goes_round() {
+        let down = Down { id: 0x51, x: -40.5, s: 10_995.5, yaw: 1.5, until: 900, away: false };
+        let left =
+            LeftCar { id: 3, x: 12.0, s: 11_020.0, yaw: 0.0, kerb: Some(77), car: None, by: 2, at: 450 };
+        let one = TakenDistrict {
+            district: 0,
+            version: 4,
+            down: vec![down],
+            kerbs: vec![77, 78],
+            left: vec![left],
+        };
+        let empty = TakenDistrict { district: 11, version: 1, ..TakenDistrict::default() };
+        let all =
+            Update::Street { near: vec![11, 0, 1], districts: vec![one, empty], lanes: Some(vec![65_539]) };
+        let json = String::from_utf8(encode(&all)).unwrap();
+        assert!(json.contains(r#"{"district":11,"version":1}"#), "an empty district is short: {json}");
+        assert!(json.contains(r#""kerb":77,"by":2"#) && !json.contains(r#""car":null"#), "{json}");
+        assert_eq!(decode::<Update>(json.as_bytes()), Some(all));
+        // Nothing changed but where they are: only which districts are theirs now.
+        let moved = Update::Street { near: vec![0, 1, 2], districts: vec![], lanes: None };
+        assert_eq!(String::from_utf8(encode(&moved)).unwrap(), r#"{"t":"street","near":[0,1,2]}"#);
+        assert_eq!(decode::<Update>(&encode(&moved)), Some(moved));
     }
 
     #[test]

@@ -71,9 +71,10 @@ const BRAKE: f32 = 7.0;
 const PULL_AWAY: f32 = 3.2;
 /// How much faster than its lane a car goes while it has ground to make up.
 const CATCH_UP: f32 = 1.35;
-/// How far behind its place a car lets itself be held, m: past that it drives on through whatever
-/// it was, at its lane's pace (about a minute and a quarter at a street's; nothing waits for ever).
-const PATIENCE: f32 = 900.0;
+// How far behind its place a car lets itself be held, m: past that it drives on through whatever
+// it was, at its lane's pace (about a minute and a quarter at a street's; nothing waits for ever).
+// The server takes a car as stopped for the taking no further behind than this.
+use street::PATIENCE;
 /// A car this slow is stopped, for whoever would take it, m/s.
 pub const STOPPED: f32 = 1.2;
 /// How many cars a pilot's taken stay gone from the traffic (the oldest come back).
@@ -208,6 +209,18 @@ impl Traffic {
             .filter(|c| c.car.speed <= STOPPED && near(c) <= reach)
             .min_by(|a, b| near(a).total_cmp(&near(b)))
             .copied()
+    }
+
+    /// The cars out of the traffic now are `ids` (`crate::taken`: the server's word, and the pilot's
+    /// own a moment sooner): any of them held or in reach is gone, and one no longer in it drives
+    /// in its place again.
+    pub fn set_taken(&mut self, ids: &[u32]) {
+        if self.taken != ids {
+            self.taken.clear();
+            self.taken.extend_from_slice(ids);
+            self.held.retain(|id, _| !ids.contains(id));
+            self.shown.retain(|c| !ids.contains(&c.car.id));
+        }
     }
 
     /// The pilot takes car `id` out of the traffic: it's theirs, and gone from here.

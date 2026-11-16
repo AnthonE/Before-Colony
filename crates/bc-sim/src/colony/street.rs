@@ -162,12 +162,7 @@ pub fn each_car(x0: f32, x1: f32, t0: f32, t1: f32, tick: u32, frac: f32, f: &mu
             if town::unit(seed, 1) >= l.fill {
                 continue;
             }
-            let kind = match seed % 23 {
-                0 => Kind::Watch,
-                1..=3 => Kind::Taxi,
-                4..=7 => Kind::Van,
-                _ => Kind::Car,
-            };
+            let kind = kind_of(seed);
             f(&Car {
                 id: (k as u32) << 16 | slot,
                 x: l.x,
@@ -179,6 +174,45 @@ pub fn each_car(x0: f32, x1: f32, t0: f32, t1: f32, tick: u32, frac: f32, f: &mu
             });
         }
     }
+}
+
+/// What a car of the traffic with seed `seed` is.
+fn kind_of(seed: u32) -> Kind {
+    match seed % 23 {
+        0 => Kind::Watch,
+        1..=3 => Kind::Taxi,
+        4..=7 => Kind::Van,
+        _ => Kind::Car,
+    }
+}
+
+/// How far behind its place in its lane a client lets a car of the traffic be held by what's in its
+/// way, m (`bc_client_core::traffic`): past that it drives on. A car stopped for the taking is no
+/// further behind its place than this.
+pub const PATIENCE: f32 = 900.0;
+
+/// The car of the traffic `id` names ([`Car::id`]: its lane and its place in it) where the tick has
+/// it at `tick`, if that place has a car in it (`t` within the ring's round).
+pub fn car(id: u32, tick: u32) -> Option<Car> {
+    let (k, slot) = ((id >> 16) as usize, id & 0xFFFF);
+    let l = lane(k)?;
+    if slot >= l.slots {
+        return None;
+    }
+    let seed = town::mix(k as u32, slot, 0xCA7);
+    if town::unit(seed, 1) >= l.fill {
+        return None;
+    }
+    let t = (slot as f32 + 0.5) * l.pitch() + l.dir * gone(&l, tick, 0.0);
+    Some(Car {
+        id,
+        x: l.x,
+        t: town::wrap(t),
+        yaw: if l.dir > 0.0 { PI } else { 0.0 },
+        speed: l.speed(),
+        kind: kind_of(seed),
+        seed,
+    })
 }
 
 /// How somebody on foot holds themselves.
@@ -444,7 +478,11 @@ pub fn each_parked(x0: f32, x1: f32, t0: f32, t1: f32, f: &mut impl FnMut(&Parke
 
 /// The car parked in bay `kerb` ([`kerb`]), if one is: where it stands (`t` within the ring's round).
 pub fn parked(kerb: u32) -> Option<Parked> {
-    let (column, aft, bay) = ((kerb >> 17) as u8, kerb >> 16 & 1 == 1, kerb & 0xFFFF);
+    let (column, aft, bay) = (kerb >> 17, kerb >> 16 & 1 == 1, kerb & 0xFFFF);
+    if column >= u32::from(COLUMNS) {
+        return None;
+    }
+    let column = column as u8;
     let sx = street_x(column)?;
     if bay >= BAYS {
         return None;
@@ -527,6 +565,25 @@ mod tests {
         assert!(
             all.iter().any(|c| c.kind == Kind::Watch)
                 || cars(-HALF, HALF, 0.0, 4_000.0, 0, 0.0).iter().any(|c| c.kind == Kind::Watch)
+        );
+    }
+
+    #[test]
+    fn a_car_of_the_traffic_is_found_by_its_id_where_the_tick_has_it() {
+        for tick in [0u32, 9_876, 4_000_000_000] {
+            let all = cars(-HALF, HALF, 0.0, 700.0, tick, 0.0);
+            assert!(!all.is_empty());
+            for c in &all {
+                let by_id = car(c.id, tick).expect("its place has a car");
+                assert!(by_id.id == c.id && by_id.seed == c.seed && by_id.kind == c.kind && by_id.x == c.x);
+                assert!((town::wrap(c.t) - by_id.t).abs() < 1e-2, "{c:?} vs {by_id:?}");
+            }
+        }
+        // An empty place, a place past the lane's last, a lane there isn't: none.
+        let l = lane(0).unwrap();
+        let empty = (0..l.slots).find(|&i| town::unit(town::mix(0, i, 0xCA7), 1) >= l.fill).unwrap();
+        assert!(
+            car(empty, 0).is_none() && car(l.slots, 0).is_none() && car((LANES as u32) << 16, 0).is_none()
         );
     }
 

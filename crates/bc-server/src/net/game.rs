@@ -859,9 +859,14 @@ impl StatusView {
         // And how many are down in the ring's town (set here: the macro above is at its depth).
         // (Its people knocked down and the Watch's incidents: counts, never where or whose.)
         let tick = self.sector.tick.load(Ordering::Acquire);
+        let (down, kerbs, lanes, left) = self.street.counts(tick);
         status["town"] = serde_json::json!({
             "people": self.plaza.in_town(),
-            "down": self.street.count(tick),
+            "down": down,
+            // (What's been taken out of its crowd: kerbs emptied, the traffic's cars, cars left.)
+            "kerbs": kerbs,
+            "jacked": lanes,
+            "left": left,
             "incidents": self.watch.live(tick),
         });
         status["sessions"] = sessions;

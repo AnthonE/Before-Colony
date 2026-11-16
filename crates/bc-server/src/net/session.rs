@@ -155,7 +155,8 @@ pub(super) async fn run(
         proving_sent: Instant::now() - MARKET_EVERY,
         homes_seen: 0,
         homes_sent: Instant::now() - MARKET_EVERY,
-        street_seen: None,
+        street_sent: Default::default(),
+        car: None,
         fare: None,
         heat_sent: 0,
         incidents_seen: None,
@@ -242,9 +243,10 @@ struct Session<'a> {
     /// covered; and the last knock heard at one of their doors.
     homes_seen: u64,
     homes_sent: Instant,
-    /// The town's street as last sent (`crate::street::Street::version`; none: not yet, this time
-    /// down there).
-    street_seen: Option<u64>,
+    /// The town's street as last sent (`crate::street::Street::update_for`: nothing yet, this time
+    /// down there), and the car they hold in it (at its wheel, or just out of it).
+    street_sent: crate::street::Sent,
+    car: Option<crate::street::Held>,
     /// The fare in their car in the town: who, the lift whose square they asked for, their pay.
     fare: Option<(u32, u16, u64)>,
     /// The Watch (`crate::watch`): the heat last sent them, the incidents as last sent (none: not
@@ -1314,6 +1316,25 @@ impl Session<'_> {
                 self.send(&Update::Fare { to: Some(to), pay }).await?;
                 self.note(format!("A FARE FOR {} · {pay} CR", crate::street::gate_name(to)), true).await
             }
+            Request::TakeParked { .. } | Request::Jack { .. } | Request::TakeLeft { .. } => {
+                self.take_car(&req).await
+            }
+            Request::LeaveCar { x_cm, s_cm, yaw_mrad } => {
+                // Out of the car they hold, where it stands: there for anyone.
+                let Some(held) = self.car.filter(|_| self.place == Place::Town) else {
+                    return self.note("you've no car to leave", false).await;
+                };
+                let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+                let Some(pose) = self.game.plaza.pose_of(self.id) else { return Ok(()) };
+                let at = (x_cm as f32 / 100.0, s_cm as f32 / 100.0, yaw_mrad as f32 / 1_000.0);
+                match self.game.street.leave(held, self.id, at, &pose, tick) {
+                    Ok(_) => {
+                        self.car = None;
+                        Ok(())
+                    }
+                    Err(why) => self.note(why, false).await,
+                }
+            }
             Request::DropFare => {
                 let Some((person, to, pay)) = self.fare else { return Ok(()) };
                 // At the wheel, in the square they asked for.
@@ -1345,6 +1366,10 @@ impl Session<'_> {
                 let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
                 if self.place != Place::Town || self.game.watch.stop(self.id, tick).is_none() {
                     return self.note("the Watch has nothing on you", false).await;
+                }
+                // (Their car goes with the Watch.)
+                if let Some(held) = self.car.take() {
+                    self.game.street.drop_held(held);
                 }
                 self.pay_the_watch().await
             }
@@ -1709,12 +1734,74 @@ impl Session<'_> {
                 .await;
         }
         self.lose_fare().await?;
+        self.let_go_of_the_car();
         self.game.plaza.leave(self.id);
         self.place = Place::Hangar;
         self.send_place().await?;
         self.send_hangar().await?;
         self.publish_hangar();
         Ok(())
+    }
+
+    /// A car taken in the town (`crate::street`): from a kerb, out of the traffic, or where it was
+    /// left, if it could be (by where the plaza has them). The Watch minds it if it was somebody
+    /// else's (worse in sight of one of its cars, or one of its own); refused, a `note` says why.
+    async fn take_car(&mut self, req: &Request) -> anyhow::Result<()> {
+        use bc_sim::colony::watch::Offence;
+        if self.place != Place::Town {
+            return self.note("you're not down in the town", false).await;
+        }
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let Some(pose) = self.game.plaza.pose_of(self.id) else {
+            return self.note("there's no car there", false).await;
+        };
+        let street = &self.game.street;
+        let taken = match *req {
+            Request::TakeParked { kerb } => {
+                street.take_parked(kerb, &pose, tick).map(|h| (h, Some(Offence::TookACar)))
+            }
+            Request::Jack { car } => street.jack(car, &pose, tick).map(|(h, kind)| {
+                let o = if kind == bc_sim::colony::street::Kind::Watch {
+                    Offence::TookTheWatchs
+                } else {
+                    Offence::Jacked
+                };
+                (h, Some(o))
+            }),
+            Request::TakeLeft { id } => street.take_left(id, &pose).map(|h| {
+                let theirs = h.left_by != Some(self.id);
+                (h, theirs.then_some(Offence::TookACar))
+            }),
+            _ => return Ok(()),
+        };
+        let (held, offence) = match taken {
+            Ok(t) => t,
+            Err(why) => return self.note(why, false).await,
+        };
+        // (One they held and never said where they left: gone.)
+        if let Some(old) = self.car.replace(held) {
+            self.game.street.drop_held(old);
+        }
+        if let Some(o) = offence {
+            self.game.watch.report(self.id, &self.callsign, o, (pose.x, pose.s), tick);
+        }
+        Ok(())
+    }
+
+    /// Out of the town holding a car (up the lift, or gone): left where they were at its wheel, or
+    /// gone if they'd got out of it without saying where.
+    fn let_go_of_the_car(&mut self) {
+        let Some(held) = self.car.take() else { return };
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let left = self
+            .game
+            .plaza
+            .pose_of(self.id)
+            .filter(|p| p.driving())
+            .is_some_and(|p| self.game.street.leave(held, self.id, (p.x, p.s, p.yaw), &p, tick).is_ok());
+        if !left {
+            self.game.street.drop_held(held);
+        }
     }
 
     /// A fare left behind (the pilot's gone up the lift, or the Watch has them): back on the
@@ -2229,17 +2316,24 @@ impl Session<'_> {
         {
             self.send_proving().await?;
         }
-        // Down in the town: its street, whenever it changes (and first on the way in).
+        // Down in the town: what's been taken out of its crowd in the districts round them, whenever
+        // it changes (and first on the way in, and as they come near another district). Whatever's
+        // stood out of everyone's sight long enough goes back.
         if self.place == Place::Town {
             let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-            let down = self.game.street.view(tick);
-            let version = self.game.street.version();
-            if self.street_seen != Some(version) {
-                self.street_seen = Some(version);
-                self.send(&Update::Street { down }).await?;
+            let town = self.game.plaza.in_town_at();
+            let sights: Vec<(f32, f32)> = town.iter().map(|&(_, x, s)| (x, s)).collect();
+            self.game.street.sweep(tick, &sights);
+            let (_, lt) = bc_sim::colony::town::out_of_the_lift(0);
+            let at = town.iter().find(|p| p.0 == self.id).map_or(bc_sim::colony::town::deck_s(lt), |p| p.2);
+            if let Some(update) = self.game.street.update_for(at, tick, &mut self.street_sent) {
+                self.send(&update).await?;
             }
         } else {
-            self.street_seen = None;
+            self.street_sent = Default::default();
+            if let Some(held) = self.car.take() {
+                self.game.street.drop_held(held);
+            }
         }
         self.watch_tick(settle).await?;
         self.homes_tick(settle).await
@@ -2449,6 +2543,7 @@ impl Session<'_> {
         self.lie_down().await;
         // Down in the ring's town: where, to wake there.
         let town = if self.survival() { self.town_spot() } else { None };
+        self.let_go_of_the_car();
         self.game.plaza.leave(self.id);
         self.game.watch.leave(self.id);
         self.unwatch().await;
