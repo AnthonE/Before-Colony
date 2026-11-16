@@ -1,11 +1,10 @@
 //! The Watch's units, the server's, over real WebTransport (`docs/FREE_ROAM.md`, 4, W1): an incident
 //! raised by hand (the dev HTTP's hook) brings the nearest station's units by road, which everyone
 //! in the town is told of as they come, and they hold a cordon round it in the time their route
-//! takes; and a wanted pilot standing in the road is stopped by them, and fined, with no word from
-//! their client.
+//! takes; and a pilot wanted for driving down the pavement is stopped by them where she gets out, and
+//! fined, with no word from her client.
 
 use bc_bot::{BotClient, BotConfig};
-use bc_econ::wire::Request;
 use bc_econ::wire::{UnitState, watch_fine};
 use bc_proto::presence::{PersonPose, RIDE_CAR, RING_DECK};
 use bc_proto::{Faction, FrameId};
@@ -137,7 +136,7 @@ async fn an_incident_raised_by_hand_brings_the_nearest_stations_units_to_a_cordo
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_wanted_pilot_in_the_road_is_stopped_and_fined_by_the_units_with_no_word_from_her()
+async fn a_reckless_driver_is_stopped_and_fined_by_the_units_with_no_word_from_her()
 -> anyhow::Result<()> {
     let server = bc_server::start(config()?).await?;
     let http = format!("http://{}", server.http_addr);
@@ -145,32 +144,36 @@ async fn a_wanted_pilot_in_the_road_is_stopped_and_fined_by_the_units_with_no_wo
     let (lx, lt) = town::out_of_the_lift(0);
     a.set_pose(pose(lx, lt, None));
     a.run_for(std::time::Duration::from_secs(1), &mut |_| Default::default()).await?;
-    // Out of Hub Gate's square in a car, and along the boulevard to just past district 0's station.
-    let (_, dt) = town::watch_door(0);
-    let stand = (24.0, dt + 40.0);
-    drive(&mut a, &[(lx, lt), (lx, lt + 13.0), (stand.0, lt + 13.0), stand], 30.0).await?;
+    // Out of Hub Gate's square in a car, along the boulevard, and fast down the pavement in front of
+    // district 0's station (reckless, as the server sees it: nothing she says); out of the car
+    // there, on the pavement.
+    let walk = (35.0, town::CELL * 6.0 + 15.0);
+    let stand = (walk.0, walk.1 + 90.0);
+    assert!(tables::where_people_walk(walk.0, town::deck_s(walk.1)));
+    assert!(tables::where_people_walk(stand.0, town::deck_s(stand.1)));
+    let credits = a.core.hangar.credits();
+    assert!(credits > 0);
+    drive(&mut a, &[(lx, lt), (lx, lt + 13.0), (24.0, lt + 13.0), (24.0, walk.1 - 3.0)], 30.0).await?;
+    drive(&mut a, &[(24.0, walk.1 - 3.0), walk, stand], 15.0).await?;
     a.set_pose(pose(stand.0, stand.1, Some(0.0)));
     a.run_for(std::time::Duration::from_secs(1), &mut |_| Default::default()).await?;
     a.set_pose(pose(stand.0, stand.1, None));
-    a.run_for(std::time::Duration::from_secs(1), &mut |_| Default::default()).await?;
+    a.wait_until(5.0, "the Watch's word", |c| c.hangar.heat >= 1).await?;
     assert_eq!(a.core.hangar.place, Some(bc_econ::wire::Place::Town));
-
-    // One of the Watch's own cars taken (her word): wanted, and its units come out of the station.
-    let credits = a.core.hangar.credits();
-    a.request(&Request::Offence { what: Offence::TookTheWatchs }).await?;
-    a.wait_until(5.0, "the Watch's word", |c| c.hangar.heat >= 3).await?;
-    let level = a.core.hangar.heat;
+    assert_eq!(a.core.hangar.heat_cause, Some(Offence::Reckless));
+    // The units come to her side by the road in front of her, and have her.
     let at = town::deck_s(stand.1);
-    a.wait_until(20.0, "a unit at her side", |c| {
+    a.wait_until(40.0, "a unit at her side", |c| {
         c.hangar
             .units
             .iter()
-            .any(|u| (u.x - stand.0).hypot(round_from(RING, at, u.s)) < UnitKind::Hound.reach())
+            .any(|u| (u.x - stand.0).hypot(round_from(RING, at, u.s)) < UnitKind::Car.reach())
     })
     .await?;
-    // She never says she's stopped: the units have her, and the server takes its fine.
-    let fine = watch_fine(level).min(credits);
-    a.wait_until(15.0, "stopped", |c| c.hangar.heat == 0 && c.hangar.credits() == credits - fine).await?;
+    a.wait_until(15.0, "stopped", |c| c.hangar.heat == 0 && c.hangar.credits() < credits).await?;
+    // The fine of the level the server held (all she has, if it's more).
+    let paid = credits - a.core.hangar.credits();
+    assert!((1..=5).any(|l| paid == watch_fine(l).min(credits)), "{paid} of {credits}");
     let said = a.core.hangar.notes.iter().any(|(n, ok)| *ok && n.starts_with("THE WATCH HAS YOU"));
     assert!(said, "{:?}", a.core.hangar.notes);
     let status = server.status();
