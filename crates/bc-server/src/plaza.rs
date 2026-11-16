@@ -623,6 +623,16 @@ impl Plaza {
         (pilots - base, by_strip, all.values().map(|p| p.refused).sum(), base)
     }
 
+    /// Where everyone down in the ring's town is on its floor, `(id, x, s)`: their last pose taken,
+    /// or before it where they came down (`crate::street`'s sight and interest).
+    pub fn in_town_at(&self) -> Vec<(u16, f32, f32)> {
+        let Ok(all) = self.people.lock() else { return Vec::new() };
+        all.iter()
+            .filter(|(_, p)| p.strip == RING_DECK)
+            .map(|(id, p)| p.pose.map_or((*id, p.arrival.1, p.arrival.0), |q| (*id, q.x, q.s)))
+            .collect()
+    }
+
     /// For `/status`: how many pilots are down in the ring's town (no positions).
     pub fn in_town(&self) -> usize {
         self.people.lock().map_or(0, |all| all.values().filter(|p| p.strip == RING_DECK).count())

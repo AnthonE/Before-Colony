@@ -267,6 +267,13 @@ pub fn kerb_of(v: &Vehicle) -> Option<u32> {
     bc_sim::colony::street::kerb_at(v.x, town::town_t(v.s))
 }
 
+/// The car parked in bay `kerb` (`bc_sim::colony::street::kerb`) as [`each_parked`] has it, if one is
+/// (its `s` within the ring's deck's round).
+pub fn parked_car(kerb: u32) -> Option<Vehicle> {
+    let p = bc_sim::colony::street::parked(kerb)?;
+    Some(Vehicle::new(Kind::Car, RING_FLOOR, town::deck_s(p.t), p.x, p.yaw))
+}
+
 /// Which parked car a [`Vehicle`] from [`each_parked`] is: its street and side, and its bay round
 /// the ring (so a client can leave out the one its pilot drove off in).
 pub fn parked_id(v: &Vehicle) -> (i32, i32) {
@@ -787,6 +794,9 @@ mod tests {
             let kerb = kerb_of(v).expect("in a bay");
             let p = bc_sim::colony::street::parked(kerb).expect("a car in its bay");
             assert!((p.x - v.x).abs() < 1e-3 && deck::round_from(RING, town::deck_s(p.t), v.s).abs() < 0.02);
+            // And told the kerb (the server's taken set), a client finds the same car.
+            let told = parked_car(kerb).expect("the same car");
+            assert_eq!((parked_id(&told), told.yaw), (parked_id(v), v.yaw));
             for o in &cars[i + 1..] {
                 assert!((o.x - v.x).hypot(o.s - v.s) > 4.5, "{v:?} and {o:?}");
                 assert_ne!(parked_id(v), parked_id(o));
