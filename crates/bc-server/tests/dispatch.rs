@@ -136,8 +136,7 @@ async fn an_incident_raised_by_hand_brings_the_nearest_stations_units_to_a_cordo
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_reckless_driver_is_stopped_and_fined_by_the_units_with_no_word_from_her()
--> anyhow::Result<()> {
+async fn a_reckless_driver_is_stopped_and_fined_by_the_units_with_no_word_from_her() -> anyhow::Result<()> {
     let server = bc_server::start(config()?).await?;
     let http = format!("http://{}", server.http_addr);
     let mut a = down(&http, "Maren").await?;

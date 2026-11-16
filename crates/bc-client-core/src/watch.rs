@@ -50,6 +50,9 @@ pub fn where_people_walk(at: DeckPos) -> bool {
 
 /// How long a word of the server's on its units is drawn towards, s: about till the next comes.
 const EASE: f32 = 0.35;
+/// Further than this from where it's drawn, m, a unit is put where it's said to be: it can't have
+/// driven it.
+const SNAP: f32 = 60.0;
 
 /// One of the Watch's units as it's drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -64,6 +67,20 @@ pub struct Drawn {
     from: (f32, f32, f32),
     to: (f32, f32, f32),
     u: f32,
+}
+
+impl Drawn {
+    /// `dt` s further from where it was drawn to where it was said to be.
+    fn step_by(&mut self, dt: f32) {
+        use std::f32::consts::{PI, TAU};
+        self.u = (self.u + dt / EASE).min(1.0);
+        let ds = round_from(RING, self.from.1, self.to.1);
+        let turn = (self.to.2 - self.from.2 + PI).rem_euclid(TAU) - PI;
+        self.car.x = self.from.0 + (self.to.0 - self.from.0) * self.u;
+        self.car.s = self.from.1 + ds * self.u;
+        self.car.yaw = self.from.2 + turn * self.u;
+        self.car.speed = if self.u < 1.0 { (self.to.0 - self.from.0).hypot(ds) / EASE } else { 0.0 };
+    }
 }
 
 /// The Watch's units near the pilot, as the server says.
@@ -93,7 +110,12 @@ impl Pursuit {
             let to = (u.x, u.s, u.heading);
             match self.units.iter_mut().find(|d| d.id == u.id) {
                 Some(d) => {
-                    *d = Drawn { state: u.state, from: (d.car.x, d.car.s, d.car.yaw), to, u: 0.0, ..*d };
+                    let far = (u.x - d.car.x).hypot(round_from(RING, d.car.s, u.s)) > SNAP;
+                    let from = if far { to } else { (d.car.x, d.car.s, d.car.yaw) };
+                    *d = Drawn { state: u.state, from, to, u: if far { 1.0 } else { 0.0 }, ..*d };
+                    if far {
+                        d.step_by(0.0);
+                    }
                 }
                 None => self.units.push(Drawn {
                     id: u.id,
@@ -110,15 +132,8 @@ impl Pursuit {
 
     /// `dt` s on: each further from where it was drawn to where it was said to be.
     pub fn step(&mut self, dt: f32) {
-        use std::f32::consts::{PI, TAU};
         for d in &mut self.units {
-            d.u = (d.u + dt / EASE).min(1.0);
-            let ds = round_from(RING, d.from.1, d.to.1);
-            let turn = (d.to.2 - d.from.2 + PI).rem_euclid(TAU) - PI;
-            d.car.x = d.from.0 + (d.to.0 - d.from.0) * d.u;
-            d.car.s = d.from.1 + ds * d.u;
-            d.car.yaw = d.from.2 + turn * d.u;
-            d.car.speed = if d.u < 1.0 { (d.to.0 - d.from.0).hypot(ds) / EASE } else { 0.0 };
+            d.step_by(dt);
         }
     }
 
@@ -179,9 +194,12 @@ mod tests {
         p.step(EASE);
         let car = *p.cars().next().unwrap();
         assert!((car.s - (s0 + 5.0)).abs() < 1e-3 && car.speed == 0.0, "{car:?}");
-        // Across Hub Gate the short way round, and the way home isn't near.
+        // Said to be somewhere it can't have driven to: put there.
         let round = bc_sim::colony::deck::DECKS[RING as usize].round();
         p.hear(3, &[Unit { state: UnitState::Returning, ..unit(3, UnitKind::Car, 29.0, round - 2.0, 0.0) }]);
+        let car = *p.cars().next().unwrap();
+        assert!(car.s == round - 2.0 && car.speed == 0.0, "{car:?}");
+        // Across Hub Gate the short way round, and the way home isn't near.
         p.hear(4, &[Unit { state: UnitState::Returning, ..unit(3, UnitKind::Car, 29.0, 2.0, 0.0) }]);
         assert_eq!(p.units.len(), 1, "the hound's not said: gone");
         p.step(EASE * 0.5);
