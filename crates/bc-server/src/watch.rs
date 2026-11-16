@@ -11,12 +11,13 @@
 //! - **What the client reports** ([`Watch::report`], `Request::Offence`): what only its own screen
 //!   has (a car taken from a kerb or from its driver, one of the Watch's own, a knock against
 //!   another car). A report can only ever add heat, the same one is taken at most once a second, and
-//!   whether the Watch saw it is judged here. So is a sighting by one of the client's pursuing cars
-//!   ([`Watch::sighted`]): it holds the heat where it is, and never adds or takes any.
-//! - **The stop** is still the client's word (the cars after a pilot are each client's own), but
-//!   the fine is of the heat held here: [`Watch::stop`] clears it and owes the fine, which the
-//!   session takes ([`Watch::take_fine`]). The Watch's units, once they're the server's, stop a
-//!   pilot through the same two calls.
+//!   whether the Watch saw it is judged here. So is a sighting a client says one of the Watch's cars
+//!   made ([`Watch::sighted`]): it holds the heat where it is, and never adds or takes any; the
+//!   server's own units hold it too while they have the pilot in sight ([`Watch::seen`]).
+//! - **The stop** is the Watch's units' (`crate::dispatch`, after whoever is [`Watch::wanted`]):
+//!   [`Watch::stop`] clears the heat and owes the fine of the level held here, which the session
+//!   takes ([`Watch::take_fine`]). A client's own word that it's stopped (`Request::Stopped`) goes
+//!   through the same two calls, and only ever costs it.
 //!
 //! An incident is raised when a pilot's heat rises: one live incident an offender, moved and raised
 //! with them as it rises, over [`lasts`] after its last rise or when they're stopped; and by hand
@@ -74,6 +75,20 @@ struct Wanted {
     incident: Option<u32>,
     /// Stopped: the fine owed, of the level they were stopped at, till the session takes it.
     fine: Option<u8>,
+    /// Where the plaza last had them in the town (across the ring's floor, round it), as their
+    /// session's tick said (none: not in the town).
+    at: Option<(f32, f32)>,
+}
+
+/// A pilot the Watch wants, and where they are in the town: what its units chase.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Sought {
+    /// Their session's id.
+    pub id: u16,
+    pub level: u8,
+    /// On the ring's floor: across it, round it (the deck's `s`), m.
+    pub x: f32,
+    pub s: f32,
 }
 
 #[derive(Default)]
@@ -305,6 +320,7 @@ impl Watch {
         let hot = self.level(id) > 0;
         let seen = hot && at.is_some_and(|(x, s)| tables::car_sees(x, s, tables::SIGHT, tick, 0.0));
         self.with(id, |_, w| {
+            w.at = at;
             if seen {
                 w.heat.hold(tick);
             }
@@ -315,6 +331,40 @@ impl Watch {
             fell
         })
         .unwrap_or(false)
+    }
+
+    /// One of the Watch's own units has `id` in sight at tick `tick` (`crate::dispatch`): nothing
+    /// cools under its eye.
+    pub fn seen(&self, id: u16, tick: u32) {
+        self.with(id, |_, w| w.heat.hold(tick));
+    }
+
+    /// Who the Watch wants down in the town now, and where, written into `out` (as many as fit, by
+    /// session id): how many.
+    pub fn wanted(&self, out: &mut [Sought]) -> usize {
+        let Ok(inner) = self.inner.lock() else { return 0 };
+        let mut n = 0;
+        for (&id, w) in &inner.wanted {
+            if let Some((x, s)) = w.at
+                && w.heat.level() > 0
+                && n < out.len()
+            {
+                out[n] = Sought { id, level: w.heat.level(), x, s };
+                n += 1;
+            }
+        }
+        out[..n].sort_unstable_by_key(|w| w.id);
+        n
+    }
+
+    /// Each incident live at tick `tick`, oldest first.
+    pub fn each_incident(&self, tick: u32, mut f: impl FnMut(&Incident)) {
+        let Ok(inner) = self.inner.lock() else { return };
+        let mut live: [Option<Incident>; MAX_INCIDENTS] = inner.incidents;
+        live.sort_unstable_by_key(|i| i.map_or(u32::MAX, |i| i.id));
+        for i in live.iter().flatten().filter(|i| i.until > tick) {
+            f(i);
+        }
     }
 
     /// The Watch has `id`, stopped, at tick `tick`: their heat is cleared, their incident over, and

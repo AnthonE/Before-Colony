@@ -132,6 +132,8 @@ pub struct GameShared {
     pub street: Arc<crate::street::Street>,
     /// Every pilot's heat, and the incidents the Watch is answering in the town (`crate::watch`).
     pub watch: Arc<crate::watch::Watch>,
+    /// The Watch's units, out of its stations by road (`crate::dispatch`).
+    pub dispatch: Arc<crate::dispatch::Dispatch>,
     /// The dev hooks are on (`Config::dev_hooks`): the dev HTTP's `/dev/incident`.
     pub dev_hooks: bool,
     /// The colony's inside, if it's open.
@@ -317,6 +319,7 @@ pub struct StatusView {
     plaza: Arc<crate::plaza::Plaza>,
     street: Arc<crate::street::Street>,
     watch: Arc<crate::watch::Watch>,
+    dispatch: Arc<crate::dispatch::Dispatch>,
     anime: bool,
     market: Arc<Market>,
     charter: Arc<Charter>,
@@ -471,6 +474,7 @@ impl GameRuntime {
             town_start: survival && cfg.start == crate::config::Start::Town,
             street: Arc::new(crate::street::Street::default()),
             watch: watch.clone(),
+            dispatch: Arc::new(crate::dispatch::Dispatch::default()),
             dev_hooks: cfg.dev_hooks,
             inside,
             plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone()).with_watch(watch)),
@@ -534,6 +538,16 @@ impl GameRuntime {
                 aces.watch(&notes);
             }
         });
+        // The Watch's units, on the sector's clock, ten times a second.
+        let (dispatch, watch, sector) = (game.dispatch.clone(), game.watch.clone(), game.sector.clone());
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(crate::dispatch::STEP);
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            while !sector.stop.load(Ordering::Acquire) {
+                every.tick().await;
+                dispatch.step(&watch, sector.tick.load(Ordering::Acquire));
+            }
+        });
         Ok(Self {
             sector: Some(sector_thread),
             egress: Some(egress),
@@ -559,6 +573,7 @@ impl GameRuntime {
             plaza: self.shared.plaza.clone(),
             street: self.shared.street.clone(),
             watch: self.shared.watch.clone(),
+            dispatch: self.shared.dispatch.clone(),
             anime: self.shared.anime,
             market: self.shared.market.clone(),
             charter: self.shared.charter.clone(),
@@ -863,6 +878,9 @@ impl StatusView {
             "people": self.plaza.in_town(),
             "down": self.street.count(tick),
             "incidents": self.watch.live(tick),
+            // The Watch's units out of their stations, and the pilots they've stopped.
+            "units": self.dispatch.out(),
+            "stops": self.dispatch.stops(),
         });
         status["sessions"] = sessions;
         status

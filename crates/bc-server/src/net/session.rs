@@ -160,6 +160,7 @@ pub(super) async fn run(
         heat_sent: 0,
         incidents_seen: None,
         watch_news_seen: game.watch.news_seq(),
+        units_sent: (Instant::now(), false),
         homes_near: Vec::new(),
         knocks_heard: game.homes.with(|h| h.knocks_for("", u64::MAX).1),
         waking: None,
@@ -252,6 +253,9 @@ struct Session<'a> {
     heat_sent: u8,
     incidents_seen: Option<u64>,
     watch_news_seen: u64,
+    /// The Watch's units near them (`crate::dispatch`): when they were last sent, and whether any
+    /// were.
+    units_sent: (Instant, bool),
     homes_near: Vec<(i32, i32, u8)>,
     knocks_heard: u64,
     /// Back from asleep in a bed at home: where they get up, for the next `Update::Place`.
@@ -2265,6 +2269,16 @@ impl Session<'_> {
         } else {
             self.incidents_seen = None;
         }
+        // Down in the town, its units near them a few times a second (and once more when none are).
+        if let Some(at) = at
+            && self.units_sent.0.elapsed() >= crate::dispatch::SEND_EVERY
+        {
+            let units = self.game.dispatch.near(at, crate::dispatch::SEND_NEAR, crate::dispatch::SEND_MOST);
+            let any = !units.is_empty();
+            if std::mem::replace(&mut self.units_sent, (Instant::now(), any)).1 || any {
+                self.send(&Update::Units { units }).await?;
+            }
+        }
         if settle && self.game.watch.news_seq() != self.watch_news_seen {
             let (latest, news) = self.game.watch.news_since(self.watch_news_seen);
             self.watch_news_seen = latest;
@@ -2286,9 +2300,9 @@ impl Session<'_> {
     }
 
     /// What a stop owes the Watch (`crate::watch::Watch::take_fine`: the level they were stopped
-    /// at, on the client's word or, later, the Watch's own units'): its fine, as much of it as the
-    /// bay has (their car goes with it, and whoever was riding in it). With nothing left to fine,
-    /// the Watch walks them to a lift and sends them home.
+    /// at, by its units, `crate::dispatch`, or on the client's word): its fine, as much of it as
+    /// the bay has (their car goes with it, and whoever was riding in it). With nothing left to
+    /// fine, the Watch walks them to a lift and sends them home.
     async fn pay_the_watch(&mut self) -> anyhow::Result<()> {
         let Some(heat) = self.game.watch.take_fine(self.id) else { return Ok(()) };
         // Their heat is nothing now: they hear so first.
