@@ -1789,7 +1789,7 @@ fn street_golden_wasm() {
 
 /// Hash of routes by the town's roads (`colony::roads`): from each lift's step and a spread of
 /// blocks' kerbs to every Watch station's door and others' kerbs, every waypoint.
-const ROUTE_GOLDEN: u64 = 0;
+const ROUTE_GOLDEN: u64 = 0xffbc_6ca0_49a0_7b99;
 
 fn route_hash() -> u64 {
     use bc_sim::colony::roads::{self, MOST, Waypoint};
@@ -1844,7 +1844,7 @@ fn route_golden_wasm() {
 
 /// Hash of the town's census (`colony::census`, `docs/LIFE.md` 7.2): who everyone round a stretch
 /// of the ring is, and everyone on a spread of blocks and the rim walks by id.
-const CENSUS_GOLDEN: u64 = 0;
+const CENSUS_GOLDEN: u64 = 0xe29c_5779_73b7_29de;
 
 fn census_hash() -> u64 {
     use bc_sim::colony::census::{self, Job};
@@ -1901,7 +1901,7 @@ fn census_golden_wasm() {
 
 /// Hash of the cars parked at the town's kerbs (`colony::street::each_parked`): every one round the
 /// whole ring, and the bays a spread of points stand in.
-const PARKED_GOLDEN: u64 = 0;
+const PARKED_GOLDEN: u64 = 0xd2e1_e54e_7a9e_9e77;
 
 fn parked_hash() -> u64 {
     use bc_sim::colony::street;
