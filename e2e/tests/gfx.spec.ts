@@ -109,6 +109,8 @@ const scenes: Array<[string, number, number, number]> = [
   ["town", 3, 2, 8],
   ["town", 4, 2, 8],
   ["town", 1, 1900, 8],
+  // The crowded street the perf suite times: the boulevard by the square at noon.
+  ["town", 9, 480, 8],
   // Suits on the landmarks: an Argo walking Fornax's core as the station rolls, rolling onto its toes
   // as each foot pushes off; one kneeling asleep in the Aft Well, its rim lights round it, the back
   // foot's toes tucked under; one lifting off Hermit on the verniers in its soles; one landing on

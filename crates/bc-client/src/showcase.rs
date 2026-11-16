@@ -119,7 +119,10 @@ pub enum Scene {
     /// the scene's clock: down the boulevard under the lift's portal (1), from over the square, the
     /// floor rising ahead (2), along a street by its parked cars (3), a pavement among its people
     /// (4), the canal from its quay (5), the lift's door (6), from a tower's height across the town
-    /// (7), the boulevard's traffic from its median (8).
+    /// (7), the boulevard's traffic from its median (8), and a crowded street to time (9: the
+    /// boulevard's pavement by the square, looking on round the ring; `?t=480` is noon). Held
+    /// (`?hold=`), every cell in sight is built before the first frame; live, they stream in as
+    /// the game streams them.
     Town,
 }
 
@@ -1621,6 +1624,10 @@ fn town_cams() -> Vec<Orbit> {
         toward(at(120.0, 220.0, 150.0), at(-600.0, 900.0, 40.0)),
         // On the boulevard's median, its traffic coming on.
         toward(at(-7.0, 30.0, 2.0), at(-22.0, 220.0, 3.0)),
+        // The crowded street the browser suite times (`e2e/tests/perf.spec.ts`): on the boulevard's
+        // pavement by the square, its people about and the traffic beside, looking on round the
+        // ring as far as the town is built.
+        toward(at(-36.5, 24.0, 1.7), at(-14.0, 420.0, 5.0)),
     ]
 }
 
@@ -2732,15 +2739,17 @@ fn base_script(mut view: ResMut<crate::base::BaseView>) {
     }
 }
 
-/// The view is in the ring's town at Hub Gate's square (every cell in sight built before the
-/// first shot), its traffic and its people on the scene's clock.
+/// The view is in the ring's town at Hub Gate's square, its traffic and its people on the scene's
+/// clock: every cell in sight built before the first shot if the clock is held for one, else
+/// streamed in within the frame's budget as the game does (what `perf.spec.ts` times).
 fn town_script(
+    show: Res<Show>,
     vis: Res<VisTime>,
     mut view: ResMut<crate::town::TownView>,
     mut trams: ResMut<crate::trams::TramClock>,
 ) {
     if !view.active {
-        *view = crate::town::TownView { active: true, sync: true };
+        *view = crate::town::TownView { active: true, sync: show.hold > 0 };
     }
     let (tick, frac) = bc_client_core::showcase_city::clock(vis.now);
     *trams = crate::trams::TramClock(tick, frac);
