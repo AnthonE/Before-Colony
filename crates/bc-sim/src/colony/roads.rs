@@ -641,7 +641,7 @@ mod tests {
     fn way(from: (f32, f32), to: (f32, f32)) -> Vec<Waypoint> {
         let mut out = [Waypoint::default(); MOST];
         let n = route(from, to, &mut out);
-        assert!((2..=MOST).contains(&n), "{from:?} to {to:?}: {n} waypoints");
+        assert!((1..=MOST).contains(&n) && (n > 1 || from == to), "{from:?} to {to:?}: {n} waypoints");
         out[..n].to_vec()
     }
 
@@ -782,18 +782,20 @@ mod tests {
                 }
             }
         }
-        // Every cross street, from rim road to rim road, but over a lift's square and its foot.
+        // Every cross street, from rim road to rim road, but over a lift's square and the median at
+        // its foot (the boulevard runs on under the lintel).
+        let (fore, aft) = (xs[BOULEVARD_LINES.0 - 1] + STREET * 0.5, xs[BOULEVARD_LINES.1 + 1] - STREET * 0.5);
         for k in 0..i32::from(CELLS) {
             for dir in [1, -1] {
                 let t = lane_t(k, dir);
                 let mut x = xs[0];
                 while x < xs[LINES - 1] {
                     let square = at_a_lift(k)
-                        && x > xs[BOULEVARD_LINES.0 - 1] + 11.0
-                        && x < xs[BOULEVARD_LINES.1 + 1] - 11.0;
-                    if (x - xs[BOULEVARD_LINES.0 - 1] - 10.0).abs() > 1.0
-                        && (x - xs[BOULEVARD_LINES.1 + 1] + 10.0).abs() > 1.0
-                    {
+                        && ((fore..-BOULEVARD_HALF).contains(&x)
+                            || (BOULEVARD_HALF..aft).contains(&x)
+                            || x.abs() < MEDIAN_HALF);
+                    let edge = [fore, -BOULEVARD_HALF, -MEDIAN_HALF, MEDIAN_HALF, BOULEVARD_HALF, aft];
+                    if edge.iter().all(|e| (x - e).abs() > 0.5) {
                         assert_eq!(drivable(x, t), !square, "the cross street at {k} at {x}");
                     }
                     x += 1.0;
@@ -816,7 +818,8 @@ mod tests {
                 let w = way(from, to);
                 keeps_to_the_roads(&w);
                 let (a, b) = (w[0], w[w.len() - 1]);
-                assert!((a.x - start.x).abs() < 1e-3 && (a.t - start.t).abs() < 1e-3, "{a:?} vs {start:?}");
+                // Setting out from the road nearest it (on the lane the way it goes).
+                assert!((a.x - start.x).abs() + (a.t - start.t).abs() < 2.0, "{a:?} vs {start:?}");
                 let (long, short) = (length(&w), flood.to(b.x, b.t));
                 assert!(
                     long <= short * LONGER.0 + LONGER.1,

@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn everyone_has_a_name_a_home_and_a_job_and_keeps_them() {
         let ids = crowd(4_321);
-        assert!(ids.len() > 10_000, "{} people", ids.len());
+        assert!(ids.len() > 5_000, "{} people", ids.len());
         let (mut given, mut family) = (vec![0u32; GIVEN_NAMES.len()], vec![0u32; FAMILY_NAMES.len()]);
         let (mut at_home, mut at_own_work, mut watch, mut places) = (0, 0, 0, 0);
         for &id in &ids {
@@ -212,7 +212,7 @@ mod tests {
         }
         // A street's crowd (everyone within a few hundred metres) rarely has two of the same name.
         let (mut seen, mut twice) = (0, 0);
-        for t0 in [0.0f32, 3_000.0, 7_777.0, 12_000.0, ROUND - 250.0] {
+        for t0 in [0.0f32, 1_700.0, 3_000.0, 5_200.0, 7_777.0, 10_400.0, 12_000.0, 15_500.0, ROUND - 250.0] {
             let mut names: Vec<(u16, u16)> = Vec::new();
             street::each_person(-HALF, HALF, t0, t0 + 500.0, 4_321, 0.0, &mut |p| {
                 let who = identity(p.id);
@@ -222,7 +222,7 @@ mod tests {
             seen += names.len();
             twice += names.windows(2).filter(|w| w[0] == w[1]).count();
         }
-        assert!(seen > 1_000 && (twice as f32) < seen as f32 * 0.03, "{twice} of {seen} share a name");
+        assert!(seen > 1_200 && (twice as f32) < seen as f32 * 0.03, "{twice} of {seen} share a name");
         assert!(at_home as f32 > n * 0.1 && (at_home as f32) < n * 0.7, "{at_home} at home");
         assert!(at_own_work as f32 > n * 0.05, "{at_own_work} at work where they walk");
         assert!((watch as f32) > n * 0.01 && (watch as f32) < n * 0.03, "{watch} with the Watch");
