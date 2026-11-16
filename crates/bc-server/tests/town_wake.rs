@@ -67,10 +67,15 @@ async fn ask(b: &mut BotClient, req: Request) -> anyhow::Result<(String, bool)> 
     Ok(b.core.hangar.notes[n].clone())
 }
 
+/// Where the store keeps the pilot's record.
+fn record_file(dir: &Path) -> PathBuf {
+    let key = bc_server::pilots::key(&wallet().address().into());
+    dir.join("pilots").join(format!("{key}.json"))
+}
+
 /// The pilot's record, as the store keeps it.
 fn record(dir: &Path) -> Option<serde_json::Value> {
-    let key = bc_server::pilots::key(&wallet().address().into());
-    serde_json::from_slice(&std::fs::read(dir.join(format!("{key}.json"))).ok()?).ok()
+    serde_json::from_slice(&std::fs::read(record_file(dir)).ok()?).ok()
 }
 
 /// Waits for the record to keep where in the town they left it.
@@ -134,13 +139,12 @@ async fn a_pilot_who_logs_out_in_the_town_wakes_there_and_one_who_rode_up_wakes_
     b.close().await;
     left_in_town(&dir).await?;
     server.shutdown();
-    let key = bc_server::pilots::key(&wallet().address().into());
     let mut r = record(&dir).expect("the record");
     let (door_x, door_t) = town::lift_door(0);
     let wall = (door_x + 0.5, town::deck_s(door_t));
     assert!(!town::stands_clear(wall.0, door_t));
     r["town"] = serde_json::json!({ "x": wall.0, "s": wall.1 });
-    std::fs::write(dir.join(format!("{key}.json")), serde_json::to_vec(&r)?)?;
+    std::fs::write(record_file(&dir), serde_json::to_vec(&r)?)?;
 
     // They wake out of the pier, by the lift's door; ride up; log out in the bay; and wake there.
     let server = bc_server::start(config(dir.clone())?).await?;
