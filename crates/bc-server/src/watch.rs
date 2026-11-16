@@ -130,7 +130,6 @@ impl Inner {
     /// Raises an incident at `(x, s)`: `level`, `cause`; `offender`'s (their session, and what
     /// they're called; 0 and none for nobody's), whose live one (`theirs`) is moved there and raised
     /// instead. News if it's come to [`NEWS_AT`] or over. Its id.
-    #[allow(clippy::too_many_arguments)]
     fn raise(
         &mut self,
         (offender, name): (u16, Option<&str>),
