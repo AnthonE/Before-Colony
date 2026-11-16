@@ -12,7 +12,12 @@ jets' 2 bits are a Markab's jets again (a client had sent its heat in them, up t
 messages, `fine` {`heat`} goes: `stopped` (no fields) is the client's word that one of the Watch's
 cars has them, and the fine is of the server's level; `offence` {`what`} reports what only a
 client sees, and `sighted` that one of its pursuing cars has it in sight; the server sends `heat`
-and `incidents` (below).
+and `incidents` (below). And the town's taken set (`docs/FREE_ROAM.md`, P2; the server's `street`):
+`street` is no longer the town's whole list of people down but the districts round the pilot, each
+whole when its version moves, with the kerbs emptied and the cars left about, and the traffic's
+cars taken ring-wide; `take_parked`, `jack`, `leave_car` and `take_left` are the server's to check,
+and the Watch hears of a car taken from them, so the client no longer reports one as an `offence`
+(the server still takes the report) (below).
 
 v43 (from v42): the ring's town (`docs/FREE_ROAM.md`, T1; `colony::town`, `content::town::TOWN_VERSION`
 1). Nothing on the wire changes shape, but the ring's deck now has the town standing on it, which both
@@ -692,6 +697,10 @@ Client → server (`Request`):
 | `stopped` | | in the ring's town: one of the Watch's cars has the pilot stopped at its side. The fine of the heat the server holds (150 × level² cr) is paid from the bay, as much as there is (with less, all of it, and `place: hangar`), the heat cleared (`heat`) and their incident over; a `note` answers. Nothing on them, or not in the town: refused (v47) |
 | `offence` | `what` (`took_a_car`, `jacked`, `took_the_watchs`, `knock`) | in the ring's town: what only the client saw the pilot do. It can only add heat: the same one is taken at most once a second, any other offence's slug is ignored (a hit and reckless driving are the server's to see), and the server judges whether the Watch saw it (a car taken in sight of one of its cars on their beats is worse). Nothing answers but `heat` (v47) |
 | `sighted` | | in the ring's town: one of the Watch's cars after the pilot (the client's) has them in sight, so their heat doesn't cool; taken at most once a second, and it never adds or takes heat (v47) |
+| `take_parked` | `kerb` (`colony::street::kerb`: `(column << 1 \| aft) << 16 \| bay`) | in the ring's town, on foot within 8 m of the car parked in that bay: take it. Refused with a `note` if there's none, it's further off, or it's gone from its kerb already. Taken, the kerb is empty for everyone near (`street`), and it's `took_a_car` to the Watch (worse in sight of one of its cars). Nothing else answers (v47) |
+| `jack` | `car` (`colony::street::Car::id`: `lane << 16 \| place`) | in the ring's town, on foot: take that car of the traffic from its driver, if its lane runs within 4.5 m across of the pilot and its place in it is no more than 8 m short of them and no more than `street::PATIENCE` + 60 m (960 m) past them the way it runs (a car held back for them falls behind its place), and nobody has it already. Gone from the traffic for everyone in the town; `jacked` to the Watch (`took_the_watchs` for one of its own) (v47) |
+| `leave_car` | `x_cm`, `s_cm` (its middle on the ring's floor, cm), `yaw_mrad` (the way it faces, mrad) | in the ring's town, out of the car the server has them holding (taken by one of these): left there for anyone, within 15 m of where the plaza has them. Refused with a `note` otherwise. A pilot holding a car who rides a lift up or goes leaves it where they last were at its wheel (v47) |
+| `take_left` | `id` (a `street` car left about's) | in the ring's town, on foot within 8 m of it: take it (another pilot's: `took_a_car` to the Watch). Gone for everyone near (v47) |
 
 **Desks** (`Request::desk`, the colony open: the Welcome's COLONY flag). A request marked with a
 desk above is that place's alone, and the server takes it only from a pilot on foot in the city
@@ -763,7 +772,19 @@ much the Watch wants the pilot, the server's, whenever it changes; v47); `incide
 town, whenever the list changes: one live incident an offender, raised as their heat rises, over
 60 s + 30 s a level after its last rise or when they're stopped; v47). One raised to level 3 or
 more is also `news` to every pilot (`THE WATCH WANTS MAREN · SOMEBODY RUN DOWN IN TOWER HILL ·
-◆◆◆`). A suit (in the bay, or out) carries
+◆◆◆`); `street` {`near`: [three districts, 0 to 11: the one before the pilot's, theirs (by where
+the plaza has them) and the one after], `districts`: [{`district`, `version`, `down`: [{`id` (a
+`colony::street` person), `x`, `s`, `yaw`, `until` (the tick they get up at), `away` (a fare in a
+pilot's car, not lying there)}], `kerbs`: [kerb ids whose cars are gone], `left`: [{`id`, `x`, `s`,
+`yaw`, `kerb` or `car` (where it came from: its look is that one's), `by` (who left it: their
+session's id), `at` (the tick)}]}] (each district whole; the empty lists absent), `lanes`: [the
+traffic's car ids taken, anywhere round the ring] (absent: as last sent)} (the ring's town's taken
+set, down in it: a district round the pilot is sent when its version moves or they come near it,
+and a client forgets any district not in `near`; `lanes` whenever they change. Each district holds
+at most 24 people down or away, 32 kerbs, 16 of the traffic's cars and 16 cars left about, the
+oldest letting go to make room. A car left about goes once it has stood two minutes out of every
+pilot's sight (1 km), and its kerb has its car again, or the traffic its car, once that place is
+out of sight too; v47). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`), and `grade`, its propellant's (absent:
 `standard`); a part on the shelf carries its own `faults`.
