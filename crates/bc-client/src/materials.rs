@@ -154,7 +154,7 @@ pub struct HullParams {
     /// x: seconds.
     pub time: Vec4,
     /// x: patchwork, how much plates differ from their neighbours in tone and sheen (0: alike); y: 1
-    /// to paint it (`?look=anime`, `hull.wgsl`'s `paint_bands`).
+    /// to paint it (unless `?look=plain`, `hull.wgsl`'s `paint_bands`).
     pub look: Vec4,
 }
 
@@ -230,7 +230,7 @@ fn palette() -> [Vec4; paint::CAPACITY] {
 }
 
 /// A hull material: `panel` as [`HullParams::panel`], `patchwork` as [`HullParams::look`]'s x, and
-/// painted (`?look=anime`) if `painted`.
+/// painted (the default look; not under `?look=plain`) if `painted`.
 fn hull(panel: Vec4, patchwork: f32, painted: bool) -> HullMaterial {
     ExtendedMaterial {
         base: StandardMaterial { perceptual_roughness: 0.4, ..default() },
@@ -255,7 +255,7 @@ pub fn setup_materials(
 ) {
     let ore = |kind: usize| ore_colour(kind).extend(ORES[kind].1);
     commands.insert_resource(Surfaces {
-        // Suits stay clean, as they're drawn (and keep their look on trial or not); the big hulls are
+        // Suits stay clean, as they're drawn (and keep their look, painted or plain); the big hulls are
         // patchworks of plates (the colony's slabs only a little: they're kept clean, as the
         // references' are).
         armour: hulls.add(hull(Vec4::new(1.1, 0.035, 0.6, 0.35), 0.0, false)),

@@ -1,7 +1,7 @@
 //! The ring's town, drawn (`docs/FREE_ROAM.md`, V1): its streets, blocks, canal, lifts, faces and
 //! ceiling a cell round the ring at a time (`bc_client_core::town_mesh`, the same boxes the walker
-//! and the cars meet), in the station language at a town's scale and painted like the anime
-//! (`shaders/town.wgsl`).
+//! and the cars meet), in the station language at a town's scale, painted like the anime unless the
+//! look is plain (`Gfx::paint`, `shaders/town.wgsl`).
 //!
 //! - **Round the view.** The town is drawn in the frame upright where the view stands
 //!   ([`TownAt`]): the floor level underfoot, rising ahead and behind until the ceiling hides it.
@@ -254,6 +254,7 @@ pub fn setup_town(
     mut standard: ResMut<Assets<StandardMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut streamer: ResMut<Streamer>,
+    gfx: Res<Gfx>,
 ) {
     let layer = RenderLayers::layer(CITY_LAYER);
     let root =
@@ -265,7 +266,7 @@ pub fn setup_town(
         extension: TownExt {
             town: TownParams {
                 paint: PAINT.map(|[r, g, b]| Vec4::new(r, g, b, 1.0)),
-                day: Vec4::new(0.0, 1.0, 0.0, 1.0),
+                day: Vec4::new(0.0, 1.0, 0.0, painted(&gfx)),
                 haze: Vec4::new(0.4, 0.55, 0.8, 7e-4),
                 sky: Vec4::new(0.75, 0.9, 1.1, 1.0),
             },
@@ -294,6 +295,12 @@ pub fn setup_town(
             .id()
     };
     streamer.caps = Some(([cap(&mut commands), cap(&mut commands)], haze));
+}
+
+/// `town.wgsl`'s `day.w`: 1 to paint the town in bands, as the rest of the colony is (`?look=plain`
+/// leaves it unpainted, to compare).
+fn painted(gfx: &Gfx) -> f32 {
+    if gfx.paint { 1.0 } else { 0.0 }
 }
 
 /// How far the tier builds: the cells in full either side of the view's, and the cells at all.
@@ -864,7 +871,7 @@ fn light_town(
     }
     if let Some(mut m) = materials.get_mut(&streamer.material) {
         let seconds = (time.now % 3_600.0) as f32;
-        m.extension.town.day = Vec4::new(seconds, d.daylight, d.lamps, 1.0);
+        m.extension.town.day = Vec4::new(seconds, d.daylight, d.lamps, painted(&gfx));
         m.extension.town.haze = haze.extend(density);
         m.extension.town.sky = sky.extend(gain);
     }

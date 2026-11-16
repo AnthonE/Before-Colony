@@ -7,8 +7,9 @@ import { bc, collectConsole, luminanceStdDev } from "./util";
 //
 //   BC_GFX_QUALITY=high (default) | low | medium | ultra
 const quality = process.env.BC_GFX_QUALITY ?? "high";
-// Extra query parameters for every shot (say `look=0` for the plain look, `hz=20` for a slower
-// clock), which also go into the screenshots' names so pairs sit side by side.
+// Extra query parameters for every shot (say `look=plain` for the look unpainted, `look=0` for no
+// grade either, `hz=20` for a slower clock), which also go into the screenshots' names so pairs sit
+// side by side. Without them the shots are the default look: painted (docs/RING.md, "The look").
 const extra = process.env.BC_GFX_EXTRA ?? "";
 const suffix = extra ? `-${extra.replace(/[^a-z0-9=]+/gi, "_")}` : "";
 // [scene, camera preset, start time (s), frames to run]. The clock stops after the last frame

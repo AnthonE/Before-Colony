@@ -34,7 +34,7 @@ struct Station {
     lanes: vec4<f32>,
     // x: the ceiling's light strips' spacing; y: the hazard stripes' period; z, w: a pillar's collar.
     marks: vec4<f32>,
-    // x: 1 to paint it (`?look=anime`, `bc::anime`); y: the kick plate's paint.
+    // x: 1 to paint it (unless `?look=plain`, `bc::anime`); y: the kick plate's paint.
     look: vec4<f32>,
 };
 
