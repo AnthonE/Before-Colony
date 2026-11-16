@@ -726,7 +726,8 @@ mod tests {
         let nearest = &by_road(at)[..usize::from(top.stations)];
         assert!(sent.iter().all(|u| nearest.contains(&u.station)), "{nearest:?}: {sent:?}");
         on_the_roads(&d);
-        // An offender's, risen from 1 to 3: what 3 sends more, after them.
+        // An offender's, risen from 1 to 3: what 3 sends more, to the same incident (she's not in the
+        // town to chase: no pose).
         let (w, d) = (Watch::default(), Dispatch::default());
         let place = (20.0, town::CELL * 80.5);
         let pose = (place.0, town::deck_s(place.1));
@@ -739,7 +740,10 @@ mod tests {
         d.step(&w, 3 * DT);
         let three = tables::answer(3);
         assert_eq!(d.out(), usize::from(three.cars + three.hounds));
-        assert!(d.seen().iter().filter(|u| u.state != State::Home).all(|u| u.after == 9));
+        let theirs = w.incidents(3 * DT)[0].id;
+        assert!(
+            d.seen().iter().filter(|u| u.state != State::Home).all(|u| u.incident == theirs && u.after == 0)
+        );
         on_the_roads(&d);
     }
 
