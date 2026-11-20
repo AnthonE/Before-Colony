@@ -62,6 +62,10 @@ pub struct HangarState {
     /// been said (`crate::watch::Pursuit` eases them from one word to the next).
     pub units: Vec<bc_econ::wire::Unit>,
     pub units_heard: u64,
+    /// The traffic's cars held up near them (`Update::Traffic`: the server's), and how many times
+    /// that's been said (`crate::traffic::Traffic::adopt` takes each).
+    pub traffic: Vec<bc_econ::wire::HeldCar>,
+    pub traffic_heard: u64,
     pub news: Vec<String>,
     /// In the city: the names of the people seen there, by the slot the plaza knows them by.
     pub people: std::collections::HashMap<u16, String>,
@@ -130,6 +134,10 @@ impl HangarState {
             Update::Units { units } => {
                 self.units = units;
                 self.units_heard += 1;
+            }
+            Update::Traffic { held } => {
+                self.traffic = held;
+                self.traffic_heard += 1;
             }
         }
         false

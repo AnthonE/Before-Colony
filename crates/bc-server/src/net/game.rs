@@ -134,6 +134,8 @@ pub struct GameShared {
     pub watch: Arc<crate::watch::Watch>,
     /// The Watch's units, out of its stations by road (`crate::dispatch`).
     pub dispatch: Arc<crate::dispatch::Dispatch>,
+    /// The town's traffic held up (`crate::jams`).
+    pub jams: Arc<crate::jams::Jams>,
     /// The dev hooks are on (`Config::dev_hooks`): the dev HTTP's `/dev/incident`.
     pub dev_hooks: bool,
     /// The colony's inside, if it's open.
@@ -321,6 +323,7 @@ pub struct StatusView {
     street: Arc<crate::street::Street>,
     watch: Arc<crate::watch::Watch>,
     dispatch: Arc<crate::dispatch::Dispatch>,
+    jams: Arc<crate::jams::Jams>,
     anime: bool,
     market: Arc<Market>,
     charter: Arc<Charter>,
@@ -476,6 +479,7 @@ impl GameRuntime {
             street: Arc::new(crate::street::Street::default()),
             watch: watch.clone(),
             dispatch: Arc::new(crate::dispatch::Dispatch::default()),
+            jams: Arc::new(crate::jams::Jams::default()),
             dev_hooks: cfg.dev_hooks,
             inside,
             plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone()).with_watch(watch)),
@@ -542,14 +546,20 @@ impl GameRuntime {
         // The Watch's units, on the sector's clock, ten times a second.
         // (A patrol car promoted to answer is gone from the traffic for everyone.)
         let (dispatch, watch, sector) = (game.dispatch.clone(), game.watch.clone(), game.sector.clone());
+        // The town's traffic held up behind whatever's in its lanes, stepped with them.
         let street = game.street.clone();
+        let (jams, plaza) = (game.jams.clone(), game.plaza.clone());
         tokio::spawn(async move {
             let mut every = tokio::time::interval(crate::dispatch::STEP);
             every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut last = None;
             while !sector.stop.load(Ordering::Acquire) {
                 every.tick().await;
                 let tick = sector.tick.load(Ordering::Acquire);
                 dispatch.step_and(&watch, tick, &mut |car, s| street.promote(car, s, tick));
+                let dt = last.map_or(0.1, |t: u32| tick.saturating_sub(t) as f32 / bc_sim::TICK_HZ as f32);
+                last = Some(tick);
+                crate::jams::step_town(&jams, &plaza, &street, &dispatch, tick, dt);
             }
         });
         Ok(Self {
@@ -579,6 +589,7 @@ impl GameRuntime {
             street: self.shared.street.clone(),
             watch: self.shared.watch.clone(),
             dispatch: self.shared.dispatch.clone(),
+            jams: self.shared.jams.clone(),
             anime: self.shared.anime,
             market: self.shared.market.clone(),
             charter: self.shared.charter.clone(),
@@ -892,6 +903,7 @@ impl StatusView {
             "incidents": self.watch.live(tick),
             // The Watch's units out of their stations, and the pilots they've stopped.
             "units": self.dispatch.out(),
+            "held": self.jams.held(),
             "stops": self.dispatch.stops(),
         });
         status["sessions"] = sessions;

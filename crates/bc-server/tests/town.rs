@@ -286,3 +286,53 @@ async fn a_fare_is_taken_in_a_lifts_square_and_lost_up_the_lift() -> anyhow::Res
     assert_eq!(b.core.hangar.credits(), credits);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_traffic_held_up_by_a_pilot_in_its_lane_is_the_same_for_everyone() -> anyhow::Result<()> {
+    let server = bc_server::start(config()?).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut a = down(&http, "Maren").await?;
+    let mut b = down(&http, "Pagan").await?;
+    a.set_pose(standing(0.0, 0.0));
+    b.set_pose(standing(-3.0, 2.0));
+    both(&mut a, &mut b, 1.0).await?;
+    // Maren walks out into the boulevard's aft carriageway, clear of the lift, and stands in a lane
+    // (its inner one, 11 m off the middle); Pagan stays on the square.
+    let (lx, _) = town::out_of_the_lift(0);
+    let route = [(0.0, 20.0), (0.0, 80.0), (11.0 - lx, 80.0)];
+    let mut from = (0.0f32, 0.0f32);
+    for to in route {
+        let n = ((to.0 - from.0).hypot(to.1 - from.1) / 2.0).ceil() as usize;
+        for k in 1..=n {
+            let u = k as f32 / n as f32;
+            a.set_pose(standing(from.0 + (to.0 - from.0) * u, from.1 + (to.1 - from.1) * u));
+            both(&mut a, &mut b, 0.25).await?;
+        }
+        from = to;
+    }
+    // In a while the cars coming in that lane are held up behind her, and both are told.
+    a.wait_until(40.0, "a queue", |c| c.hangar.traffic.len() >= 2).await?;
+    both(&mut a, &mut b, 0.6).await?;
+    b.wait_until(5.0, "the same queue", |c| !c.hangar.traffic.is_empty()).await?;
+    let ids = |c: &BotClient| {
+        let mut v: Vec<u32> = c.core.hangar.traffic.iter().map(|h| h.id).collect();
+        v.sort_unstable();
+        v
+    };
+    let (qa, qb) = (ids(&a), ids(&b));
+    assert!(qa.iter().filter(|id| qb.contains(id)).count() >= 2, "{qa:?} vs {qb:?}");
+    // Every held car's in her lane's line, behind her the way it runs.
+    for h in &a.core.hangar.traffic {
+        assert!(
+            h.behind > 0.0
+                && h.v
+                    < bc_sim::colony::street::lane((h.id >> 16) as usize).map_or(30.0, |l| l.speed()) + 0.1
+        );
+    }
+    assert!(server.status()["game"]["town"]["held"].as_u64().unwrap_or(0) >= 2);
+    // She steps out of the road: the queue drives on, and they're told so.
+    a.set_pose(standing(0.0, 80.0));
+    both(&mut a, &mut b, 0.5).await?;
+    a.wait_until(60.0, "the road clear", |c| c.hangar.traffic.is_empty()).await?;
+    Ok(())
+}

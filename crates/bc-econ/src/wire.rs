@@ -723,6 +723,23 @@ pub enum Update {
     Units {
         units: Vec<Unit>,
     },
+    /// The traffic's cars held up near the pilot in the ring's town (`bc-server`'s `jams`): the
+    /// server's word, which their client takes for those cars (every other car of the traffic is
+    /// where the closed form has it), a few times a second while any are, and once more, empty.
+    Traffic {
+        held: Vec<HeldCar>,
+    },
+}
+
+/// A car of the town's traffic held up behind something in its lane: which (`street::Car::id`),
+/// where it is round the ring (the town's `t`, m), how fast it's going, m/s, and how far it's
+/// fallen behind its place in the closed form, m.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HeldCar {
+    pub id: u32,
+    pub t: f32,
+    pub v: f32,
+    pub behind: f32,
 }
 
 /// The held homes near a pilot, as they see them.

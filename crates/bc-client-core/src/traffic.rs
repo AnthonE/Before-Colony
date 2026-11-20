@@ -101,41 +101,59 @@ impl Traffic {
     /// `dt` s on, round a pilot at `at`: the closed form's cars within `reach` m at `tick` plus
     /// `frac`, each braked for whatever of `in_the_way` is ahead in its lane and for the car in
     /// front, and brought back up to its place when nothing is.
-    pub fn step(
+    pub fn step(&mut self, at: DeckPos, reach: f32, clock: (u32, f32), dt: f32, in_the_way: &[InTheWay]) {
+        self.step_round(&[at], reach, clock, dt, in_the_way);
+    }
+
+    /// [`Traffic::step`] round every one of `pilots` at once (the server's: `bc-server`'s `jams`),
+    /// each car once however many of them it's near. Every place is taken in the turn of the ring
+    /// nearest the first of them.
+    pub fn step_round(
         &mut self,
-        at: DeckPos,
+        pilots: &[DeckPos],
         reach: f32,
         (tick, frac): (u32, f32),
         dt: f32,
         in_the_way: &[InTheWay],
     ) {
+        let Some(first) = pilots.first() else {
+            self.shown.clear();
+            self.held.clear();
+            return;
+        };
         let dt = dt.clamp(1e-3, 1.0);
-        let t = town::town_t(at.s);
+        let t_ref = town::town_t(first.s);
+        // (A place `t` in the first pilot's turn of the ring.)
+        let turn = |t: f32| t + ((t_ref - t) / town::ROUND).round() * town::ROUND;
         // The held ones' places have run on ahead of them: look that much further.
         let most = self.held.values().fold(0.0f32, |a, h| a.max(h.2)) + 60.0;
         let (held, taken) = (&self.held, &self.taken);
         // Each car, where it was a moment ago (its own place if it's held, else the closed
         // form's), and how fast.
         let mut cars: Vec<(street::Car, f32, f32)> = Vec::new();
-        let (t0, t1) = (t - reach - most, t + reach + most);
-        street::each_car(at.x - reach, at.x + reach, t0, t1, tick, frac, &mut |c| {
-            if taken.contains(&c.id) {
-                return;
-            }
-            let d = dir(c);
-            let was = match held.get(&c.id) {
-                // (Its place in the turn of the ring the closed form's is in.)
-                Some(&(place, speed, _)) => {
-                    let behind = (d * (c.t - place)).rem_euclid(town::ROUND);
-                    (behind <= PATIENCE + 60.0).then_some((c.t - d * behind, speed))
+        for at in pilots {
+            let t = town::town_t(at.s);
+            let (t0, t1) = (t - reach - most, t + reach + most);
+            street::each_car(at.x - reach, at.x + reach, t0, t1, tick, frac, &mut |c| {
+                if taken.contains(&c.id) || cars.iter().any(|k| k.0.id == c.id) {
+                    return;
                 }
-                None => None,
-            };
-            let (was, speed) = was.unwrap_or((c.t - d * c.speed * dt, c.speed));
-            if (c.t - t).abs() <= reach || (was - t).abs() <= reach {
-                cars.push((*c, was, speed));
-            }
-        });
+                let d = dir(c);
+                let ct = turn(c.t);
+                let was = match held.get(&c.id) {
+                    // (Its place in the turn of the ring the closed form's is in.)
+                    Some(&(place, speed, _)) => {
+                        let behind = (d * (ct - place)).rem_euclid(town::ROUND);
+                        (behind <= PATIENCE + 60.0).then_some((ct - d * behind, speed))
+                    }
+                    None => None,
+                };
+                let (was, speed) = was.unwrap_or((ct - d * c.speed * dt, c.speed));
+                if (c.t - t).abs() <= reach || (turn(was) - turn(t)).abs() <= reach {
+                    cars.push((street::Car { t: ct, ..*c }, was, speed));
+                }
+            });
+        }
         // Lane by lane, the one in front first: each minds the one ahead as it's just been put.
         cars.sort_by(|a, b| {
             let lane = (a.0.id >> 16).cmp(&(b.0.id >> 16));
@@ -159,7 +177,7 @@ impl Traffic {
             // (Held past its patience, it minds nothing but the cars of its own lane.)
             if behind < PATIENCE {
                 for b in in_the_way {
-                    let off = d * (deck::round_from(RING, at.s, b.s) - (was - t));
+                    let off = d * deck::round_from(RING, town::deck_s(was), b.s);
                     if (b.x - c.x).abs() < HALF_LANE + b.half.0 && off > -1.0 {
                         free = free.min(off - b.half.1 - CAR_HALF - GAP);
                     }
@@ -177,9 +195,26 @@ impl Traffic {
                 still.insert(c.id, (now.rem_euclid(town::ROUND), v, behind));
             }
             ahead = Some((lane, now));
-            self.shown.push(Shown { car: street::Car { t: now, speed: v, ..c }, s: at.s + (now - t) });
+            self.shown.push(Shown { car: street::Car { t: now, speed: v, ..c }, s: first.s + (now - t_ref) });
         }
         self.held = still;
+    }
+
+    /// The cars held up now, for the wire (the server's word to its clients).
+    pub fn held_cars(&self) -> Vec<bc_econ::wire::HeldCar> {
+        let mut out: Vec<_> = self
+            .held
+            .iter()
+            .map(|(&id, &(t, v, behind))| bc_econ::wire::HeldCar { id, t, v, behind })
+            .collect();
+        out.sort_by_key(|h| h.id);
+        out
+    }
+
+    /// The server's word for which cars are held up, and where: taken for those it names (and
+    /// any other this client held up goes back to its place), predicted on from there.
+    pub fn adopt(&mut self, held: &[bc_econ::wire::HeldCar]) {
+        self.held = held.iter().map(|h| (h.id, (h.t.rem_euclid(town::ROUND), h.v, h.behind))).collect();
     }
 
     /// The cars in reach, as they are now.
@@ -201,7 +236,8 @@ impl Traffic {
     /// nearest, for the taking.
     pub fn at_hand(&self, at: DeckPos, reach: f32) -> Option<Shown> {
         let near = |c: &Shown| {
-            let (along, across) = ((at.s - c.s).abs() - CAR_HALF, (at.x - c.car.x).abs() - 0.9);
+            let along = deck::round_from(RING, at.s, c.s).abs() - CAR_HALF;
+            let across = (at.x - c.car.x).abs() - 0.9;
             along.max(0.0).hypot(across.max(0.0))
         };
         self.shown
@@ -362,5 +398,47 @@ mod tests {
             slowest_beside > 3.0 && slowest_beside < f32::MAX,
             "the lane beside it: {slowest_beside} m/s"
         );
+    }
+
+    #[test]
+    fn a_client_that_takes_the_servers_word_sees_the_same_queue_as_the_server() {
+        let (at, c) = ahead_of_a_car(900);
+        let me = [InTheWay::on_foot(at.x, at.s)];
+        // The server steps round two pilots: one in the lane, one a kilometre off.
+        let far = DeckPos::new(RING, at.x, at.s + 1_000.0, 0.0);
+        let mut server = Traffic::default();
+        let mut tick = 900;
+        for _ in 0..(20 * 30) {
+            server.step_round(&[far, at], 120.0, (tick, 0.0), bc_sim::DT, &me);
+            tick += 1;
+        }
+        let held = server.held_cars();
+        assert!(held.len() >= 2, "a queue: {held:?}");
+        // A client joining now, round the pilot in the lane: it takes the server's word, steps on
+        // with it a second, and has the queue where the server has it.
+        let mut client = Traffic::default();
+        client.adopt(&held);
+        for k in 0..30 {
+            server.step_round(&[far, at], 120.0, (tick + k, 0.0), bc_sim::DT, &me);
+            client.step(at, 120.0, (tick + k, 0.0), bc_sim::DT, &me);
+        }
+        let lane = |t: &Traffic| {
+            let mut v: Vec<(u32, f32)> =
+                t.cars().iter().filter(|s| s.car.x == c.x).map(|s| (s.car.id, s.car.t)).collect();
+            v.sort_by_key(|p| p.0);
+            v
+        };
+        let (a, b) = (lane(&server), lane(&client));
+        assert!(!b.is_empty());
+        for (id, t) in &b {
+            let there = a.iter().find(|p| p.0 == *id).expect("the same cars");
+            assert!((there.1 - t).abs() < 0.05, "car {id}: server {} client {t}", there.1);
+        }
+        // Round both pilots, every car once.
+        let mut ids: Vec<u32> = server.cars().iter().map(|s| s.car.id).collect();
+        let n = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), n);
     }
 }

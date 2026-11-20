@@ -1018,8 +1018,10 @@ pub struct TownFoot {
     district: Option<u16>,
     /// Told what the Watch's heat means (the first time it rises).
     told_watch: bool,
-    /// The town's traffic as this client has it: held back by what's in its lanes.
+    /// The town's traffic as this client has it: held back by what's in its lanes, the server's
+    /// word taken as it comes (`Update::Traffic`), and how many of those it's taken.
     traffic: Traffic,
+    traffic_heard: u64,
     /// A car of the traffic stopped at the pilot's hand, for the taking.
     jack: Option<bc_client_core::traffic::Shown>,
     /// The key place whose counter they're at (inside it).
@@ -1155,6 +1157,7 @@ impl TownFoot {
             district: None,
             told_watch: false,
             traffic: Traffic::default(),
+            traffic_heard: 0,
             jack: None,
             counter: None,
             cars: town_foot::Obstacles::default(),
@@ -2154,6 +2157,11 @@ pub fn drive_onfoot(
                 } else {
                     InTheWay::on_foot(p.x, p.s)
                 });
+            }
+            // The server's word on which cars are held up, and where, as it comes (`jams`).
+            if g.core.hangar.traffic_heard != t.traffic_heard {
+                t.traffic_heard = g.core.hangar.traffic_heard;
+                t.traffic.adopt(&g.core.hangar.traffic);
             }
             t.traffic.step(at, TOWN_TRAFFIC, g.core.colony_tick(now), walk_dt(false), &way);
             if town_cars.traffic != t.traffic.cars() {

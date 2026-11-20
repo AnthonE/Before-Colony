@@ -79,6 +79,8 @@ const MARKET_EVERY: Duration = Duration::from_secs(2);
 /// How often the homes near a pilot are looked at, and how far round them (m): doors open and
 /// shut, so it's soon.
 const HOMES_EVERY: Duration = Duration::from_millis(250);
+/// The traffic held up near a pilot in the town is sent at most this often.
+const JAMS_EVERY: Duration = Duration::from_millis(250);
 const HOMES_NEAR: f32 = 30.0;
 /// How near a home's door a pilot stands to use it, m.
 const AT_DOOR: f32 = 3.5;
@@ -162,6 +164,7 @@ pub(super) async fn run(
         incidents_seen: None,
         watch_news_seen: game.watch.news_seq(),
         units_sent: (Instant::now(), false),
+        jams_sent: (Instant::now(), 0, false),
         homes_near: Vec::new(),
         knocks_heard: game.homes.with(|h| h.knocks_for("", u64::MAX).1),
         waking: None,
@@ -258,6 +261,8 @@ struct Session<'a> {
     /// The Watch's units near them (`crate::dispatch`): when they were last sent, and whether any
     /// were.
     units_sent: (Instant, bool),
+    /// When the traffic held up near them was last sent, the version it was, and whether any was.
+    jams_sent: (Instant, u64, bool),
     homes_near: Vec<(i32, i32, u8)>,
     knocks_heard: u64,
     /// Back from asleep in a bed at home: where they get up, for the next `Update::Place`.
@@ -2378,6 +2383,24 @@ impl Session<'_> {
             let any = !units.is_empty();
             if std::mem::replace(&mut self.units_sent, (Instant::now(), any)).1 || any {
                 self.send(&Update::Units { units }).await?;
+            }
+        }
+        // Down in the town, the traffic held up near them whenever that moves (at most a few times a
+        // second, and once more, empty, when nothing near is).
+        if let Some(at) = at
+            && self.jams_sent.0.elapsed() >= JAMS_EVERY
+            && self.game.jams.version() != self.jams_sent.1
+        {
+            let held = self.game.jams.near(bc_sim::colony::deck::DeckPos::new(
+                bc_sim::colony::deck::RING,
+                at.0,
+                at.1,
+                0.0,
+            ));
+            let any = !held.is_empty();
+            let was = std::mem::replace(&mut self.jams_sent, (Instant::now(), self.game.jams.version(), any));
+            if was.2 || any {
+                self.send(&Update::Traffic { held }).await?;
             }
         }
         if settle && self.game.watch.news_seq() != self.watch_news_seen {

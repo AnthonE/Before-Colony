@@ -656,6 +656,12 @@ impl Plaza {
             .collect()
     }
 
+    /// The last pose of everyone down in the ring's town who's sent one.
+    pub fn town_poses(&self) -> Vec<PersonPose> {
+        let Ok(all) = self.people.lock() else { return Vec::new() };
+        all.values().filter(|p| p.strip == RING_DECK).filter_map(|p| p.pose).collect()
+    }
+
     /// For `/status`: how many pilots are down in the ring's town (no positions).
     pub fn in_town(&self) -> usize {
         self.people.lock().map_or(0, |all| all.values().filter(|p| p.strip == RING_DECK).count())

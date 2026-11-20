@@ -13,7 +13,7 @@
 use bc_sim::colony::deck::{DeckPos, local_frame};
 use bc_sim::pieces::parts::{Aabb, Part, parts};
 use bc_sim::pieces::prefab::Site;
-use bc_sim::pieces::shape::{DOORWAY, HALF_WALL, LEVEL_H_M, LOW_WALL, level_y};
+use bc_sim::pieces::shape::{DOORWAY, FRAME, HALF_WALL, LEVEL_H_M, LOW_WALL, level_y};
 use glam::{Quat, Vec3};
 
 use crate::station::{BAND, GARDENS, HULL, Sign, Surface, WHITE, YELLOW, colour};
@@ -163,6 +163,8 @@ pub fn site_mesh(site: &Site) -> PieceMesh {
                     (colour(Floor, WHITE, 0, seed), colour(Ceiling, WHITE, 0, seed), trim(HULL, seed))
                 }
                 Part::Wall => (trim(HULL, seed), trim(HULL, seed), colour(Wall, YELLOW, BAND, seed)),
+                // A doorway's posts are a hazard's edge; a frame's, standing in a hall, are columns.
+                Part::Post if p.shape == FRAME => (trim(HULL, seed), trim(HULL, seed), trim(HULL, seed)),
                 Part::Post => (trim(HULL, seed), trim(HULL, seed), colour(Hazard, WHITE, 0, seed)),
                 Part::Lintel => {
                     let lit = colour(Glow, GARDENS, 0, seed);

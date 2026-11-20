@@ -19,6 +19,7 @@ pub mod elo;
 pub mod floor;
 pub mod homes;
 pub mod http;
+pub mod jams;
 pub mod market;
 pub mod net;
 pub mod online;

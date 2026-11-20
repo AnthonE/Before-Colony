@@ -147,6 +147,8 @@ struct Mark {
     id: u32,
     at: u32,
     held: bool,
+    /// A car of the Watch's on patrol promoted to answer, not taken by a pilot.
+    patrol: bool,
 }
 
 /// A car left about, and the last tick a pilot in the town had it in sight.
@@ -357,7 +359,7 @@ impl Street {
         if d.kerbs.iter().any(|m| m.id == kerb) {
             return Err("that car's gone from its kerb");
         }
-        d.kerbs.push(Mark { id: kerb, at: tick, held: true }, |m| m.at);
+        d.kerbs.push(Mark { id: kerb, at: tick, held: true, patrol: false }, |m| m.at);
         d.version += 1;
         Ok(Held { from: Origin::Kerb(kerb), left_by: None })
     }
@@ -380,9 +382,22 @@ impl Street {
             return Err("somebody's taken that car already");
         }
         let d = &mut inner.districts[district_at(pose.s)];
-        d.lanes.push(Mark { id: car, at: tick, held: true }, |m| m.at);
+        d.lanes.push(Mark { id: car, at: tick, held: true, patrol: false }, |m| m.at);
         inner.lanes += 1;
         Ok((Held { from: Origin::Traffic(car), left_by: None }, c.kind))
+    }
+
+    /// The traffic's cars out of their lanes, anywhere (`crate::jams` leaves them out), and the
+    /// cars left about, each `(x, s, yaw)` (`crate::jams` brakes for them).
+    pub fn for_the_traffic(&self) -> (Vec<u32>, Vec<(f32, f32, f32)>) {
+        let Some(inner) = self.lock() else { return (Vec::new(), Vec::new()) };
+        let lanes = inner.districts.iter().flat_map(|d| d.lanes.iter().map(|m| m.id)).collect();
+        let left = inner
+            .districts
+            .iter()
+            .flat_map(|d| d.left.iter().map(|l| (l.car.x, l.car.s, l.car.yaw)))
+            .collect();
+        (lanes, left)
     }
 
     /// Car `car` of the traffic, one of the Watch's on patrol, promoted to answer something
@@ -394,7 +409,8 @@ impl Street {
             return;
         }
         let d = &mut inner.districts[district_at(s)];
-        d.lanes.push(Mark { id: car, at: tick, held: false }, |m| m.at);
+        d.lanes.push(Mark { id: car, at: tick, held: false, patrol: true }, |m| m.at);
+        // (The lanes' version moves, so clients hear it's gone.)
         inner.lanes += 1;
     }
 
@@ -545,7 +561,7 @@ impl Street {
             (
                 a + d.down.iter().filter(|p| p.until > tick && !p.away).count(),
                 b + d.kerbs.len(),
-                c + d.lanes.len(),
+                c + d.lanes.iter().filter(|m| !m.patrol).count(),
                 e + d.left.len(),
             )
         })

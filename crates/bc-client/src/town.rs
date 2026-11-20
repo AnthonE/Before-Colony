@@ -187,6 +187,20 @@ fn show_places(
                     ..s
                 })
                 .collect();
+            // And its name large across its front, over the upper storey's windows, to be read from
+            // the boulevard.
+            let mut signs = signs;
+            let wide = (site.prefab.cells.2 + 1) as f32 * 3.0;
+            let face = Vec3::new(wide * 0.5, 5.35, -0.2);
+            let (at, out) = (place_local(&site, face), place_local(&site, face + Vec3::new(0.0, 0.0, -1.0)));
+            signs.push(bc_client_core::station::Sign {
+                text: site.prefab.name.into(),
+                at,
+                normal: (out - at).normalize(),
+                up: Vec3::Y,
+                height: 1.1,
+                ink: bc_client_core::station::WHITE,
+            });
             atlas.hang_on(&signs, entity, Some(CITY_LAYER), &mut commands, &mut meshes, &mut standard);
             place.signed = true;
         }
