@@ -4,6 +4,7 @@
 //! for agents alike.
 
 use bc_proto::Part;
+use bc_sim::colony::watch::{Offence, UnitKind};
 use bc_sim::content::city::PlaceKind;
 use bc_sim::content::{Grade, Kit};
 use serde::{Deserialize, Serialize};
@@ -113,11 +114,48 @@ pub enum Request {
     },
     /// Stopped in the square the fare asked for: set them down, and be paid.
     DropFare,
-    /// Caught by the Watch in the ring's town, wanted at `heat` (1 to 5, `docs/OPEN_CITY.md`): its
-    /// fine ([`watch_fine`]) is paid from the bay's credits, as much of it as there is.
-    Fine {
-        heat: u8,
+    /// On foot in the ring's town, at the side of a car parked at a kerb
+    /// (`bc_sim::colony::street::kerb`): take it. The server checks the car is there, near the
+    /// pilot and not already taken; everyone near sees the kerb empty ([`Update::Street`]), and the
+    /// Watch minds (it's somebody's). Refused with a `note`.
+    TakeParked {
+        kerb: u32,
     },
+    /// On foot in the ring's town, at the side of a car of the traffic stopped for them
+    /// (`bc_sim::colony::street::Car::id`): take it from its driver. The server checks its lane runs
+    /// beside the pilot with its place no further on than a held car falls behind
+    /// (`street::PATIENCE`); everyone sees it gone from the traffic, and the Watch minds.
+    Jack {
+        car: u32,
+    },
+    /// Out of the car the server has them holding (one taken from a kerb, the traffic or where it
+    /// was left), standing where it is: its middle on the ring's floor, across it and round it (the
+    /// deck's `s`), cm, and the way it faces (the walker's yaw), mrad. Left there for anyone
+    /// ([`LeftCar`]); within a few metres of where the pilot is, or refused.
+    LeaveCar {
+        x_cm: i32,
+        s_cm: i32,
+        yaw_mrad: i32,
+    },
+    /// On foot in the ring's town, at the side of a car left about ([`LeftCar::id`]): take it.
+    TakeLeft {
+        id: u32,
+    },
+    /// Stopped by the Watch in the ring's town (one of its cars at their side): the fine of the heat
+    /// the server holds on them ([`watch_fine`]) is paid from the bay's credits, as much of it as
+    /// there is, and the heat is cleared ([`Update::Heat`]). Nothing on them: refused.
+    Stopped,
+    /// In the ring's town, the pilot did something the Watch minds that the server can't see for
+    /// itself (`bc_sim::colony::watch::Offence::reported`: a car taken from a kerb or its driver,
+    /// one of the Watch's own, a knock against another car). It can only add heat: whether the
+    /// Watch saw it is the server's to judge, and the same report is taken at most once a second.
+    Offence {
+        #[serde(with = "offence_serde")]
+        what: Offence,
+    },
+    /// In the ring's town, one of the Watch's cars after the pilot has them in sight: their heat
+    /// doesn't cool while it does. Taken at most once a second; it never adds or takes heat.
+    Sighted,
     /// On foot at the Blast Hall's gantry in the colony's city: board one of the Charter Board's
     /// trainers and fly it from there (the inside's sector, weapons free in the hall). Nothing of
     /// the pilot's own is taken; `dock`, at rest on the gantry, puts them back on foot there.
@@ -322,10 +360,16 @@ impl Request {
             | Request::LeaveBase
             | Request::EnterTown
             | Request::LeaveTown
-            | Request::Fine { .. }
+            | Request::Stopped
+            | Request::Offence { .. }
+            | Request::Sighted
             | Request::Hit { .. }
             | Request::TakeFare { .. }
             | Request::DropFare
+            | Request::TakeParked { .. }
+            | Request::Jack { .. }
+            | Request::LeaveCar { .. }
+            | Request::TakeLeft { .. }
             | Request::BoardTrainer
             | Request::Withdraw { .. }
             | Request::Deliver { .. }
@@ -444,13 +488,99 @@ pub struct Down {
     pub away: bool,
 }
 
+/// A car a pilot took from the ring's town's street and left about (`docs/FREE_ROAM.md`, P2's taken
+/// set): where it stands on the ring's floor (across it, round it in the deck's `s`, m) and the way it
+/// faces, where it came from (its look is that one's, on every screen: the kerb's car, or the
+/// traffic's car `street::car` names), who left it (their session's id, as the plaza's datagrams name
+/// them) and the sector's tick they did. Anyone may take it ([`Request::TakeLeft`]).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LeftCar {
+    pub id: u32,
+    pub x: f32,
+    pub s: f32,
+    pub yaw: f32,
+    /// From a kerb's bay (`bc_sim::colony::street::kerb`), or out of the traffic
+    /// (`street::Car::id`): one of the two.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kerb: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub car: Option<u32>,
+    pub by: u16,
+    pub at: u32,
+}
+
+/// One of the ring's town's districts (`content::town::DISTRICTS`, 0 to 11) as the server holds what
+/// has been taken out of its crowd: its people down (or away in a pilot's car), its kerbs whose cars
+/// have been driven off (`bc_sim::colony::street::kerb`), and the cars left about in it; and its
+/// version, which moves whenever any of them does.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TakenDistrict {
+    pub district: u16,
+    pub version: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub down: Vec<Down>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kerbs: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left: Vec<LeftCar>,
+}
+
 /// What a fare pays for each kilometre round the ring between its two squares, credits.
 pub const FARE_PER_KM: u64 = 40;
 
-/// The Watch's fine for a pilot caught wanted at `heat` (1 to 5), credits.
+/// The Watch's fine for a pilot caught wanted at `heat` (1 to 5), credits (`bc_sim::colony::watch`'s).
 pub fn watch_fine(heat: u8) -> u64 {
-    let l = u64::from(heat.min(5));
-    150 * l * l
+    bc_sim::colony::watch::fine(heat)
+}
+
+/// Something the Watch is answering in the ring's town (`docs/FREE_ROAM.md`, 4; `docs/OPEN_CITY.md`,
+/// "A huge deal"): where, how bad, what raised it, when, and who it's about. Everyone down in the
+/// town is told them all ([`Update::Incidents`]).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Incident {
+    pub id: u32,
+    /// Where on the ring's floor: across it, round it (the deck's own `s`), m.
+    pub x: f32,
+    pub s: f32,
+    /// How bad, 1 to 5: the heat it rose to.
+    pub level: u8,
+    /// What raised it, last.
+    #[serde(with = "offence_serde")]
+    pub cause: Offence,
+    /// The sector's ticks it was raised at and is over at (its last rise's time on from then).
+    pub at: u32,
+    pub until: u32,
+    /// Who it's about: their session's id, as the plaza's datagrams name them (0: nobody's).
+    #[serde(default)]
+    pub offender: u16,
+}
+
+/// One of the Watch's units out in the ring's town (`docs/FREE_ROAM.md`, 4: the server's, sent out
+/// of its stations by road): which (its number, the same as long as the server runs), what (a car,
+/// a Sirius hound), where on the ring's floor (across it, round it: the deck's own `s`, m), the way
+/// it faces (the walker's yaw: 0 faces −s, τ/4 faces +x) and what it's doing. Everyone down in the
+/// town is told those near them ([`Update::Units`]).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Unit {
+    pub id: u16,
+    #[serde(with = "unit_kind_serde")]
+    pub kind: UnitKind,
+    pub x: f32,
+    pub s: f32,
+    pub heading: f32,
+    pub state: UnitState,
+}
+
+/// What one of the Watch's units is doing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnitState {
+    /// On its way to an incident, or after a wanted pilot.
+    Driving,
+    /// Holding a cordon round an incident's place.
+    Cordon,
+    /// Back to its station, where it's free again.
+    Returning,
 }
 
 /// Where the pilot is.
@@ -552,16 +682,41 @@ pub enum Update {
     /// The pilot's body (survival): how fed they are, and for how long. On entering, after a meal,
     /// when the condition changes, and each minute on foot.
     Body(crate::body::BodyView),
-    /// The ring's town's street, to everyone down in it, whenever it changes: its people knocked
-    /// down.
+    /// The ring's town's street as the server holds it (`docs/FREE_ROAM.md`, P2's taken set): what's
+    /// been taken out of the crowd in the districts round the pilot (their own, by where the plaza
+    /// has them, and the one either side: `near`; the client forgets any other), each of `districts`
+    /// whole, sent when its version moves or the pilot comes near it; and the traffic's cars taken
+    /// out of their lanes anywhere round the ring (a lane's places go all the way round), when that
+    /// changes (absent: as last sent).
     Street {
-        down: Vec<Down>,
+        near: Vec<u16>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        districts: Vec<TakenDistrict>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lanes: Option<Vec<u32>>,
     },
     /// The fare in the pilot's car (the ring's town): the lift whose square they asked for, and
     /// what they pay there; none, set down or lost.
     Fare {
         to: Option<u16>,
         pay: u64,
+    },
+    /// How much the Watch wants the pilot (`docs/OPEN_CITY.md`, "Heat and the Watch"), 0 to 5, as
+    /// the server holds it: on entering and whenever it changes. Risen, what raised it.
+    Heat {
+        level: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none", with = "opt_offence_serde")]
+        cause: Option<Offence>,
+    },
+    /// The incidents the Watch is answering in the ring's town, to everyone down in it whenever
+    /// they change.
+    Incidents {
+        incidents: Vec<Incident>,
+    },
+    /// The Watch's units out near the pilot in the ring's town, nearest first, a few times a second
+    /// while any are (and once more, empty, when none are left).
+    Units {
+        units: Vec<Unit>,
     },
 }
 
@@ -649,7 +804,7 @@ impl HomesView {
     }
 }
 
-/// Someone in the city, by the slot the plaza's datagrams know them by.
+/// Someone in the city, by the session id the plaza's datagrams know them by.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Person {
     pub id: u16,
@@ -797,10 +952,16 @@ pub fn apply(
         | Request::LeaveBase
         | Request::EnterTown
         | Request::LeaveTown
-        | Request::Fine { .. }
+        | Request::Stopped
+        | Request::Offence { .. }
+        | Request::Sighted
         | Request::Hit { .. }
         | Request::TakeFare { .. }
         | Request::DropFare
+        | Request::TakeParked { .. }
+        | Request::Jack { .. }
+        | Request::LeaveCar { .. }
+        | Request::TakeLeft { .. }
         | Request::WatchBoard { .. }
         | Request::UseKit { .. }
         | Request::Eject { .. }
@@ -942,6 +1103,55 @@ mod kit_serde {
 }
 
 /// Serde for an optional part, as its slug or null.
+mod offence_serde {
+    use bc_sim::colony::watch::Offence;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(o: &Offence, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(o.slug())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Offence, D::Error> {
+        let s = String::deserialize(d)?;
+        Offence::from_slug(&s).ok_or_else(|| serde::de::Error::custom(format!("no such offence: {s}")))
+    }
+}
+
+mod unit_kind_serde {
+    use bc_sim::colony::watch::UnitKind;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(k: &UnitKind, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(k.slug())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<UnitKind, D::Error> {
+        let s = String::deserialize(d)?;
+        UnitKind::from_slug(&s).ok_or_else(|| serde::de::Error::custom(format!("no such unit: {s}")))
+    }
+}
+
+mod opt_offence_serde {
+    use bc_sim::colony::watch::Offence;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(o: &Option<Offence>, s: S) -> Result<S::Ok, S::Error> {
+        match o {
+            Some(o) => s.serialize_some(o.slug()),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Offence>, D::Error> {
+        match Option::<String>::deserialize(d)? {
+            None => Ok(None),
+            Some(s) => Offence::from_slug(&s)
+                .map(Some)
+                .ok_or_else(|| serde::de::Error::custom(format!("no such offence: {s}"))),
+        }
+    }
+}
+
 mod opt_part {
     use bc_proto::Part;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -1027,6 +1237,16 @@ mod tests {
             (r#"{"t":"eject"}"#, Request::Eject { destruct: false }),
             (r#"{"t":"eject","destruct":true}"#, Request::Eject { destruct: true }),
             (r#"{"t":"say","text":"o7"}"#, Request::Say { text: "o7".into() }),
+            (r#"{"t":"stopped"}"#, Request::Stopped),
+            (r#"{"t":"offence","what":"took_a_car"}"#, Request::Offence { what: Offence::TookACar }),
+            (r#"{"t":"sighted"}"#, Request::Sighted),
+            (r#"{"t":"take_parked","kerb":131077}"#, Request::TakeParked { kerb: 131_077 }),
+            (r#"{"t":"jack","car":65539}"#, Request::Jack { car: 65_539 }),
+            (
+                r#"{"t":"leave_car","x_cm":-4210,"s_cm":1100250,"yaw_mrad":3142}"#,
+                Request::LeaveCar { x_cm: -4_210, s_cm: 1_100_250, yaw_mrad: 3_142 },
+            ),
+            (r#"{"t":"take_left","id":9}"#, Request::TakeLeft { id: 9 }),
         ];
         for (json, req) in cases {
             assert_eq!(decode::<Request>(json.as_bytes()).as_ref(), Some(req), "{json}");
@@ -1034,6 +1254,9 @@ mod tests {
         }
         assert_eq!(decode::<Request>(br#"{"t":"fit","item":"part.cetus.head"}"#), None);
         assert_eq!(decode::<Request>(b"not json"), None);
+        assert_eq!(decode::<Request>(br#"{"t":"offence","what":"loitering"}"#), None);
+        // The old fine, with the heat on the client's word, is no request now.
+        assert_eq!(decode::<Request>(br#"{"t":"fine","heat":0}"#), None);
     }
 
     /// Each desk in the city does its one thing (the colony open), and any terminal the rest:
@@ -1073,10 +1296,16 @@ mod tests {
             (Request::LeaveBase, None),
             (Request::EnterTown, None),
             (Request::LeaveTown, None),
-            (Request::Fine { heat: 2 }, None),
+            (Request::Stopped, None),
+            (Request::Offence { what: Offence::Knock }, None),
+            (Request::Sighted, None),
             (Request::Hit { person: 7 }, None),
             (Request::TakeFare { person: 7 }, None),
             (Request::DropFare, None),
+            (Request::TakeParked { kerb: 1 }, None),
+            (Request::Jack { car: 1 }, None),
+            (Request::LeaveCar { x_cm: 0, s_cm: 0, yaw_mrad: 0 }, None),
+            (Request::TakeLeft { id: 1 }, None),
             (Request::BoardTrainer, None),
             (Request::Withdraw { id: 1 }, None),
             (Request::Deliver { id: 1, qty: 1 }, None),
@@ -1094,7 +1323,7 @@ mod tests {
             .iter()
             .map(|(r, _)| serde_json::to_value(r).unwrap()["t"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(tags.len(), 40, "every request: {tags:?}");
+        assert_eq!(tags.len(), 46, "every request: {tags:?}");
         // Each refusal says where to go, as the server's notes and the e2e read them.
         for (k, place) in [
             (Floor, "the exchange floor's counter"),
@@ -1128,6 +1357,83 @@ mod tests {
         b.record(crate::proving::Feat::Course, "me", "Kai", 118_000, 1_000_000);
         let board = Update::Proving(b.view("me", 1_000_000));
         assert_eq!(decode::<Update>(&encode(&board)), Some(board));
+    }
+
+    #[test]
+    fn the_watchs_heat_and_incidents_go_round() {
+        let cold = Update::Heat { level: 0, cause: None };
+        assert_eq!(String::from_utf8(encode(&cold)).unwrap(), r#"{"t":"heat","level":0}"#);
+        assert_eq!(decode::<Update>(&encode(&cold)), Some(cold));
+        let hot = Update::Heat { level: 3, cause: Some(Offence::HitSomeone) };
+        let json = String::from_utf8(encode(&hot)).unwrap();
+        assert_eq!(json, r#"{"t":"heat","level":3,"cause":"hit_someone"}"#);
+        assert_eq!(decode::<Update>(json.as_bytes()), Some(hot));
+        let one = Incident {
+            id: 7,
+            x: -120.5,
+            s: 11_002.25,
+            level: 4,
+            cause: Offence::TookTheWatchs,
+            at: 9_000,
+            until: 14_400,
+            offender: 3,
+        };
+        let all = Update::Incidents { incidents: vec![one, Incident { id: 8, offender: 0, ..one }] };
+        let json = String::from_utf8(encode(&all)).unwrap();
+        assert!(json.contains(r#""cause":"took_the_watchs""#), "{json}");
+        assert_eq!(decode::<Update>(json.as_bytes()), Some(all));
+        // Nobody's: the offender left out reads as 0.
+        let bare = r#"{"t":"incidents","incidents":[{"id":1,"x":0.0,"s":5.0,"level":5,"cause":"reckless","at":1,"until":2}]}"#;
+        let Some(Update::Incidents { incidents }) = decode::<Update>(bare.as_bytes()) else { panic!() };
+        assert_eq!((incidents[0].offender, incidents[0].cause), (0, Offence::Reckless));
+        assert_eq!((watch_fine(1), watch_fine(3), watch_fine(7)), (150, 1_350, 3_750));
+    }
+
+    #[test]
+    fn the_streets_taken_set_goes_round() {
+        let down = Down { id: 0x51, x: -40.5, s: 10_995.5, yaw: 1.5, until: 900, away: false };
+        let left =
+            LeftCar { id: 3, x: 12.0, s: 11_020.0, yaw: 0.0, kerb: Some(77), car: None, by: 2, at: 450 };
+        let one = TakenDistrict {
+            district: 0,
+            version: 4,
+            down: vec![down],
+            kerbs: vec![77, 78],
+            left: vec![left],
+        };
+        let empty = TakenDistrict { district: 11, version: 1, ..TakenDistrict::default() };
+        let all =
+            Update::Street { near: vec![11, 0, 1], districts: vec![one, empty], lanes: Some(vec![65_539]) };
+        let json = String::from_utf8(encode(&all)).unwrap();
+        assert!(json.contains(r#"{"district":11,"version":1}"#), "an empty district is short: {json}");
+        assert!(json.contains(r#""kerb":77,"by":2"#) && !json.contains(r#""car":null"#), "{json}");
+        assert_eq!(decode::<Update>(json.as_bytes()), Some(all));
+        // Nothing changed but where they are: only which districts are theirs now.
+        let moved = Update::Street { near: vec![0, 1, 2], districts: vec![], lanes: None };
+        assert_eq!(String::from_utf8(encode(&moved)).unwrap(), r#"{"t":"street","near":[0,1,2]}"#);
+        assert_eq!(decode::<Update>(&encode(&moved)), Some(moved));
+    }
+
+    #[test]
+    fn the_watchs_units_go_round() {
+        let car = Unit {
+            id: 12,
+            kind: UnitKind::Car,
+            x: 29.0,
+            s: 10_500.5,
+            heading: 1.5,
+            state: UnitState::Driving,
+        };
+        let hound = Unit { id: 13, kind: UnitKind::Hound, state: UnitState::Cordon, ..car };
+        let all = Update::Units { units: vec![car, hound] };
+        let json = String::from_utf8(encode(&all)).unwrap();
+        assert!(json.starts_with(r#"{"t":"units","units":[{"id":12,"kind":"car","#), "{json}");
+        assert!(json.contains(r#""kind":"hound""#) && json.contains(r#""state":"cordon""#), "{json}");
+        assert_eq!(decode::<Update>(json.as_bytes()), Some(all));
+        let none = Update::Units { units: vec![] };
+        assert_eq!(String::from_utf8(encode(&none)).unwrap(), r#"{"t":"units","units":[]}"#);
+        let odd = r#"{"t":"units","units":[{"id":1,"kind":"tank","x":0.0,"s":0.0,"heading":0.0,"state":"driving"}]}"#;
+        assert_eq!(decode::<Update>(odd.as_bytes()), None);
     }
 
     #[test]

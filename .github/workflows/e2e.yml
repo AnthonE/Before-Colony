@@ -12,9 +12,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Both jobs on 24.04: Playwright 1.56 has no Chromium for 26.04 (what ubuntu-latest now is), and
+  # the suites run the build job's binaries, so it must not link a newer glibc than they find.
   build:
     name: build the server and the web client
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -44,13 +46,13 @@ jobs:
   suite:
     name: ${{ matrix.suite }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 270
     strategy:
       # One suite's failure never cancels the others.
       fail-fast: false
       matrix:
-        suite: [spike, slice, gfx, frames, lockon, ui, login, hangar, surface, colony, chart, inside, town]
+        suite: [spike, slice, gfx, frames, lockon, ui, login, hangar, surface, colony, chart, inside, town, perf]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

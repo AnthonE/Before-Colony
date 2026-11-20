@@ -11,7 +11,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::plaza::{Plaza, VISITOR_BASE, VISITORS};
+use crate::plaza::{Plaza, VISITORS};
 
 /// How often the list is read.
 pub const EVERY: Duration = Duration::from_secs(10);
@@ -69,18 +69,7 @@ async fn read(client: &reqwest::Client, url: &str) -> anyhow::Result<Vec<(String
 
 /// Reads `url` every [`EVERY`] into `plaza`'s Exchange floor until `shutdown`. Never ends early: a
 /// read that fails is logged (now and then) and tried again.
-pub async fn run(
-    url: String,
-    plaza: Arc<Plaza>,
-    max_clients: usize,
-    mut shutdown: tokio::sync::watch::Receiver<bool>,
-) {
-    if max_clients > usize::from(VISITOR_BASE) {
-        tracing::warn!(
-            "the store's traders stay off the Exchange floor: --max-clients is over {VISITOR_BASE}"
-        );
-        return;
-    }
+pub async fn run(url: String, plaza: Arc<Plaza>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
     let Some(room) = crate::floor::exchange_room() else { return };
     let client = match reqwest::Client::builder().timeout(Duration::from_secs(5)).build() {
         Ok(c) => c,
@@ -119,6 +108,7 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plaza::VISITOR_BASE;
     use serde_json::json;
 
     #[test]

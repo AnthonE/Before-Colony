@@ -77,8 +77,8 @@ const fn lane_of(x: f32, dir: f32, speed: f32, pitch: f32, fill: f32) -> Lane {
 const BOULEVARD_LANES: [(f32, f32); 3] =
     [(MEDIAN_HALF + 3.0, 19.0), (MEDIAN_HALF + 9.0, 16.0), (MEDIAN_HALF + 15.0, 13.0)];
 /// A two-way road's lane off its middle, m: the streets', and the rim roads'.
-const STREET_LANE: f32 = 1.75;
-const RIM_LANE: f32 = 1.875;
+pub const STREET_LANE: f32 = 1.75;
+pub const RIM_LANE: f32 = 1.875;
 /// The streets between columns of blocks (a column's far edge where a street is what's there).
 const STREETS: usize = 10;
 /// How many lanes there are.
@@ -162,12 +162,7 @@ pub fn each_car(x0: f32, x1: f32, t0: f32, t1: f32, tick: u32, frac: f32, f: &mu
             if town::unit(seed, 1) >= l.fill {
                 continue;
             }
-            let kind = match seed % 23 {
-                0 => Kind::Watch,
-                1..=3 => Kind::Taxi,
-                4..=7 => Kind::Van,
-                _ => Kind::Car,
-            };
+            let kind = kind_of(seed);
             f(&Car {
                 id: (k as u32) << 16 | slot,
                 x: l.x,
@@ -179,6 +174,45 @@ pub fn each_car(x0: f32, x1: f32, t0: f32, t1: f32, tick: u32, frac: f32, f: &mu
             });
         }
     }
+}
+
+/// What a car of the traffic with seed `seed` is.
+fn kind_of(seed: u32) -> Kind {
+    match seed % 23 {
+        0 => Kind::Watch,
+        1..=3 => Kind::Taxi,
+        4..=7 => Kind::Van,
+        _ => Kind::Car,
+    }
+}
+
+/// How far behind its place in its lane a client lets a car of the traffic be held by what's in its
+/// way, m (`bc_client_core::traffic`): past that it drives on. A car stopped for the taking is no
+/// further behind its place than this.
+pub const PATIENCE: f32 = 900.0;
+
+/// The car of the traffic `id` names ([`Car::id`]: its lane and its place in it) where the tick has
+/// it at `tick`, if that place has a car in it (`t` within the ring's round).
+pub fn car(id: u32, tick: u32) -> Option<Car> {
+    let (k, slot) = ((id >> 16) as usize, id & 0xFFFF);
+    let l = lane(k)?;
+    if slot >= l.slots {
+        return None;
+    }
+    let seed = town::mix(k as u32, slot, 0xCA7);
+    if town::unit(seed, 1) >= l.fill {
+        return None;
+    }
+    let t = (slot as f32 + 0.5) * l.pitch() + l.dir * gone(&l, tick, 0.0);
+    Some(Car {
+        id,
+        x: l.x,
+        t: town::wrap(t),
+        yaw: if l.dir > 0.0 { PI } else { 0.0 },
+        speed: l.speed(),
+        kind: kind_of(seed),
+        seed,
+    })
 }
 
 /// How somebody on foot holds themselves.
@@ -370,6 +404,107 @@ pub fn each_person(x0: f32, x1: f32, t0: f32, t1: f32, tick: u32, frac: f32, f: 
 /// The boulevard's kerbs, for the tests: nothing of the traffic is outside its carriageways.
 pub const BOULEVARD: (f32, f32) = (MEDIAN_HALF, BOULEVARD_HALF);
 
+/// How many parking bays there are along a cell's length of kerb, and how far apart their middles
+/// are, m (the client's `town.wgsl` paints a tick between each): a whole number round the ring, so
+/// the same bays whichever way round they're counted.
+pub const BAYS_PER_CELL: u16 = 21;
+pub const BAY: f32 = CELL / BAYS_PER_CELL as f32;
+/// Bays round the ring, along each kerb.
+pub const BAYS: u32 = CELLS as u32 * BAYS_PER_CELL as u32;
+/// How far in from a street's kerb a parked car's middle is, m.
+pub const BAY_IN: f32 = 1.5;
+
+/// A car parked at a kerb of the streets between the town's columns of blocks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Parked {
+    /// Its kerb's bay ([`kerb`]): the same car, and the same bay, for everyone.
+    pub kerb: u32,
+    pub x: f32,
+    pub t: f32,
+    /// The way it faces (the walker's yaw): its nose the way its side of the street is driven.
+    pub yaw: f32,
+    pub seed: u32,
+}
+
+/// The id of the bay `bay` round the ring (0 to [`BAYS`]) along the street at column `column`'s far
+/// edge, on its aft side (`aft`) or its fore: which bay a parked car is in, so that which are empty
+/// can be told in a few bits.
+pub const fn kerb(column: u8, aft: bool, bay: u32) -> u32 {
+    (((column as u32) << 1 | aft as u32) << 16) | (bay % BAYS)
+}
+
+/// Whether bay `bay` along the street at column `column`'s far edge has a car in it, on its aft side
+/// or its fore, and its seed if so: one bay in three or so, but not across the cross streets at a
+/// cell's ends.
+fn parked_in(column: u8, aft: bool, bay: u32) -> Option<u32> {
+    let cell = (bay / u32::from(BAYS_PER_CELL)) as u16;
+    let row = town::block_rect(BlockId::new(cell, column));
+    let along = (bay as f32 + 0.5) * BAY;
+    if along < row.t0 + 10.0 || along > row.t1 - 10.0 {
+        return None;
+    }
+    let h = town::mix(u32::from(column) * 2 + u32::from(aft), bay, 0xCA5);
+    h.is_multiple_of(3).then_some(h)
+}
+
+/// Every car parked at the kerbs of the streets between the town's columns within `x0..x1` across
+/// the ring and `t0..t1` round it (any `t`, either side of Hub Gate): a closed form of the place, the
+/// same on every screen. One bay in three or so has a car in it, nose the way its side of the street
+/// is driven (traffic keeps right). By street, fore to aft, then round the ring.
+pub fn each_parked(x0: f32, x1: f32, t0: f32, t1: f32, f: &mut impl FnMut(&Parked)) {
+    let half = STREET * 0.5;
+    for c in 0..COLUMNS {
+        let Some(sx) = street_x(c) else { continue };
+        if sx + half < x0 || sx - half > x1 {
+            continue;
+        }
+        let (b0, b1) = (floor(t0 / BAY) as i32, -floor(-t1 / BAY) as i32);
+        for g in b0..=b1 {
+            let bay = g.rem_euclid(BAYS as i32) as u32;
+            for side in [-1.0f32, 1.0] {
+                let aft = side > 0.0;
+                let Some(seed) = parked_in(c, aft, bay) else { continue };
+                let (x, t) = (sx + side * (half - BAY_IN), (g as f32 + 0.5) * BAY);
+                if x < x0 || x > x1 || t < t0 || t > t1 {
+                    continue;
+                }
+                // Keeping right: on the +x side of the street's middle, the way `t` grows.
+                let yaw = if aft { PI } else { 0.0 };
+                f(&Parked { kerb: kerb(c, aft, bay), x, t, yaw, seed });
+            }
+        }
+    }
+}
+
+/// The car parked in bay `kerb` ([`kerb`]), if one is: where it stands (`t` within the ring's round).
+pub fn parked(kerb: u32) -> Option<Parked> {
+    let (column, aft, bay) = (kerb >> 17, kerb >> 16 & 1 == 1, kerb & 0xFFFF);
+    if column >= u32::from(COLUMNS) {
+        return None;
+    }
+    let column = column as u8;
+    let sx = street_x(column)?;
+    if bay >= BAYS {
+        return None;
+    }
+    let seed = parked_in(column, aft, bay)?;
+    let side = if aft { 1.0 } else { -1.0 };
+    let (x, t) = (sx + side * (STREET * 0.5 - BAY_IN), (bay as f32 + 0.5) * BAY);
+    Some(Parked { kerb, x, t, yaw: if aft { PI } else { 0.0 }, seed })
+}
+
+/// The bay a car standing at `(x, t)` is parked in, if it's in one (its middle within a bay's
+/// length and a metre of where a parked car stands), car or none.
+pub fn kerb_at(x: f32, t: f32) -> Option<u32> {
+    let bay = (floor(town::wrap(t) / BAY) as u32).min(BAYS - 1);
+    (0..COLUMNS).find_map(|c| {
+        let sx = street_x(c)?;
+        let aft = x > sx;
+        let side = if aft { 1.0 } else { -1.0 };
+        ((x - (sx + side * (STREET * 0.5 - BAY_IN))).abs() <= 1.0).then(|| kerb(c, aft, bay))
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 mod tests {
@@ -434,6 +569,25 @@ mod tests {
     }
 
     #[test]
+    fn a_car_of_the_traffic_is_found_by_its_id_where_the_tick_has_it() {
+        for tick in [0u32, 9_876, 4_000_000_000] {
+            let all = cars(-HALF, HALF, 0.0, 700.0, tick, 0.0);
+            assert!(!all.is_empty());
+            for c in &all {
+                let by_id = car(c.id, tick).expect("its place has a car");
+                assert!(by_id.id == c.id && by_id.seed == c.seed && by_id.kind == c.kind && by_id.x == c.x);
+                assert!((town::wrap(c.t) - by_id.t).abs() < 1e-2, "{c:?} vs {by_id:?}");
+            }
+        }
+        // An empty place, a place past the lane's last, a lane there isn't: none.
+        let l = lane(0).unwrap();
+        let empty = (0..l.slots).find(|&i| town::unit(town::mix(0, i, 0xCA7), 1) >= l.fill).unwrap();
+        assert!(
+            car(empty, 0).is_none() && car(l.slots, 0).is_none() && car((LANES as u32) << 16, 0).is_none()
+        );
+    }
+
+    #[test]
     fn cars_never_meet_and_come_back_whole_astride_hub_gate() {
         for tick in [0u32, 12_345, 4_000_000_000] {
             let all = cars(-HALF, HALF, -400.0, 400.0, tick, 0.5);
@@ -452,6 +606,56 @@ mod tests {
                 assert!(a.id == b.id && (a.t + ROUND - b.t).abs() < 0.05, "{a:?} vs {b:?}");
             }
         }
+    }
+
+    #[test]
+    fn cars_stand_parked_in_the_streets_bays_each_its_own_kerb() {
+        let mut all = Vec::new();
+        each_parked(-HALF, HALF, 0.0, ROUND, &mut |p| all.push(*p));
+        // A car in about one bay in three along the blocks' sides of every street (two thirds of a
+        // cell's length: none by the cross streets), both kerbs.
+        let bays = (STREETS as u32 * 2 * BAYS) as f32;
+        assert!(all.len() as f32 > bays * 0.19 && (all.len() as f32) < bays * 0.27, "{} cars", all.len());
+        let mut kerbs: Vec<u32> = all.iter().map(|p| p.kerb).collect();
+        kerbs.sort_unstable();
+        kerbs.dedup();
+        assert_eq!(kerbs.len(), all.len(), "two cars in one bay");
+        for p in &all {
+            // On a street's carriageway by its kerb, clear of every wall, nose the way its side runs.
+            assert_eq!(ground_at(p.x, p.t), Ground::Road, "{p:?}");
+            let q = TownBox::new(p.x - 0.9, p.x + 0.9, p.t - 2.2, p.t + 2.2, 0.1, 1.5);
+            let mut clear = true;
+            town::each_box(q.x0, q.x1, q.t0, q.t1, &mut |b| clear &= !b.overlaps(&q));
+            assert!(clear, "{p:?} is in a wall");
+            let street = (0..COLUMNS).filter_map(street_x).find(|x| (p.x - x).abs() < STREET * 0.5);
+            let sx = street.unwrap_or_else(|| panic!("{p:?} isn't in a street"));
+            assert!(((p.x - sx).abs() - (STREET * 0.5 - BAY_IN)).abs() < 1e-3, "{p:?}");
+            assert_eq!(p.x > sx, p.yaw == PI, "{p:?}");
+            // Its bay names it: the same car, found by it or where it stands.
+            assert_eq!(parked(p.kerb), Some(*p));
+            assert_eq!(kerb_at(p.x, p.t), Some(p.kerb));
+            assert_eq!(kerb_at(p.x + 0.3, p.t + 0.3 * BAY + ROUND), Some(p.kerb));
+        }
+        // An empty bay is named too, and has no car.
+        let empty = (0..BAYS).map(|b| kerb(0, true, b)).find(|k| parked(*k).is_none()).unwrap();
+        assert_eq!(kerb_at(parked_at(empty).0, parked_at(empty).1), Some(empty));
+        assert_eq!(kerb_at(0.0, 300.0), None);
+        // Asked for astride Hub Gate, a turn on: the same cars a turn on.
+        let mut near = Vec::new();
+        each_parked(-HALF, HALF, -300.0, 300.0, &mut |p| near.push(*p));
+        let mut turn = Vec::new();
+        each_parked(-HALF, HALF, ROUND - 300.0, ROUND + 300.0, &mut |p| turn.push(*p));
+        assert!(near.len() > 30 && near.len() == turn.len());
+        for (a, b) in near.iter().zip(&turn) {
+            assert!(a.kerb == b.kerb && (a.t + ROUND - b.t).abs() < 0.05 && a.x == b.x, "{a:?} vs {b:?}");
+        }
+    }
+
+    /// Where a car in bay `kerb` would stand.
+    fn parked_at(kerb: u32) -> (f32, f32) {
+        let (c, aft, bay) = ((kerb >> 17) as u8, kerb >> 16 & 1 == 1, kerb & 0xFFFF);
+        let side = if aft { 1.0 } else { -1.0 };
+        (street_x(c).unwrap() + side * (STREET * 0.5 - BAY_IN), (bay as f32 + 0.5) * BAY)
     }
 
     #[test]

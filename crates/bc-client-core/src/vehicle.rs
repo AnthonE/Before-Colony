@@ -27,6 +27,7 @@ impl DriverPose for Vehicle {
             running: false,
             ride: if self.kind == Kind::Car { RIDE_CAR } else { RIDE_SCOOTER },
             jets: 0,
+            heat: 0,
         }
     }
 }

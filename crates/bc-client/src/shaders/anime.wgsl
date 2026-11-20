@@ -1,5 +1,5 @@
-// The painted look on trial (`docs/RING.md`, "The look"; `?look=anime`), shared by the hull shader
-// and the station's: what a surface was lit laid down in a few bands. It takes no derivatives (the
+// The painted look (`docs/RING.md`, "The look"; the default, `?look=plain` leaves it out), shared by
+// the hull shader, the station's and the town's: what a surface was lit laid down in a few bands. It takes no derivatives (the
 // station shader calls it under its surface branch; `bc_client_core::station`'s tests hold it).
 
 #define_import_path bc::anime

@@ -64,6 +64,7 @@ pub mod sphere;
 pub mod station;
 pub mod surface;
 pub mod tags;
+pub mod taken;
 pub mod terminal;
 pub mod town;
 pub mod town_mesh;
@@ -163,6 +164,7 @@ impl Identity {
 /// What the server told us at the handshake.
 #[derive(Clone, Copy, Debug)]
 pub struct Welcome {
+    /// The session's id (the plaza's for this pilot), the same in every sector.
     pub client_slot: u16,
     pub tick_hz: u8,
     pub orrery_allowed: bool,

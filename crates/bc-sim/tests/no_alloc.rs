@@ -858,3 +858,35 @@ fn the_towns_street_life_answers_without_allocating() {
     assert!(cars > 5_000 && people > 10_000, "{cars} cars, {people} people");
     assert_eq!(n, 0, "heap operations in the town's street life: {n}");
 }
+
+#[test]
+fn the_towns_roads_census_and_kerbs_answer_without_allocating() {
+    use bc_sim::colony::roads::{self, MOST, Waypoint};
+    use bc_sim::colony::town::{self, ROUND};
+    use bc_sim::colony::{census, street};
+    use bc_sim::world::COLONY_HALF_WIDTH as HALF;
+    let mut rng = bc_sim::math::Rng::new(29);
+    let (mut turns, mut homes, mut parked) = (0usize, 0u32, 0u32);
+    let ((), n) = bc_alloc::count(|| {
+        // Routes between points anywhere on the floor, either side of Hub Gate.
+        let mut out = [Waypoint::default(); MOST];
+        for _ in 0..200 {
+            let a = (rng.signed() * 990.0, rng.signed() * ROUND);
+            let b = (rng.signed() * 990.0, rng.signed() * ROUND);
+            turns += roads::route(a, b, &mut out);
+        }
+        // Who everyone is, and the cars at the kerbs, all round the ring.
+        for id in (0..400_000u32).step_by(13) {
+            homes += u32::from(census::is_home(census::identity(id).home));
+        }
+        street::each_parked(-HALF, HALF, -100.0, ROUND, &mut |p| {
+            parked += u32::from(street::kerb_at(p.x, p.t) == Some(p.kerb));
+        });
+        let _ = town::wake_spot(-39.5, 11.0);
+    });
+    assert!(
+        turns > 400 && homes > 20_000 && parked > 10_000,
+        "{turns} waypoints, {homes} homes, {parked} cars"
+    );
+    assert_eq!(n, 0, "heap operations in the town's roads, census and kerbs: {n}");
+}

@@ -36,7 +36,7 @@ use bc_client_core::traffic::{InTheWay, Traffic};
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
 use bc_client_core::vehicle::{Drive, DriverPose, Kind, Vehicle};
 use bc_client_core::walker::{Guide, Stride, Walker};
-use bc_client_core::watch::{self, Heat, Offence, Pursuit};
+use bc_client_core::watch::{self, Offence, Pursuit};
 use bc_econ::item::thousands;
 use bc_econ::wire::{HomesView, Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
@@ -1024,12 +1024,11 @@ pub struct TownFoot {
     jack: Option<bc_client_core::traffic::Shown>,
     /// The cars near them: what their car and their legs run into.
     cars: town_foot::Obstacles,
-    /// How much the Watch wants them, and its cars after them (`bc_client_core::watch`).
-    pub heat: Heat,
+    /// How much the Watch wants them (the server's word, `Update::Heat`), as last drawn, and its
+    /// units near them, the server's (`bc_client_core::watch`).
+    pub heat: u8,
     pub pursuit: Pursuit,
-    /// How long they've driven where people walk since it last counted against them, s; and how
-    /// long till a knock counts again.
-    reckless: f32,
+    /// How long till a knock is reported again, s.
     knock_wait: f32,
     /// The people their own car has knocked down, till the server's word has them
     /// (`Update::Street`).
@@ -1038,9 +1037,13 @@ pub struct TownFoot {
     /// they carry is where they asked to be set down.
     pub hail: Option<u32>,
     pub fare_there: bool,
-    /// The Watch's cars after the other wanted pilots near, by their slot (their heat rides in
-    /// their pose: the same pursuit, as near as each screen can make it).
-    others: std::collections::HashMap<u16, Pursuit>,
+    /// What their own hands have taken out of the town's crowd and left about that the server's
+    /// word (`Update::Street`) may not have yet; the server's id of each car left about as
+    /// `TownCars::left` has them (0: their own, not the server's yet); and where the car they hold
+    /// came from (`id`, `by` and its place unused till it's left).
+    mine: bc_client_core::taken::Mine,
+    left_ids: Vec<u32>,
+    held: Option<bc_econ::wire::LeftCar>,
 }
 
 /// The chase camera behind a car in the town: how far back and up it sits, m, and how fast its
@@ -1049,17 +1052,19 @@ const TOWN_CHASE: (f32, f32) = (7.5, 2.7);
 const TOWN_CHASE_TURN: f32 = 3.5;
 /// A driver gets out only this slow, m/s.
 const TOWN_GET_OUT: f32 = 4.0;
-/// The cars a pilot leaves about that are kept (the oldest goes), and the kerbs' they've taken.
-const TOWN_LEFT: usize = 6;
-const TOWN_TAKEN: usize = 48;
 /// How far round a pilot the town's traffic minds what's in its lanes, m (`traffic::Traffic`).
 const TOWN_TRAFFIC: f32 = 230.0;
 
 impl TownFoot {
     /// Just out of lift `k`'s door.
     fn out(k: u16) -> Self {
+        Self::at(town_foot::out_of_the_lift(k))
+    }
+
+    /// Standing where `walker` stands: woken where they left the town (`town_foot::woken`).
+    fn at(walker: Walker) -> Self {
         Self {
-            walker: town_foot::out_of_the_lift(k),
+            walker,
             guide: None,
             lift: None,
             car: None,
@@ -1072,14 +1077,15 @@ impl TownFoot {
             traffic: Traffic::default(),
             jack: None,
             cars: town_foot::Obstacles::default(),
-            heat: Heat::default(),
+            heat: 0,
             pursuit: Pursuit::default(),
-            reckless: 0.0,
             knock_wait: 0.0,
             struck: Vec::new(),
             hail: None,
             fare_there: false,
-            others: std::collections::HashMap::new(),
+            mine: Default::default(),
+            left_ids: Vec::new(),
+            held: None,
         }
     }
 
@@ -1367,6 +1373,22 @@ fn ask(net: &NetState, game: &crate::net::Game, req: &Request) {
     }
 }
 
+/// A car the pilot holds in the town, as it'll be left: where it came from (a kerb, or the traffic),
+/// the rest filled in when it is.
+fn left_from(kerb: Option<u32>, car: Option<u32>) -> bc_econ::wire::LeftCar {
+    bc_econ::wire::LeftCar { id: 0, x: 0.0, s: 0.0, yaw: 0.0, kerb, car, by: 0, at: 0 }
+}
+
+/// A car left about in the town as this client draws it: where it stands and its look's seed (the
+/// kerb's car's it came from, or the traffic's car's), and, out of the traffic, its seed and what it
+/// was (`TownCars::jacked`: it keeps the look it had there).
+fn left_car(c: &bc_econ::wire::LeftCar) -> ((Vehicle, u32), Option<(u32, bc_sim::colony::street::Kind)>) {
+    let v = Vehicle::new(Kind::Car, bc_sim::car::RING_FLOOR, c.s, c.x, c.yaw);
+    let traffic = c.car.and_then(|id| bc_sim::colony::street::car(id, 0)).map(|o| (o.seed, o.kind));
+    let kerb = c.kerb.and_then(town_foot::parked_car).map(|p| crate::town::parked_seed(&p));
+    ((v, traffic.map(|o| o.0).or(kerb).unwrap_or(0)), traffic)
+}
+
 /// Whether a launch sequence at `t` seconds into `seq` still holds the suit in its bay's cradle:
 /// until the catapult's throw ends, a moment before the cut to space.
 fn holds_the_bay(seq: Seq, t: f32) -> bool {
@@ -1515,7 +1537,9 @@ pub fn drive_onfoot(
             // Gate's lift's door.
             (_, Some(Place::Town)) => {
                 if me.town.is_none() {
-                    me.town = Some(TownFoot::out(0));
+                    // Back where they left the town (the server's wake), else out of Hub Gate's lift.
+                    let woken = g.core.hangar.wake.take().and_then(|w| town_foot::woken(&w));
+                    me.town = Some(woken.map_or_else(|| TownFoot::out(0), TownFoot::at));
                     *town_cars = TownCars::default();
                 }
                 me.done(now);
@@ -1997,6 +2021,37 @@ pub fn drive_onfoot(
                 t.guide = Some(Guide::new(route, Some(facing)));
             }
         }
+        // What's been taken out of the town's crowd: the server's word, the pilot's own a moment
+        // sooner (`bc_client_core::taken`). The kerbs empty, the cars left about (anyone's to take),
+        // the traffic's cars gone, and the looks of those out of the traffic.
+        {
+            let clock = g.core.colony_tick(now).0;
+            if let Some(id) = t.mine.settle(&g.core.hangar.taken, clock) {
+                ask(&net, &g, &Request::TakeLeft { id });
+            }
+            let said = &g.core.hangar.taken;
+            let taken: Vec<(i32, i32)> = t
+                .mine
+                .kerbs(said)
+                .into_iter()
+                .filter_map(town_foot::parked_car)
+                .map(|v| town_foot::parked_id(&v))
+                .collect();
+            if town_cars.taken != taken {
+                town_cars.taken = taken;
+            }
+            let left = t.mine.left_about(said);
+            let cars: Vec<(Vehicle, u32)> = left.iter().map(|c| left_car(c).0).collect();
+            if town_cars.left != cars {
+                town_cars.left = cars;
+            }
+            t.left_ids = left.iter().map(|c| c.id).collect();
+            let jacked: Vec<_> = left.iter().chain(&t.held).filter_map(|c| left_car(c).1).collect();
+            if town_cars.jacked != jacked {
+                town_cars.jacked = jacked;
+            }
+            t.traffic.set_taken(&t.mine.lanes(said));
+        }
         // The traffic round them, braking for whoever and whatever's in its lanes: the pilot and
         // their car, the other pilots near, the cars left about, the Watch's.
         {
@@ -2004,7 +2059,7 @@ pub fn drive_onfoot(
             let mut way: Vec<InTheWay> = Vec::new();
             way.push(t.drive.as_ref().map_or(InTheWay::on_foot(at.x, at.s), InTheWay::car));
             way.extend(town_cars.left.iter().map(|(v, _)| InTheWay::car(v)));
-            way.extend(t.pursuit.cars().chain(t.others.values().flat_map(|p| p.cars())).map(InTheWay::car));
+            way.extend(t.pursuit.cars().map(InTheWay::car));
             for (_, _, p) in
                 g.core.people(now).iter().filter(|(_, _, p)| p.strip == bc_proto::presence::RING_DECK)
             {
@@ -2030,9 +2085,9 @@ pub fn drive_onfoot(
             t.cars.gather(at, 45.0, &town_cars.taken, &left, t.traffic.cars());
         }
         let mut got_out = false;
-        // What they've done that the Watch minds, this frame.
+        // What they've done that the Watch minds that only this screen sees, this frame (the
+        // server sees the rest: somebody run down, driving where people walk).
         let mut offences: Vec<Offence> = Vec::new();
-        let mut took_in_sight = false;
         t.knock_wait = (t.knock_wait - dt).max(0.0);
         if t.drive.is_some() {
             let drive = Drive { throttle: own.forward, steer: -own.right, handbrake: own.jump };
@@ -2040,17 +2095,8 @@ pub fn drive_onfoot(
                 t.knock_wait = 1.5;
                 offences.push(Offence::Knock);
             }
-            // At speed where people walk: a second of it at a time.
-            let fast = t.drive.is_some_and(|v| v.speed.abs() > 9.0);
-            if fast && watch::where_people_walk(t.feet()) {
-                t.reckless += dt;
-                if t.reckless >= 1.0 {
-                    t.reckless = 0.0;
-                    offences.push(Offence::Reckless);
-                }
-            }
-            // Somebody run down: the server's told (it checks they were there, and everyone sees
-            // them down); here they're down at once.
+            // Somebody run down: the server's told (it checks they were there, everyone sees them
+            // down, and the Watch knows); here they're down at once.
             let clock = g.core.colony_tick(now);
             t.struck.retain(|d| d.until > clock.0 && !g.core.hangar.street.iter().any(|o| o.id == d.id));
             let down: Vec<u32> = g.core.hangar.street.iter().chain(&t.struck).map(|d| d.id).collect();
@@ -2067,7 +2113,6 @@ pub fn drive_onfoot(
                     until: clock.0 + 25 * bc_sim::TICK_HZ,
                     away: false,
                 });
-                offences.push(Offence::HitSomeone);
             }
             // Fares (F): stopped in a lift's square by someone standing there, they'll ride to
             // another gate's; stopped in that one, they're set down and pay.
@@ -2082,7 +2127,7 @@ pub fn drive_onfoot(
                 if t.fare_there {
                     ask(&net, &g, &Request::DropFare);
                 } else if let Some(person) = t.hail {
-                    if t.heat.level() == 0 {
+                    if t.heat == 0 {
                         ask(&net, &g, &Request::TakeFare { person });
                     } else {
                         ui.toast("NOBODY RIDES WITH THE WATCH AFTER YOU");
@@ -2098,12 +2143,22 @@ pub fn drive_onfoot(
                 && slow
                 && let Some(car) = t.get_out()
             {
-                // Left where it stands (the oldest of those left goes back to the colony).
-                if town_cars.left.len() >= TOWN_LEFT {
-                    town_cars.left.remove(0);
-                }
-                let seed = town_cars.driving.take().map_or(0, |(_, seed)| seed);
-                town_cars.left.push((car, seed));
+                // Left where it stands, for anyone (the server's to say: here at once).
+                let at = DeckPos::new(RING, car.x, car.s, 0.0).wrapped();
+                let yaw = car.yaw.rem_euclid(std::f32::consts::TAU);
+                ask(
+                    &net,
+                    &g,
+                    &Request::LeaveCar {
+                        x_cm: (at.x * 100.0).round() as i32,
+                        s_cm: (at.s * 100.0).round() as i32,
+                        yaw_mrad: (yaw * 1_000.0).round() as i32,
+                    },
+                );
+                let from = t.held.take().unwrap_or_else(|| left_from(None, None));
+                let tick = g.core.colony_tick(now).0;
+                t.mine.left(bc_econ::wire::LeftCar { x: at.x, s: at.s, yaw, at: tick, ..from }, tick);
+                town_cars.driving = None;
                 got_out = true;
             }
         } else {
@@ -2158,18 +2213,28 @@ pub fn drive_onfoot(
             if t.lift.is_some() {
                 up_the_lift = true;
             } else if let Some((car, left)) = t.car {
-                // It keeps its look: the one it had at the kerb, or where it was left.
+                // It keeps its look: the one it had at the kerb, or where it was left. The server's
+                // told (somebody's car: the Watch minds, worse in sight of one of its own).
+                let tick = g.core.colony_tick(now).0;
                 let seed = match left {
-                    Some(k) if k < town_cars.left.len() => town_cars.left.remove(k).1,
-                    _ => {
-                        if town_cars.taken.len() >= TOWN_TAKEN {
-                            town_cars.taken.remove(0);
+                    Some(k) if k < town_cars.left.len() => {
+                        let id = t.left_ids.get(k).copied().unwrap_or(0);
+                        if id != 0 {
+                            ask(&net, &g, &Request::TakeLeft { id });
                         }
-                        town_cars.taken.push(town_foot::parked_id(&car));
-                        // Somebody's car: worse in sight of one of the Watch's own.
-                        let seen = watch::watch_car_sees(at, 80.0, g.core.colony_tick(now));
-                        offences.push(if seen { Offence::TookACarInSight } else { Offence::TookACar });
-                        took_in_sight = seen;
+                        let from = t.mine.left_about(&g.core.hangar.taken).into_iter().find(|c| c.id == id);
+                        let (kerb, traffic) = from.map_or((None, None), |c| (c.kerb, c.car));
+                        t.held = Some(left_from(kerb, traffic));
+                        t.mine.took_left(id, tick);
+                        town_cars.left.remove(k).1
+                    }
+                    _ => {
+                        let kerb = town_foot::kerb_of(&car);
+                        if let Some(kerb) = kerb {
+                            ask(&net, &g, &Request::TakeParked { kerb });
+                            t.mine.took_parked(kerb, tick);
+                        }
+                        t.held = Some(left_from(kerb, None));
                         crate::town::parked_seed(&car)
                     }
                 };
@@ -2177,17 +2242,12 @@ pub fn drive_onfoot(
                 t.take(car);
                 ui.toast("A CAR FROM THE KERB · W/S THROTTLE AND BRAKE · A/D THE WHEEL · SPACE HANDBRAKE · TAB THE VIEW");
             } else if let Some(c) = t.jack.take() {
-                // Out of the traffic and theirs: its driver's left standing, and says so.
+                // Out of the traffic and theirs: its driver's left standing, and says so (the server's
+                // told: the Watch minds, the more for one of its own).
                 t.traffic.take(c.car.id);
-                let seen = watch::watch_car_sees(at, 80.0, g.core.colony_tick(now));
-                offences.push(match c.car.kind {
-                    bc_sim::colony::street::Kind::Watch => Offence::TookTheWatchs,
-                    _ if seen => Offence::JackedInSight,
-                    _ => Offence::Jacked,
-                });
-                if town_cars.jacked.len() >= TOWN_TAKEN {
-                    town_cars.jacked.remove(0);
-                }
+                ask(&net, &g, &Request::Jack { car: c.car.id });
+                t.mine.jacked(c.car.id, g.core.colony_tick(now).0);
+                t.held = Some(left_from(None, Some(c.car.id)));
                 town_cars.jacked.push((c.car.seed, c.car.kind));
                 let car = c.vehicle();
                 town_cars.driving = Some((car, c.car.seed));
@@ -2195,49 +2255,45 @@ pub fn drive_onfoot(
                 ui.toast("TAKEN FROM ITS DRIVER · W/S THROTTLE AND BRAKE · A/D THE WHEEL · SPACE HANDBRAKE · TAB THE VIEW");
             }
         }
-        // The Watch: the heat up with what they've done and down with time, its cars after them,
-        // and its fine when one has them stopped at its side (their car goes with it).
+        // The Watch: what only this screen saw them do, told the server (it holds their heat, up
+        // with what they've done and down with time, and says so); its units near them, the
+        // server's, drawn where it says; and stopped when one of them has them (the server's
+        // word: its fine of the heat it holds, and their car goes with it).
         for o in offences {
-            if t.heat.offend(o) {
+            ask(&net, &g, &Request::Offence { what: o });
+        }
+        t.pursuit.hear(g.core.hangar.units_heard, &g.core.hangar.units);
+        t.pursuit.step(walk_dt(false));
+        let level = g.core.hangar.heat;
+        if level != t.heat {
+            if level > t.heat {
                 // (The first time it's a car, say what for: nothing else tells them it's somebody's.)
-                let why =
-                    if took_in_sight { "THE WATCH SAW YOU TAKE THAT CAR" } else { "THE WATCH WANTS YOU" };
-                ui.news(format!("{why} · {}", watch::stars(t.heat.level())), true);
-            }
-        }
-        // (The first time, what it means.)
-        if t.heat.level() > 0 && !t.told_watch {
-            t.told_watch = true;
-            ui.toast("STOPPED WITH ONE OF THE WATCH'S CARS NEAR, YOU'RE FINED · LOSE THEM AND IT COOLS");
-        }
-        // The Watch keeps the clock the pilot's own car does, however slow the frames: in steps.
-        let speed = t.drive.map_or(Vec3::new(t.walker.vel.x, 0.0, t.walker.vel.z).length(), |v| v.speed);
-        let watch_dt = walk_dt(false).max(1e-3);
-        let (mut left, mut caught) = (watch_dt, false);
-        while left > 0.0 && !caught {
-            let h = left.min(0.1);
-            left -= h;
-            // (Nothing cools under the eye of one of its cars: lose them first.)
-            if !t.pursuit.in_sight(t.feet()) && t.heat.cool(h) {
-                ui.toast(match t.heat.level() {
+                let why = match g.core.hangar.heat_cause {
+                    Some(Offence::TookACarInSight) => "THE WATCH SAW YOU TAKE THAT CAR",
+                    _ => "THE WATCH WANTS YOU",
+                };
+                ui.news(format!("{why} · {}", watch::stars(level)), true);
+            } else if level == 0 && t.pursuit.near(t.feet(), bc_sim::colony::watch::AFOOT.0) {
+                // Cleared with one of its units at hand (none lets it cool in its sight): stopped,
+                // and the fine's note is on its way. The car goes with it (the server drops it too).
+                if t.get_out().is_some() {
+                    town_cars.driving = None;
+                    t.held = None;
+                }
+            } else {
+                ui.toast(match level {
                     0 => "THE WATCH HAS LOST INTEREST".to_string(),
                     l => format!("THE WATCH IS LOSING INTEREST · {}", watch::stars(l)),
                 });
             }
-            let level = t.heat.level();
-            caught = t.pursuit.step(level, t.feet(), speed, h, &t.cars) && level > 0;
+            t.heat = level;
         }
-        let level = t.heat.level();
-        if caught {
-            ask(&net, &g, &Request::Fine { heat: level });
-            t.heat.clear();
-            t.pursuit.call_off();
-            if t.get_out().is_some() {
-                town_cars.driving = None;
-            }
+        // (The first time, what it means.)
+        if level > 0 && !t.told_watch {
+            t.told_watch = true;
+            ui.toast("ITS UNITS ARE COMING · IF THEY STOP YOU WITH ONE NEAR, YOU'RE FINED · LOSE THEM AND IT COOLS");
         }
-        // The other pilots near: the cars the town's people step aside from, and the Watch after
-        // any of them it wants (their heat rides in their pose).
+        // The other pilots near: the cars the town's people step aside from.
         let people = g.core.people(now);
         let in_town = |p: &PersonPose| p.strip == bc_proto::presence::RING_DECK;
         let mut movers: Vec<town_foot::Mover> = t.drive.iter().map(town_foot::Mover::of).collect();
@@ -2249,26 +2305,14 @@ pub fn drive_onfoot(
                 speed: p.speed,
             }),
         );
-        let nobody = town_foot::Obstacles::default();
-        t.others.retain(|id, _| people.iter().any(|(pid, _, p)| pid == id && in_town(p)));
-        for (id, _, p) in people.iter().filter(|(_, _, p)| in_town(p)) {
-            if p.jets > 0 || t.others.contains_key(id) {
-                let pursuit = t.others.entry(*id).or_default();
-                let mut left = watch_dt;
-                while left > 0.0 {
-                    pursuit.step(p.jets, DeckPos::new(RING, p.x, p.s, 0.0), p.speed, left.min(0.1), &nobody);
-                    left -= 0.1;
-                }
-                if p.jets == 0 && pursuit.is_empty() {
-                    t.others.remove(id);
-                }
-            }
-        }
         drop(people);
-        let watch: Vec<Vehicle> =
-            t.pursuit.cars().chain(t.others.values().flat_map(|p| p.cars())).copied().collect();
+        let watch: Vec<Vehicle> = t.pursuit.cars().copied().collect();
         if town_cars.watch != watch {
             town_cars.watch = watch;
+        }
+        let hounds: Vec<Vehicle> = t.pursuit.hounds().copied().collect();
+        if town_cars.hounds != hounds {
+            town_cars.hounds = hounds;
         }
         if town_cars.movers != movers {
             town_cars.movers = movers;
@@ -2287,9 +2331,6 @@ pub fn drive_onfoot(
             Some(v) => town_foot::pose_driving(v),
             None => town_foot::pose_of(&t.walker),
         };
-        // (How much the Watch wants them goes with it, for whoever's near to see its cars come:
-        // the pose's two spare bits on this floor.)
-        let pose = PersonPose { jets: level.min(3), ..pose };
         g.core.set_pose(Some(pose));
         if let (Some(tr), Some(p)) = (net.get(), g.core.poll_pose(now)) {
             tr.send_datagram(&p);
@@ -2299,6 +2340,7 @@ pub fn drive_onfoot(
         t.lift = None;
         t.car = None;
         t.jack = None;
+        t.pursuit.clear();
     }
     if up_the_lift {
         ask(&net, &g, &Request::LeaveTown);
@@ -2636,7 +2678,7 @@ pub fn drive_onfoot(
     ui.bay_line = if inside {
         let fed = g.core.hangar.fed().map_or(String::new(), |f| format!(" · {}", f.tag()));
         // In the town, wanted: the Watch's heat.
-        let heat = match me.town.as_ref().map_or(0, |t| t.heat.level()) {
+        let heat = match me.town.as_ref().map_or(0, |t| t.heat) {
             0 => String::new(),
             l => format!(" · WATCH {}", watch::stars(l)),
         };
@@ -2665,7 +2707,7 @@ pub fn drive_onfoot(
     // where they're bound).
     let radar = me.town.as_ref().filter(|_| in_town && me.seq == Seq::Walking).map(|t| {
         let yaw = t.drive.map_or(t.walker.yaw, |v| v.yaw);
-        let after: Vec<Vehicle> = t.pursuit.cars().copied().collect();
+        let after: Vec<Vehicle> = t.pursuit.cars().chain(t.pursuit.hounds()).copied().collect();
         town_foot::radar(t.feet(), yaw, &after, g.core.hangar.fare.map(|(to, _)| to))
     });
     if ui.radar != radar {
@@ -2819,7 +2861,7 @@ pub fn publish_onfoot(
             dev.set("town_district", town_foot::district_at(at.s).1);
             dev.set("town_driving", t.drive.is_some());
             dev.set("town_speed", t.drive.map_or(0.0, |v| f64::from(v.speed)));
-            dev.set("town_heat", u32::from(t.heat.level()));
+            dev.set("town_heat", u32::from(t.heat));
             dev.set("town_held", t.traffic.held() as u32);
             dev.set("town_jack", t.jack.is_some());
             dev.set("town_hail", t.hail.is_some());

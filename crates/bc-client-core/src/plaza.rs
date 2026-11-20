@@ -75,6 +75,7 @@ pub fn blend(a: &PersonPose, b: &PersonPose, u: f32) -> PersonPose {
         running: if u < 0.5 { a.running } else { b.running },
         ride: b.ride,
         jets: if u < 0.5 { a.jets } else { b.jets },
+        heat: b.heat,
     }
 }
 

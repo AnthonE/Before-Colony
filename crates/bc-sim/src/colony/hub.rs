@@ -53,7 +53,8 @@ pub fn spoke_angle(k: u32) -> f32 {
 
 /// The radius the bays' doors are at on the mouth: 0.4 g in the bays.
 pub const BAY_RADIUS: f32 = 400.0;
-/// The bays round the mouth (a pilot's is `slot % 99 + 1`).
+/// The bays round the mouth. The server shares them out among its sessions, the least-used first
+/// (`bc_server::net::sessions`); past 99 pilots they share, and a launch waits for its bay's cradle.
 pub const BAYS: u32 = 99;
 
 /// The deck hatch in the middle of the mouth (on the axis), m: a suit standing on it docks, and
@@ -84,7 +85,8 @@ const BAY_DECK: [Prim; 1] = [Prim::RoundBox {
     round: 0.5,
 }];
 
-/// The bay of the pilot in sector slot `slot`, 1..=[`BAYS`] (what the hangar calls "BAY nn").
+/// A bay for sector slot `slot`, 1..=[`BAYS`]: the tests' and the agents' (a session has its own,
+/// which the launch names: `bc_sector::Launch`).
 pub const fn bay_of_slot(slot: u16) -> u8 {
     (slot as u32 % BAYS + 1) as u8
 }

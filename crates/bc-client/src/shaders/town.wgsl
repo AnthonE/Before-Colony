@@ -1,7 +1,14 @@
 // The ring's town (`TownMaterial`, `bc_client_core::town_mesh`; `docs/FREE_ROAM.md`, V1): its
 // buildings, streets, canal, parks, lifts, faces and ceiling, painted from what each face carries in
 // its vertex colour, as the station language's are: r its surface, g its paint (a facade's district
-// and tint, a road's class), b its flags (a facade's style), a a seed. UVs are metres.
+// and tint, a road's class), b its flags (a facade's style; DISTANT past the near cells), a a seed.
+// UVs are metres.
+//
+// Past the near cells a face is one quad and takes the distant path: what's smaller than a pixel
+// there (joints, the lines on the roads, mullions, a pane's streak, a ground floor's doors) is laid
+// down as its average, which is what its filtered pattern comes to there anyway; what's big enough
+// to see (windows by bay and storey, a tower's fins, the glazing and fascia of a ground floor, lit
+// windows by night) is painted as near.
 //
 // The station language at a town's scale: light blue-grey panels with fine joints, each quarter's own
 // colour in its bands and fins, glass with a painted streak across it, yellow and white on the
@@ -50,8 +57,10 @@ const FOLIAGE: u32 = 16u;
 const SITE: u32 = 17u;
 const DOOR: u32 = 18u;
 
-// A facade's flags: its style in the low bits, and a tower's.
+// A facade's flags: its style in the low bits, and a tower's; any face's past the near cells
+// (`town_mesh::DISTANT`).
 const TOWER: u32 = 8u;
+const DISTANT: u32 = 128u;
 // A road's class (`town_mesh::Road`) and half its width, m.
 const R_STREET: u32 = 0u;
 const R_AVENUE: u32 = 1u;
@@ -147,6 +156,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     flags = u32(in.color.b * 255.0 + 0.5);
     seed = floor(in.color.a * 255.0 + 0.5);
 #endif
+    let distant = (flags & DISTANT) != 0u;
+    flags = flags & (DISTANT - 1u);
     var uv = vec2(0.0);
 #ifdef VERTEX_UVS_A
     uv = in.uv;
@@ -192,84 +203,144 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let storey_i = floor(up / STOREY);
         let sv = up - storey_i * STOREY;
         let above = step(GROUND_FLOOR, v);
-        // The upper storeys: panels with joints at every bay and storey, and a window in each.
-        albedo = panel * (1.0 - 0.3 * joints(vec2(u, up), vec2(bay, STOREY), 0.06, fw));
-        albedo *= 1.0 - 0.12 * joints(vec2(u, up), vec2(bay * 0.5, STOREY * 0.5), 0.03, fw);
-        var window = band(bu, margin, bay - margin, fw.x) * band(sv, sill, head, fw.y) * above;
-        // Sheds have a window only in some bays; a civic hall's are tall between its piers.
-        let h_bay = hash2(vec2(bay_i, seed));
-        if (st == 5u) {
-            window *= step(0.45, h_bay);
-            // Ribbed cladding.
-            albedo *= 1.0 - 0.1 * pulse(u / 0.6, 0.0, 0.5, fw.x / 0.6);
-        }
-        // Homes: a balcony's front under every other bay's window, in the quarter's colour.
-        if (st == 3u) {
-            let balcony = band(bu, margin - 0.4, bay - margin + 0.4, fw.x) * band(sv, sill - 0.9, sill - 0.05, fw.y)
-                * step(0.5, fract(bay_i * 0.5 + storey_i * 0.5)) * above;
-            albedo = mix(albedo, mix(panel * 0.8, quarter, 0.55), balcony);
-        }
-        // A tower's fins every fourth bay, and the money's podium's every bay, in the quarter's colour.
-        let fins = pulse(u / (bay * 4.0), 0.0, 0.2 / (bay * 4.0), fw.x / (bay * 4.0)) * above;
-        if (tower || st == 2u) {
-            albedo = mix(albedo, quarter * 0.9, fins * 0.85);
-            window *= 1.0 - fins;
-        }
-        // The ground floor: a dark base course, glazing between piers (a shed's doors, a hall's
-        // porch), and a fascia over it in the quarter's colour.
-        let gbay = max(bay, 3.0) * select(1.0, 2.0, bay < 2.0);
-        let gi = floor(u / gbay);
-        let gu = u - gi * gbay;
-        let h_g = hash2(vec2(gi, seed + 3.0));
-        var front = band(gu, 0.35, gbay - 0.35, fw.x) * band(v, 0.5, 3.7, fw.y) * (1.0 - above);
-        var door_dark = 0.0;
-        if (st == 5u) {
-            // A roller door in some bays, ribbed, hazard stripes at its foot; else a blank wall.
-            front *= step(0.55, h_g);
-            door_dark = front;
-            albedo = mix(albedo, mix(dark, yellow, stripes(uv, fw)), band(v, -1.0, 0.6, fw.y) * (1.0 - above));
-        } else if (st == 3u || st == 4u) {
-            // Homes and Old Town: a door in every third bay, windows in the rest.
-            let is_door = step(h_g, 0.34);
-            door_dark = front * is_door * band(gu, gbay * 0.3, gbay * 0.7, fw.x) * band(v, 0.0, 2.6, fw.y);
-            front *= (1.0 - is_door) * band(v, 1.1, 3.2, fw.y);
-        }
-        let fascia = band(v, 4.15, 4.8, fw.y);
-        albedo = mix(albedo, panel * 0.35, band(v, -1.0, 0.45, fw.y));
-        albedo = mix(albedo, mix(quarter, panel, select(0.25, 0.75, st == 0u)), fascia);
-        if (st == 5u) {
-            albedo = mix(albedo, vec3(0.2, 0.21, 0.23) * (1.0 - 0.35 * pulse(v / 0.35, 0.0, 0.3, fw.y / 0.35)), door_dark);
-        } else {
-            albedo = mix(albedo, dark * 3.0, door_dark);
-            window = max(window, front * (1.0 - door_dark));
-        }
-        // Glass: a painted sky in it, a streak across each pane; lit from inside by night.
-        let pane = vec2((bu - margin) / max(bay - 2.0 * margin, 0.1), (sv - sill) / max(head - sill, 0.1));
-        let d = pane.x * 0.6 + pane.y;
-        let streak = (band(d, 0.95, 1.12, fm) + band(d, 1.2, 1.26, fm)) * above;
-        var glass = mix(vec3(0.02, 0.05, 0.13), vec3(0.09, 0.22, 0.42), clamp(pane.y, 0.0, 1.0) * above + 0.25 * (1.0 - above));
-        glass = mix(glass, vec3(0.42, 0.6, 0.78), streak * 0.5) * (0.25 + 0.75 * daylight);
-        // Mullions.
-        let mull = select(1.5, 3.0, st == 0u || st == 5u);
-        glass *= 1.0 - 0.6 * pulse(u / mull, 0.0, 0.08 / mull, fw.x / mull);
-        albedo = mix(albedo, glass, window);
-        rough = mix(0.55, 0.12, window);
         // Who's in: a share of the windows by the lamps' hour, each its own warmth.
         let h_w = hash2(vec2(bay_i + storey_i * 17.0, seed + storey_i));
         let share = select(0.42, 0.7, st == 1u && !tower);
-        let lit = step(h_w, share * lamps) * window * lamps;
         let warm = mix(vec3(1.0, 0.72, 0.38), vec3(0.75, 0.9, 1.0), step(0.8, fract(h_w * 13.0)));
-        glow = warm * lit * (0.5 + 0.5 * above) * 1.8;
+        if (distant) {
+            // Its panels, their joints as their average; a window in each bay of each storey (some
+            // of a shed's), a home's balconies, the fins, the ground floor's glazing and fascia over
+            // a dark base course; the glass its mean.
+            let j = 0.06 / bay + 0.015;
+            albedo = panel * (1.0 - 0.3 * j) * (1.0 - 0.12 * j);
+            var window = band(bu, margin, bay - margin, fw.x) * band(sv, sill, head, fw.y) * above;
+            if (st == 5u) {
+                window *= step(0.45, hash2(vec2(bay_i, seed)));
+                albedo *= 0.95;
+            }
+            if (st == 3u) {
+                let balcony = band(bu, margin - 0.4, bay - margin + 0.4, fw.x) * band(sv, sill - 0.9, sill - 0.05, fw.y)
+                    * step(0.5, fract(bay_i * 0.5 + storey_i * 0.5)) * above;
+                albedo = mix(albedo, mix(panel * 0.8, quarter, 0.55), balcony);
+            }
+            if (tower || st == 2u) {
+                let fins = pulse(u / (bay * 4.0), 0.0, 0.2 / (bay * 4.0), fw.x / (bay * 4.0)) * above;
+                albedo = mix(albedo, quarter * 0.9, fins * 0.85);
+                window *= 1.0 - fins;
+            }
+            let ground = 1.0 - above;
+            var front = band(v, 0.5, 3.7, fw.y) * ground * 0.8;
+            if (st == 5u) {
+                // Roller doors in some bays, stripes at their feet.
+                albedo = mix(albedo, mix(dark, yellow, 0.5), band(v, -1.0, 0.6, fw.y) * ground);
+                albedo = mix(albedo, vec3(0.17, 0.18, 0.2), front * 0.45);
+                front = 0.0;
+            } else if (st == 3u || st == 4u) {
+                albedo = mix(albedo, dark * 3.0, band(v, 0.0, 2.6, fw.y) * ground * 0.14);
+                front = band(v, 1.1, 3.2, fw.y) * ground * 0.53;
+            }
+            albedo = mix(albedo, panel * 0.35, band(v, -1.0, 0.45, fw.y));
+            albedo = mix(albedo, mix(quarter, panel, select(0.25, 0.75, st == 0u)), band(v, 4.15, 4.8, fw.y));
+            window = max(window, front);
+            let pane = clamp((sv - sill) / max(head - sill, 0.1), 0.0, 1.0);
+            var glass = mix(vec3(0.02, 0.05, 0.13), vec3(0.09, 0.22, 0.42), pane * above + 0.25 * ground);
+            glass = mix(glass, vec3(0.42, 0.6, 0.78), 0.07 * above) * (0.25 + 0.75 * daylight);
+            glass *= 1.0 - 0.6 * 0.08 / select(1.5, 3.0, st == 0u || st == 5u);
+            albedo = mix(albedo, glass, window);
+            rough = mix(0.55, 0.12, window);
+            let lit = step(h_w, share * lamps) * window * lamps;
+            glow = warm * lit * (0.5 + 0.5 * above) * 1.8;
+        } else {
+            // The upper storeys: panels with joints at every bay and storey, and a window in each.
+            albedo = panel * (1.0 - 0.3 * joints(vec2(u, up), vec2(bay, STOREY), 0.06, fw));
+            albedo *= 1.0 - 0.12 * joints(vec2(u, up), vec2(bay * 0.5, STOREY * 0.5), 0.03, fw);
+            var window = band(bu, margin, bay - margin, fw.x) * band(sv, sill, head, fw.y) * above;
+            // Sheds have a window only in some bays; a civic hall's are tall between its piers.
+            let h_bay = hash2(vec2(bay_i, seed));
+            if (st == 5u) {
+                window *= step(0.45, h_bay);
+                // Ribbed cladding.
+                albedo *= 1.0 - 0.1 * pulse(u / 0.6, 0.0, 0.5, fw.x / 0.6);
+            }
+            // Homes: a balcony's front under every other bay's window, in the quarter's colour.
+            if (st == 3u) {
+                let balcony = band(bu, margin - 0.4, bay - margin + 0.4, fw.x) * band(sv, sill - 0.9, sill - 0.05, fw.y)
+                    * step(0.5, fract(bay_i * 0.5 + storey_i * 0.5)) * above;
+                albedo = mix(albedo, mix(panel * 0.8, quarter, 0.55), balcony);
+            }
+            // A tower's fins every fourth bay, and the money's podium's every bay, in the quarter's colour.
+            let fins = pulse(u / (bay * 4.0), 0.0, 0.2 / (bay * 4.0), fw.x / (bay * 4.0)) * above;
+            if (tower || st == 2u) {
+                albedo = mix(albedo, quarter * 0.9, fins * 0.85);
+                window *= 1.0 - fins;
+            }
+            // The ground floor: a dark base course, glazing between piers (a shed's doors, a hall's
+            // porch), and a fascia over it in the quarter's colour.
+            let gbay = max(bay, 3.0) * select(1.0, 2.0, bay < 2.0);
+            let gi = floor(u / gbay);
+            let gu = u - gi * gbay;
+            let h_g = hash2(vec2(gi, seed + 3.0));
+            var front = band(gu, 0.35, gbay - 0.35, fw.x) * band(v, 0.5, 3.7, fw.y) * (1.0 - above);
+            var door_dark = 0.0;
+            if (st == 5u) {
+                // A roller door in some bays, ribbed, hazard stripes at its foot; else a blank wall.
+                front *= step(0.55, h_g);
+                door_dark = front;
+                albedo = mix(albedo, mix(dark, yellow, stripes(uv, fw)), band(v, -1.0, 0.6, fw.y) * (1.0 - above));
+            } else if (st == 3u || st == 4u) {
+                // Homes and Old Town: a door in every third bay, windows in the rest.
+                let is_door = step(h_g, 0.34);
+                door_dark = front * is_door * band(gu, gbay * 0.3, gbay * 0.7, fw.x) * band(v, 0.0, 2.6, fw.y);
+                front *= (1.0 - is_door) * band(v, 1.1, 3.2, fw.y);
+            }
+            let fascia = band(v, 4.15, 4.8, fw.y);
+            albedo = mix(albedo, panel * 0.35, band(v, -1.0, 0.45, fw.y));
+            albedo = mix(albedo, mix(quarter, panel, select(0.25, 0.75, st == 0u)), fascia);
+            if (st == 5u) {
+                albedo = mix(albedo, vec3(0.2, 0.21, 0.23) * (1.0 - 0.35 * pulse(v / 0.35, 0.0, 0.3, fw.y / 0.35)), door_dark);
+            } else {
+                albedo = mix(albedo, dark * 3.0, door_dark);
+                window = max(window, front * (1.0 - door_dark));
+            }
+            // Glass: a painted sky in it, a streak across each pane; lit from inside by night.
+            let pane = vec2((bu - margin) / max(bay - 2.0 * margin, 0.1), (sv - sill) / max(head - sill, 0.1));
+            let d = pane.x * 0.6 + pane.y;
+            let streak = (band(d, 0.95, 1.12, fm) + band(d, 1.2, 1.26, fm)) * above;
+            var glass = mix(vec3(0.02, 0.05, 0.13), vec3(0.09, 0.22, 0.42), clamp(pane.y, 0.0, 1.0) * above + 0.25 * (1.0 - above));
+            glass = mix(glass, vec3(0.42, 0.6, 0.78), streak * 0.5) * (0.25 + 0.75 * daylight);
+            // Mullions.
+            let mull = select(1.5, 3.0, st == 0u || st == 5u);
+            glass *= 1.0 - 0.6 * pulse(u / mull, 0.0, 0.08 / mull, fw.x / mull);
+            albedo = mix(albedo, glass, window);
+            rough = mix(0.55, 0.12, window);
+            let lit = step(h_w, share * lamps) * window * lamps;
+            glow = warm * lit * (0.5 + 0.5 * above) * 1.8;
+        }
     } else if (surface == ROOF) {
-        let cell = floor(uv / 4.0);
-        let h = hash2(cell + vec2(seed));
-        albedo = panel_paint(paint_i) * 0.5 * (0.92 + 0.16 * (h - 0.5));
-        albedo *= 1.0 - 0.35 * joints(uv, vec2(4.0), 0.08, fw);
-        // A plant unit here and there.
-        let local = uv - cell * 4.0;
-        let plant = band(local.x, 0.6, 3.4, fw.x) * band(local.y, 0.6, 3.4, fw.y) * step(h, 0.07);
-        albedo = mix(albedo, vec3(0.1, 0.105, 0.115), plant);
+        if (distant) {
+            // Its plates' joints and plant units as their average.
+            albedo = mix(panel_paint(paint_i) * 0.5 * 0.986, vec3(0.1, 0.105, 0.115), 0.034);
+        } else {
+            let cell = floor(uv / 4.0);
+            let h = hash2(cell + vec2(seed));
+            albedo = panel_paint(paint_i) * 0.5 * (0.92 + 0.16 * (h - 0.5));
+            albedo *= 1.0 - 0.35 * joints(uv, vec2(4.0), 0.08, fw);
+            // A plant unit here and there.
+            let local = uv - cell * 4.0;
+            let plant = band(local.x, 0.6, 3.4, fw.x) * band(local.y, 0.6, 3.4, fw.y) * step(h, 0.07);
+            albedo = mix(albedo, vec3(0.1, 0.105, 0.115), plant);
+        }
         rough = 0.7;
+    } else if ((surface == ROAD || surface == JUNCTION) && distant) {
+        // Dark deck plates, their joints and the lines as their average; the kerb.
+        albedo = vec3(0.052, 0.054, 0.06) * 0.994;
+        if (surface == ROAD) {
+            albedo = mix(albedo, vec3(0.5, 0.52, 0.54), 0.018);
+            var halves = array<f32, 4>(H_STREET, H_AVENUE, H_BOULEVARD, H_RIM);
+            let half = halves[min(paint_i, 3u)];
+            albedo = mix(albedo, vec3(0.3, 0.31, 0.33), band(abs(u), half - 0.3, half + 1.0, fw.x));
+        }
+        rough = 0.72;
     } else if (surface == ROAD || surface == JUNCTION) {
         // Dark deck plates, each a shade its own.
         let cell = floor(uv / 4.0);
@@ -311,15 +382,26 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         // with a guide strip, a lot's plain plates.
         let walk = surface == PAVEMENT && paint_i == 1u;
         let size = select(2.0, 3.0, walk || surface == LOT);
-        let cell = floor(uv / size);
         var base = select(vec3(0.25, 0.26, 0.28), vec3(0.17, 0.18, 0.195), surface == LOT);
         base = select(base, vec3(0.3, 0.275, 0.24), walk);
-        albedo = base * (0.94 + 0.12 * (hash2(cell + vec2(3.0)) - 0.5));
-        albedo *= 1.0 - 0.3 * joints(uv, vec2(size), 0.04, fw);
-        if (walk) {
-            albedo = mix(albedo, yellow * 0.8, pulse(u / 30.0, 0.49, 0.5, fw.x / 30.0));
+        if (distant) {
+            albedo = base * (1.0 - 0.3 * 0.08 / size);
+        } else {
+            let cell = floor(uv / size);
+            albedo = base * (0.94 + 0.12 * (hash2(cell + vec2(3.0)) - 0.5));
+            albedo *= 1.0 - 0.3 * joints(uv, vec2(size), 0.04, fw);
+            if (walk) {
+                albedo = mix(albedo, yellow * 0.8, pulse(u / 30.0, 0.49, 0.5, fw.x / 30.0));
+            }
         }
         rough = 0.75;
+    } else if (surface == MEDIAN && distant) {
+        // The tracks as their average on the ballast, the verges, the kerbs.
+        let au = abs(u);
+        albedo = mix(vec3(0.04, 0.04, 0.042), vec3(0.085, 0.086, 0.09), band(abs(au - 2.4), -1.0, 1.15, fw.x));
+        albedo = mix(albedo, vec3(0.06, 0.19, 0.05), band(au, 5.6, 9.0, fw.x));
+        albedo = mix(albedo, vec3(0.3, 0.31, 0.33), band(au, 5.35, 5.6, fw.x) + band(au, 7.75, 8.5, fw.x));
+        rough = 0.8;
     } else if (surface == MEDIAN) {
         // The tram's two tracks on dark ballast, a verge either side.
         let au = abs(u);
@@ -351,13 +433,19 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         rough = 0.9;
     } else if (surface == SQUARE) {
         // A lift's square: big light plates, lines of the quarter's colour ruling it.
-        albedo = vec3(0.33, 0.34, 0.365) * (0.94 + 0.12 * (hash2(floor(uv / 6.0)) - 0.5));
-        albedo *= 1.0 - 0.35 * joints(uv, vec2(6.0), 0.06, fw);
-        let rule = joints(uv + vec2(0.25), vec2(24.0), 0.5, fw);
-        albedo = mix(albedo, quarter * 0.9, rule * 0.8);
+        if (distant) {
+            albedo = mix(vec3(0.33, 0.34, 0.365) * 0.993, quarter * 0.9, 0.033);
+        } else {
+            albedo = vec3(0.33, 0.34, 0.365) * (0.94 + 0.12 * (hash2(floor(uv / 6.0)) - 0.5));
+            albedo *= 1.0 - 0.35 * joints(uv, vec2(6.0), 0.06, fw);
+            let rule = joints(uv + vec2(0.25), vec2(24.0), 0.5, fw);
+            albedo = mix(albedo, quarter * 0.9, rule * 0.8);
+        }
         rough = 0.6;
     } else if (surface == SITE) {
-        if (paint_i == 0u) {
+        if (paint_i == 0u && distant) {
+            albedo = mix(vec3(0.17, 0.175, 0.19) * 0.992, yellow * 0.8, 0.042);
+        } else if (paint_i == 0u) {
             // A place's site, kept clear for it: plates hatched in yellow.
             albedo = vec3(0.17, 0.175, 0.19) * (1.0 - 0.3 * joints(uv, vec2(3.0), 0.04, fw));
             let hatch = pulse((u + v) / 6.0, 0.0, 0.06, (fw.x + fw.y) / 6.0);
@@ -407,8 +495,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         // The ring's faces: great panels, a band of the quarter's colour over the rim walk, and decks
         // of small windows all the way up, lit by night.
         let panel = vec2(12.0, 8.0);
-        albedo = panel_paint(paint_i) * 0.8 * (0.97 + 0.06 * (hash2(floor(uv / panel)) - 0.5));
-        albedo *= 1.0 - 0.3 * joints(uv, panel, 0.15, fw);
+        if (distant) {
+            albedo = panel_paint(paint_i) * 0.8 * (1.0 - 0.3 * 0.031);
+        } else {
+            albedo = panel_paint(paint_i) * 0.8 * (0.97 + 0.06 * (hash2(floor(uv / panel)) - 0.5));
+            albedo *= 1.0 - 0.3 * joints(uv, panel, 0.15, fw);
+        }
         albedo = mix(albedo, quarter * 0.85, band(v, 20.0, 24.0, fw.y));
         let deck = floor(v / 16.0);
         let wv = v - deck * 16.0;

@@ -42,9 +42,12 @@ struct Args {
     /// Tactical oracle behind the Orrery (`jev` needs TYPESAFE_API_KEY).
     #[arg(long, value_enum, default_value_t = OracleKind::Local)]
     oracle: OracleKind,
-    /// Player/agent slots.
+    /// Suits flying in space at once (pilots and agents): the sector's slots.
     #[arg(long, default_value_t = 64)]
     max_clients: usize,
+    /// Sessions at once, in the bay, on foot or flying.
+    #[arg(long, default_value_t = 512)]
+    max_sessions: usize,
     /// Simulation seed.
     #[arg(long, default_value_t = 0xBC_0195)]
     seed: u64,
@@ -106,6 +109,9 @@ struct Args {
     /// Connections taken from one address (loopback excepted).
     #[arg(long, default_value_t = bc_server::net::admit::Limits::default().per_address)]
     per_address: u32,
+    /// The dev HTTP's hooks for tests and playtests (`/dev/incident`). Never in a deployment.
+    #[arg(long, hide = true)]
+    dev_hooks: bool,
 }
 
 /// The store's list of traders to stand on the Exchange floor: `--floor-visitors` as given (`none`:
@@ -140,6 +146,7 @@ fn main() -> anyhow::Result<()> {
         ace_every: std::time::Duration::from_secs(args.ace_every),
         oracle: args.oracle,
         max_clients: args.max_clients,
+        max_sessions: args.max_sessions.clamp(1, bc_server::net::sessions::MAX_SESSIONS),
         seed: args.seed,
         jev_key: std::env::var("TYPESAFE_API_KEY").ok().filter(|k| !k.is_empty()),
         jev_url: std::env::var("TYPESAFE_BASE_URL").ok().filter(|u| !u.is_empty()),
@@ -169,8 +176,12 @@ fn main() -> anyhow::Result<()> {
             per_address: args.per_address.max(1),
             ..bc_server::net::admit::Limits::default()
         },
+        dev_hooks: args.dev_hooks,
         ..Config::default()
     };
+    if cfg.dev_hooks {
+        tracing::warn!("--dev-hooks: the dev HTTP takes /dev/incident (never in a deployment)");
+    }
     match (args.rules, args.colony) {
         (Ruleset::Survival, true) => {
             tracing::info!("the colony's inside is open (--colony): its cap lifts run")
@@ -226,6 +237,12 @@ mod tests {
         let a = Args::parse_from(["bc-server"]);
         assert!(a.siwe_domain.is_empty());
         assert_eq!(a.cors_origin, [bc_server::config::STORE_ORIGIN]);
+    }
+
+    #[test]
+    fn the_dev_hooks_are_off_unless_asked_for() {
+        assert!(!Args::parse_from(["bc-server"]).dev_hooks);
+        assert!(Args::parse_from(["bc-server", "--dev-hooks"]).dev_hooks);
     }
 
     #[test]
