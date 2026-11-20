@@ -882,7 +882,7 @@
     show($("settings"), v.panel === "settings");
     const hint = $("hint");
     hint.textContent = v.hint || "";
-    show(hint, s === "playing" && !!v.hint && v.panel === "none");
+    show(hint, s === "playing" && !!v.hint && v.panel === "none" && !v.townMap);
     show($("help"), v.help);
     // Opened in the world, the sheet starts at the section for where the pilot is (flying, the
     // hangar's came first and FLIGHT and COMBAT were below the fold).
@@ -913,7 +913,7 @@
     // (Under the town's sky, and on the bay's pale walls, the line needs something dark behind it.)
     bayLine.classList.toggle("backed", v.place === "town" || v.place === "hangar");
     show(bayLine, playing && !!v.bayLine && v.panel === "none");
-    const radar = playing && !!v.radar && v.panel === "none" && !v.help;
+    const radar = playing && !!v.radar && v.panel === "none" && !v.help && !v.townMap;
     show($("radar"), radar);
     if (radar) drawRadar(v.radar);
     show($("dot"), playing && v.onFoot && !v.driving && !v.map && !v.help && v.panel === "none");
