@@ -1044,6 +1044,84 @@ pub struct TownFoot {
     mine: bc_client_core::taken::Mine,
     left_ids: Vec<u32>,
     held: Option<bc_econ::wire::LeftCar>,
+    /// What the street's sound needs of them (`bc_sound::street`).
+    pub sound: TownSound,
+}
+
+/// The pilot's own doings the town's sound follows: knocks and doors counted, the pedals and the
+/// horn as held.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TownSound {
+    pub knocks: u32,
+    pub doors: u32,
+    pub throttle: f32,
+    pub handbrake: bool,
+    pub horn: bool,
+}
+
+/// The town's sound hears this far round the pilot: people within it fill out the street, m.
+const EARSHOT_PEOPLE: f32 = 35.0;
+
+impl TownFoot {
+    /// The street round them for `bc_sound::street`, at the colony's `clock`, by `daylight`.
+    pub fn street_in(&self, clock: (u32, f32), daylight: f32) -> bc_sound::street::StreetIn {
+        let at = self.feet();
+        let near = |x: f32, s: f32| (x - at.x).hypot(bc_sim::colony::deck::round_from(RING, at.s, s));
+        let mut traffic = f32::MAX;
+        let mut cars = 0u16;
+        for c in self.traffic.cars() {
+            let d = near(c.car.x, c.s);
+            if c.car.speed > 1.0 && d < bc_sound::street::TRAFFIC_RADIUS {
+                traffic = traffic.min(d);
+                cars += 1;
+            }
+        }
+        let siren = self.pursuit.cars().map(|v| near(v.x, v.s)).fold(f32::MAX, f32::min);
+        let t = bc_sim::colony::town::town_t(at.s);
+        let mut people = 0u16;
+        let r = EARSHOT_PEOPLE;
+        bc_sim::colony::street::each_person(at.x - r, at.x + r, t - r, t + r, clock.0, clock.1, &mut |_| {
+            people = people.saturating_add(1);
+        });
+        let (speed, slip) = self.drive.map_or((0.0, 0.0), |v| {
+            let slip = if self.sound.handbrake {
+                v.speed.abs() * 0.7
+            } else {
+                (v.speed.abs() * v.wheel.abs() * 1.6 - 3.0).max(0.0)
+            };
+            (v.speed, slip)
+        });
+        bc_sound::street::StreetIn {
+            in_town: true,
+            driving: self.drive.is_some(),
+            speed,
+            throttle: self.sound.throttle,
+            slip,
+            knocks: self.sound.knocks,
+            doors: self.sound.doors,
+            horn: self.sound.horn && self.drive.is_some(),
+            siren,
+            siren_closing: 0.0,
+            traffic,
+            cars,
+            people,
+            daylight,
+        }
+    }
+
+    /// A car of the traffic stopped behind the pilot's back, held up by them, near enough to lean
+    /// on its horn: how far off it is, m.
+    pub fn held_up_by_them(&self) -> Option<f32> {
+        let at = self.feet();
+        self.traffic
+            .cars()
+            .iter()
+            .filter(|c| c.car.speed < 0.5)
+            .map(|c| (c.car.x - at.x).hypot(bc_sim::colony::deck::round_from(RING, at.s, c.s)))
+            .filter(|d| *d < 14.0)
+            .min_by(f32::total_cmp)
+            .filter(|_| self.traffic.held() > 0)
+    }
 }
 
 /// The chase camera behind a car in the town: how far back and up it sits, m, and how fast its
@@ -1086,6 +1164,7 @@ impl TownFoot {
             mine: Default::default(),
             left_ids: Vec::new(),
             held: None,
+            sound: TownSound::default(),
         }
     }
 
@@ -1160,6 +1239,7 @@ impl TownFoot {
 
     /// Into `car`'s seat.
     fn take(&mut self, car: Vehicle) {
+        self.sound.doors += 1;
         self.cam_yaw = car.yaw;
         self.orbit = Vec2::ZERO;
         self.drive = Some(car);
@@ -1170,6 +1250,9 @@ impl TownFoot {
     /// Out of the car, beside it, facing the way it does: the car, to leave where it stands.
     fn get_out(&mut self) -> Option<Vehicle> {
         let v = self.drive.take()?;
+        self.sound.doors += 1;
+        self.sound.throttle = 0.0;
+        self.sound.handbrake = false;
         let (x, s) = v.door_spot();
         let (fx, fs) = v.forward();
         self.walker = Walker::at(DeckPos::new(RING, x, s, 0.0).walker(), Vec3::new(fx, 0.0, -fs));
@@ -2091,7 +2174,14 @@ pub fn drive_onfoot(
         t.knock_wait = (t.knock_wait - dt).max(0.0);
         if t.drive.is_some() {
             let drive = Drive { throttle: own.forward, steer: -own.right, handbrake: own.jump };
-            if t.drive_on(&drive, look, walk_dt(false), dt) && t.knock_wait <= 0.0 {
+            t.sound.throttle = own.forward;
+            t.sound.handbrake = own.jump;
+            t.sound.horn = keys.pressed(KeyCode::KeyH) && !ui.panel_open();
+            let knocked = t.drive_on(&drive, look, walk_dt(false), dt);
+            if knocked {
+                t.sound.knocks += 1;
+            }
+            if knocked && t.knock_wait <= 0.0 {
                 t.knock_wait = 1.5;
                 offences.push(Offence::Knock);
             }

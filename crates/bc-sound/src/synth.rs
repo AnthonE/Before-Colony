@@ -109,6 +109,14 @@ pub fn render(cue: Cue) -> Vec<f32> {
         Cue::PushOff => push_off(&mut r),
         Cue::GoDark => reactor(&mut r, false),
         Cue::PowerUp => reactor(&mut r, true),
+        Cue::EngineLoop => engine_loop(&mut r),
+        Cue::TyreLoop => tyre_loop(&mut r),
+        Cue::SirenLoop => siren_loop(),
+        Cue::TrafficLoop => traffic_loop(&mut r),
+        Cue::StreetBed => street_bed(&mut r),
+        Cue::Horn => horn(),
+        Cue::Crash => crash(&mut r),
+        Cue::CarDoor => car_door(&mut r),
     };
     normalize(&mut out, PEAK);
     out
@@ -886,6 +894,158 @@ fn cockpit_hum(r: &mut Rng) -> Vec<f32> {
         })
         .collect();
     loop_seam(raw, samples(0.5))
+}
+
+/// A car's engine at a steady pace: a four-pot's firing (100 a second over a 50 Hz crank) with
+/// its exhaust's breath. The street model drives its pitch with the revs. Whole cycles of every
+/// partial in the second, and the breath seamed.
+fn engine_loop(r: &mut Rng) -> Vec<f32> {
+    let secs = 1.0;
+    let fade = samples(0.25);
+    let mut lp = Lp::new(900.0);
+    let mut body = Lp::new(1_400.0);
+    let raw: Vec<f32> = (0..samples(secs) + fade)
+        .map(|i| {
+            let t = i as f32 / SR;
+            // Each firing a puff of breath, decaying before the next.
+            let pulse = (-(t * 100.0).fract() / 0.22).exp();
+            let breath = lp.run(r.noise()) * pulse * 1.6;
+            let tone = saw(50.0 * t) * 0.35 + saw(100.0 * t) * 0.45 + (TAU * 150.0 * t).sin() * 0.15;
+            body.run(tone + breath)
+        })
+        .collect();
+    loop_seam(raw, fade)
+}
+
+/// Tyres scrubbing: a squeal on a band of hiss.
+fn tyre_loop(r: &mut Rng) -> Vec<f32> {
+    let secs = 2.0;
+    let fade = samples(0.3);
+    let mut lp = Lp::new(3_200.0);
+    let mut hp = Lp::new(1_400.0);
+    let raw: Vec<f32> = (0..samples(secs) + fade)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let x = lp.run(r.noise());
+            let hiss = (x - hp.run(x)) * 1.4;
+            // The squeal wanders a little: 900 to 980 Hz, whole cycles in the two seconds.
+            let squeal = (TAU * (940.0 * t + 40.0 / (TAU * 1.5) * -(TAU * 1.5 * t).cos())).sin() * 0.35;
+            hiss + squeal
+        })
+        .collect();
+    loop_seam(raw, fade)
+}
+
+/// The Watch's siren: a wail rising and falling every two seconds, 650 to 1,300 Hz. Its pitch
+/// averages 975 Hz over the period, 1,950 whole cycles, so it loops on itself.
+fn siren_loop() -> Vec<f32> {
+    let n = samples(2.0);
+    let mut lp = Lp::new(3_000.0);
+    // Two periods, the first only to settle the filter: the second runs into itself.
+    let all: Vec<f32> = (0..2 * n)
+        .map(|i| {
+            let t = (i % n) as f32 / SR;
+            // The phase: the integral of 975 + 325 sin(π t).
+            let cycles = 975.0 * t + 325.0 / PI * (1.0 - (PI * t).cos());
+            let s = (TAU * cycles).sin() * 0.7 + square(cycles) * 0.15 + (TAU * 2.0 * cycles).sin() * 0.15;
+            lp.run(s)
+        })
+        .collect();
+    all[n..].to_vec()
+}
+
+/// The town's traffic, a street or two off: a rumble of engines and tyres, cars swelling past.
+fn traffic_loop(r: &mut Rng) -> Vec<f32> {
+    let secs = 8.0;
+    let fade = samples(0.6);
+    let mut lp = Lp::new(260.0);
+    let mut lp2 = Lp::new(180.0);
+    let mut hiss_lp = Lp::new(2_400.0);
+    let mut hiss_hp = Lp::new(700.0);
+    let raw: Vec<f32> = (0..samples(secs) + fade)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let x = r.noise();
+            let rumble = lp2.run(lp.run(x) * 3.0) * 3.0;
+            let h = hiss_lp.run(x);
+            let hiss = (h - hiss_hp.run(h)) * 0.5;
+            // Cars passing: swells every 8, 4 and 8/3 s (whole periods in the loop).
+            let pass = 0.55
+                + 0.25 * (TAU * t / 8.0).sin().max(0.0)
+                + 0.2 * (TAU * t / 4.0 + 1.3).sin().max(0.0)
+                + 0.15 * (TAU * t * 3.0 / 8.0 + 2.1).sin().max(0.0);
+            (rumble + hiss) * pass
+        })
+        .collect();
+    loop_seam(raw, fade)
+}
+
+/// The street at large: air moving under the ceiling's lattice, and voices too far off to make
+/// out.
+fn street_bed(r: &mut Rng) -> Vec<f32> {
+    let secs = 10.0;
+    let fade = samples(0.8);
+    let mut wind = Lp::new(320.0);
+    let mut v_lp = Lp::new(1_100.0);
+    let mut v_hp = Lp::new(280.0);
+    let mut babble = 0.0f32;
+    let raw: Vec<f32> = (0..samples(secs) + fade)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let air = wind.run(r.noise()) * 2.2 * (0.8 + 0.2 * (TAU * t / 5.0).sin());
+            // Voices: band noise, chopped like syllables.
+            if r.unit() < 0.0008 {
+                babble = 0.4 + 0.6 * r.unit();
+            }
+            babble *= 0.9997;
+            let v = v_lp.run(r.noise());
+            let voices = (v - v_hp.run(v)) * babble * (0.6 + 0.4 * (TAU * 4.3 * t).sin().abs());
+            air + voices * 0.8
+        })
+        .collect();
+    loop_seam(raw, fade)
+}
+
+/// A car's horn: two reeds a third apart.
+fn horn() -> Vec<f32> {
+    let dur = 0.45;
+    let n = samples(dur);
+    let mut lp = Lp::new(2_500.0);
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let s = square(350.0 * t) * 0.3 + square(440.0 * t) * 0.3 + (TAU * 700.0 * t).sin() * 0.2;
+            lp.run(s) * attack(t, 0.012) * ((dur - t) / 0.05).clamp(0.0, 1.0) * edges(i, n)
+        })
+        .collect()
+}
+
+/// Cars meeting: a thump, a crunch of panels, glass, and a ring of metal.
+fn crash(r: &mut Rng) -> Vec<f32> {
+    let dur = 1.1;
+    let n = samples(dur);
+    let mut lp = Lp::new(2_800.0);
+    let mut hp = Lp::new(600.0);
+    let mut out: Vec<f32> = (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let x = lp.run(r.noise());
+            let crunch = (x - hp.run(x)) * (-t / 0.12).exp() * 1.4;
+            let glass = if t > 0.04 && r.unit() < 0.004 * (-t / 0.3).exp() { r.noise() * 0.8 } else { 0.0 };
+            let ring = (TAU * 410.0 * t).sin() * 0.15 * (-t / 0.35).exp();
+            (crunch + glass + ring) * edges(i, n)
+        })
+        .collect();
+    mix_in(&mut out, &boom(r, 0.5, 70.0, 0.12), 0, 1.0);
+    out
+}
+
+/// A car's door shut: a padded thunk and the latch.
+fn car_door(r: &mut Rng) -> Vec<f32> {
+    let mut out = boom(r, 0.3, 95.0, 0.06);
+    let latch = impact(r, 0.08, 1_400.0, 0.012, 0.004, 4_000.0, 1_500.0);
+    mix_in(&mut out, &latch, samples(0.012), 0.5);
+    out
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -15,6 +15,7 @@ pub mod cockpit;
 pub mod mixer;
 pub mod music;
 pub mod spc;
+pub mod street;
 pub mod synth;
 pub mod title;
 
@@ -145,6 +146,17 @@ cues!(
     PushOff,
     GoDark,
     PowerUp,
+    // The ring's town (after the bodies', so every cue before keeps its number and its seed): a
+    // car's engine and tyres, the Watch's siren, the traffic and the street, a horn, a crash, a
+    // car's door.
+    EngineLoop,
+    TyreLoop,
+    SirenLoop,
+    TrafficLoop,
+    StreetBed,
+    Horn,
+    Crash,
+    CarDoor,
 );
 
 /// How many cues there are.
@@ -239,6 +251,14 @@ impl Cue {
             Cue::PushOff => def(Cockpit, 7, 0.0, 0.3, 0.55, 0.04),
             Cue::GoDark => def(Cockpit, 8, 0.0, 1.0, 0.5, 0.0),
             Cue::PowerUp => def(Cockpit, 8, 0.0, 1.0, 0.5, 0.0),
+            Cue::EngineLoop => looped(Effects, 0.45),
+            Cue::TyreLoop => looped(Effects, 0.3),
+            Cue::SirenLoop => looped(Effects, 0.4),
+            Cue::TrafficLoop => looped(Effects, 0.35),
+            Cue::StreetBed => looped(Effects, 0.3),
+            Cue::Horn => def(Effects, 6, 260.0, 0.35, 0.55, 0.04),
+            Cue::Crash => def(Effects, 8, 300.0, 0.25, 0.9, 0.06),
+            Cue::CarDoor => def(Effects, 5, 60.0, 0.3, 0.5, 0.05),
         }
     }
 

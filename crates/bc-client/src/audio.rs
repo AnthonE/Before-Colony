@@ -204,6 +204,11 @@ pub struct Sound {
     own_saber: bool,
     /// Each suit's footfalls so far (its walk's), as of last frame.
     steps: HashMap<u16, u32>,
+    /// The ring's town: its street's model, the nearest siren's distance last frame (to hear it
+    /// coming or going), and when the traffic next leans on its horn at a pilot in its way.
+    street: bc_sound::street::Street,
+    siren_was: f32,
+    next_honk: f64,
     /// Counters for the dev hooks.
     pub started: u32,
 }
@@ -322,7 +327,7 @@ pub fn play_sound(
     drives: Query<(&crate::view::SuitDrive, Option<&crate::anim::Anim>)>,
     camera: Query<&GlobalTransform, With<MainCamera>>,
     (city, origin): (Res<crate::city::CityView>, Res<crate::city::RenderOrigin>),
-    time: Res<Time<Real>>,
+    (time, day): (Res<Time<Real>>, Res<crate::colony::ColonyDay>),
     indoors: Res<crate::hangar::Indoors>,
     onfoot: Res<crate::onfoot::OnFoot>,
     mut last_seq: Local<crate::onfoot::Seq>,
@@ -501,6 +506,36 @@ pub fn play_sound(
         audio.set_loop(l.cue, l.gain * l.cue.def().gain * bus, l.rate);
     }
     audio.set_lowpass(out.lowpass_hz);
+
+    // The ring's town: the pilot's car, the Watch's sirens, the traffic and the street.
+    let town = onfoot.town.as_ref().filter(|_| ui.playing() && onfoot.seq == crate::onfoot::Seq::Walking);
+    let clock = game.borrow().core.colony_tick(now);
+    let mut sin = town.map_or_else(bc_sound::street::StreetIn::empty, |t| t.street_in(clock, day.0.daylight));
+    let dt = time.delta_secs().max(1e-3);
+    if sin.siren < f32::MAX && sound.siren_was < f32::MAX {
+        sin.siren_closing = (sound.siren_was - sin.siren) / dt;
+    }
+    sound.siren_was = sin.siren;
+    // Stood in the traffic's way, it lets them know.
+    if let Some(far) = town.and_then(|t| t.held_up_by_them()) {
+        if now >= sound.next_honk {
+            let gain = bc_sound::falloff(far, Cue::Horn.def().radius);
+            sound.mixer.request(Request { gain, ..Request::own(Cue::Horn) });
+            sound.next_honk = now + 3.5 + (now * 7.3).fract() * 3.0;
+        }
+    } else {
+        sound.next_honk = sound.next_honk.max(now + 1.5);
+    }
+    let mixer = &mut sound.mixer;
+    let street = sound.street.frame(now, dt, &sin, &mut |c, gain| {
+        mixer.request(Request { gain, ..Request::own(c) });
+    });
+    for l in street.loops {
+        let bus = mix.bus(l.cue.def().bus) * mix.master;
+        audio.set_loop(l.cue, l.gain * l.cue.def().gain * bus, l.rate);
+    }
+    dev.set("audio_engine", f64::from(street.loops[0].gain));
+    dev.set("audio_siren", f64::from(street.loops[2].gain));
 
     // Music.
     let m = sound.music.frame(
