@@ -643,6 +643,57 @@ pub fn route(spot: &str, from: Vec3) -> Option<(Vec<Vec3>, Vec3)> {
             let (cx, cz) = (v.x - spot.x, -v.s - spot.z);
             Some((vec![spot], Vec3::new(cx, 0.0, cz).normalize_or_zero()))
         }
+        // A key place's counter, the nearest of its kind: along the pavement to before its door,
+        // in, and up to it.
+        "exchange" | "arrival" | "charter" | "watch" => {
+            use bc_sim::content::town::{PlaceKind as K, hall_door};
+            let kind = match spot {
+                "exchange" => K::ExchangeFloor,
+                "arrival" => K::TheArrival,
+                "charter" => K::CharterHall,
+                _ => K::WatchStation,
+            };
+            let mut best: Option<(f32, bc_sim::pieces::prefab::Site)> = None;
+            town::each_place_site(&mut |site| {
+                let d = deck::round_from(RING, at.s, site.s).abs() + (site.x - at.x).abs();
+                if site.prefab.name == kind.name() && best.is_none_or(|(b, _)| d < b) {
+                    best = Some((d, site));
+                }
+            });
+            let (_, site) = best?;
+            let door = hall_door(site.prefab);
+            let turn = |w: Vec3| {
+                let p = DeckPos::from_walker(RING, w);
+                near(p.x, town::town_t(p.s))
+            };
+            let outside = turn(site.to_walker(door + Vec3::new(0.0, 0.0, -4.0)));
+            let inside = turn(site.to_walker(door + Vec3::new(0.0, 0.0, 1.5)));
+            let counter = turn(site.to_walker(site.prefab.rooms[0].counter));
+            // Along the boulevard's pavement on the place's side, between the kerb and the lamps.
+            let lane = outside.x.signum() * (town::BOULEVARD_HALF + 3.5);
+            let mut way = Vec::new();
+            // Out at a lift's door, round its pier first.
+            let k = (0..town::LIFTS)
+                .min_by(|a, b| {
+                    let d = |k: u16| deck::round_from(RING, at.s, town::deck_s(town::lift_t(k))).abs();
+                    d(*a).total_cmp(&d(*b))
+                })
+                .unwrap_or(0);
+            let lt = town::lift_t(k);
+            if deck::round_from(RING, at.s, town::deck_s(lt)).abs() < 30.0
+                && at.x.abs() < town::LIFT_HALF_X + 6.0
+            {
+                // (Past the pier on the side the place is, along its outer face.)
+                let ahead = deck::round_from(RING, at.s, -outside.z).signum();
+                let past = near(at.x.min(-town::LIFT_HALF_X - 2.0), lt + ahead * (town::LIFT_HALF_T + 2.0));
+                way.push(past);
+                way.push(Vec3::new(lane, 0.0, past.z));
+            } else {
+                way.push(Vec3::new(lane, 0.0, from.z));
+            }
+            way.extend([Vec3::new(lane, 0.0, outside.z), outside, inside, counter]);
+            Some((way, (counter - inside).normalize_or_zero()))
+        }
         _ => None,
     }
 }
@@ -767,6 +818,23 @@ mod tests {
         assert_eq!(seen.iter().filter(|k| **k == PlaceKind::WatchStation).count(), 12);
         let (x, t) = town::out_of_the_lift(0);
         assert_eq!(counter_at_hand(DeckPos::new(RING, x, town::deck_s(t), 0.0)), None);
+    }
+
+    #[test]
+    fn the_dev_walk_takes_a_pilot_from_hub_gate_to_each_key_places_counter_near_it() {
+        use bc_sim::content::town::PlaceKind;
+        for (slug, kind) in [
+            ("exchange", PlaceKind::ExchangeFloor),
+            ("arrival", PlaceKind::TheArrival),
+            ("charter", PlaceKind::CharterHall),
+            ("watch", PlaceKind::WatchStation),
+        ] {
+            let mut w = out_of_the_lift(0);
+            let (route, facing) = route(slug, w.feet).expect(slug);
+            let mut guide = Guide::new(route, Some(facing));
+            assert!(walk(&mut w, &mut guide, 600.0), "{slug}: stuck at {:?}", w.feet);
+            assert_eq!(counter_at_hand(feet(&w)), Some(kind), "{slug}: at {:?}", w.feet);
+        }
     }
 
     #[test]

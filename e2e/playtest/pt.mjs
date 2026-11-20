@@ -57,7 +57,7 @@ Doing
   walk <spot>              walk there and wait to arrive: bay: airlock cockpit suit fabricator stores
                            exchange; city: proving_ground exchange_floor charter_board bar hub_gate_1..3
                            tram seat pool gantry sight_0..9; Bay Row: airlock hall; the town: lift
-                           boulevard car
+                           boulevard car exchange arrival charter watch (its counter)
   use                      use what's in view (E)
   cmd <json>               a dev command onto window.bcInbox, e.g. '{"cmd":"fly_to","spot":"bar","up":20,"ahead":30}'
                            '{"cmd":"aim_hostile","on":true}' '{"cmd":"skip"}' '{"cmd":"set","key":"hints","value":"false"}'
