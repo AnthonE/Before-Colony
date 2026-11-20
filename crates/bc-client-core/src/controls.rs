@@ -107,6 +107,7 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Town, "Tab", "At the wheel: the camera behind the car, or from the driver's seat"),
     b(Group::Town, "E (at the wheel)", "Get out (slow to a walk first)"),
     b(Group::Town, "H (at the wheel)", "The horn"),
+    b(Group::Town, "M / Esc", "The map, open or closed: the whole ring, the streets round you, the lifts, the Watch"),
     b(
         Group::Town,
         "F (at the wheel)",

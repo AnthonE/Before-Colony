@@ -403,6 +403,40 @@ pub fn gallery() -> Gallery {
             View { on_foot: true, prompt: "E  FABRICATOR".into(), ..survival("hangar") },
         ),
         scene(
+            "town-map",
+            "The ring's town's map (M), wanted by the Watch with a fare aboard, and its radar.",
+            "#map",
+            {
+                use bc_sim::colony::deck::{DeckPos, RING};
+                use bc_sim::colony::town;
+                let (x, t) = town::out_of_the_lift(0);
+                let at = DeckPos::new(RING, x - 60.0, town::deck_s(t + 420.0), 0.0);
+                let after = [
+                    crate::vehicle::Vehicle::new(
+                        crate::vehicle::Kind::Car,
+                        bc_sim::car::RING_FLOOR,
+                        at.s - 90.0,
+                        at.x + 20.0,
+                        0.0,
+                    ),
+                    crate::vehicle::Vehicle::new(
+                        crate::vehicle::Kind::Car,
+                        bc_sim::car::RING_FLOOR,
+                        at.s + 140.0,
+                        at.x - 30.0,
+                        0.0,
+                    ),
+                ];
+                View {
+                    map: None,
+                    town_map: Some(crate::town::map_at(at, 2.2, &after, Some(1))),
+                    radar: Some(crate::town::radar(at, 2.2, &after, Some(1))),
+                    bay_line: "BAY 07 · 12,480 CR · WATCH ◆◆ · FARE FOR QUAYSIDE ↗ 2.9 KM · 126 CR".into(),
+                    ..survival("town")
+                }
+            },
+        ),
+        scene(
             "map",
             "The colony's map (M), with an objective.",
             "#map",

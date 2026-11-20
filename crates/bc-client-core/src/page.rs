@@ -115,6 +115,9 @@ pub struct View {
     /// In the ring's town: the radar.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub radar: Option<Radar>,
+    /// In the ring's town, the map (M) up: where the pilot is on it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub town_map: Option<TownMapAt>,
     /// A sortie's news, shown large when its number moves (`news_bad`: in red).
     pub news_seq: u32,
     pub news: String,
@@ -206,6 +209,150 @@ pub struct Radar {
     pub fare: bool,
 }
 
+/// Where the pilot stands on the town's map (M), in the town's own terms: `x` across the ring, `t`
+/// round it from Hub Gate (0 to [`TownPlan::round`]).
+#[derive(Clone, Debug, PartialEq, Default, Serialize)]
+pub struct TownMapAt {
+    pub x: f32,
+    pub t: f32,
+    /// Which way they face, rad (the walker's yaw: 0 the way `t` falls... as the radar's).
+    pub yaw: f32,
+    /// The district they're in, by name.
+    pub district: &'static str,
+    /// The Watch's cars after them, `[x, t]`.
+    pub watch: Vec<[f32; 2]>,
+    /// Where they're bound, `[x, t]`: their fare's square, or the nearest lift home.
+    pub goal: [f32; 2],
+    pub fare: bool,
+}
+
+/// The ring's town for the page's map (M), sent once: its districts round the ring, its block
+/// columns across it, every block's use, its lifts and its key places (`bc_sim::colony::town`).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TownPlan {
+    /// Round the ring, and the floor's edges across it, m.
+    pub round: f32,
+    pub x0: f32,
+    pub x1: f32,
+    /// Each cell's blocks' ends round the ring, `[t0, t1]`, cell by cell.
+    pub cells: Vec<[f32; 2]>,
+    /// Each column's blocks' sides across it, `[x0, x1]`.
+    pub columns: Vec<[f32; 2]>,
+    /// Every block's use, a digit a block, cell by cell and column by column within each: 0 built
+    /// on, 1 a park, 2 a lift's square, 3 frames going up, 4 a key place.
+    pub blocks: String,
+    /// The boulevard's half width and its median's, and the canal's sides across the ring.
+    pub boulevard: [f32; 2],
+    pub canal: [f32; 2],
+    pub districts: Vec<TownDistrict>,
+    pub lifts: Vec<TownMark>,
+    pub places: Vec<TownMark>,
+}
+
+/// A district of the town: its name, where it runs round the ring, and its quarter (0 Charter, 1
+/// Canal, 2 Gardens, 3 the Site).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TownDistrict {
+    pub name: &'static str,
+    pub t0: f32,
+    pub t1: f32,
+    pub quarter: u8,
+}
+
+/// Something named on the town's map, where it stands.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct TownMark {
+    pub name: &'static str,
+    pub x: f32,
+    pub t: f32,
+}
+
+/// A key place's name on the town's map and its signs.
+pub fn town_place_name(kind: bc_sim::content::town::PlaceKind) -> &'static str {
+    use bc_sim::content::town::PlaceKind as P;
+    match kind {
+        P::ExchangeFloor => "THE EXCHANGE FLOOR",
+        P::TheArrival => "THE ARRIVAL",
+        P::CharterHall => "THE CHARTER BOARD",
+        P::WatchStation => "THE WATCH",
+    }
+}
+
+/// The town's plan for the page's map.
+pub fn town_plan() -> TownPlan {
+    use bc_sim::colony::town::{self, BlockId, BlockUse};
+    use bc_sim::content::town::Quarter;
+    let cells = (0..town::CELLS)
+        .map(|c| {
+            let r = town::block_rect(BlockId::new(c, 0));
+            [r.t0, r.t1]
+        })
+        .collect();
+    let columns = (0..town::COLUMNS)
+        .map(|k| {
+            let r = town::block_rect(BlockId::new(0, k));
+            [r.x0, r.x1]
+        })
+        .collect();
+    let mut blocks = String::with_capacity(usize::from(town::CELLS) * usize::from(town::COLUMNS));
+    let mut places = Vec::new();
+    for c in 0..town::CELLS {
+        for k in 0..town::COLUMNS {
+            let id = BlockId::new(c, k);
+            blocks.push(match town::block_use(id) {
+                BlockUse::Built => '0',
+                BlockUse::Park => '1',
+                BlockUse::Square => '2',
+                BlockUse::Frames => '3',
+                BlockUse::Place(p) => {
+                    let r = town::block_rect(id);
+                    places.push(TownMark {
+                        name: town_place_name(p),
+                        x: 0.5 * (r.x0 + r.x1),
+                        t: 0.5 * (r.t0 + r.t1),
+                    });
+                    '4'
+                }
+            });
+        }
+    }
+    let districts = (0..town::DISTRICT_COUNT)
+        .map(|d| {
+            let def = town::district(d);
+            TownDistrict {
+                name: def.name,
+                t0: town::DISTRICT * f32::from(d),
+                t1: town::DISTRICT * f32::from(d + 1),
+                quarter: match def.quarter {
+                    Quarter::Charter => 0,
+                    Quarter::Canal => 1,
+                    Quarter::Gardens => 2,
+                    Quarter::Site => 3,
+                },
+            }
+        })
+        .collect();
+    let lifts = (0..town::LIFTS)
+        .map(|k| {
+            let (x, t) = town::lift_door(k);
+            TownMark { name: town::lift_name(k), x, t: town::wrap(t) }
+        })
+        .collect();
+    TownPlan {
+        round: town::ROUND,
+        x0: -bc_sim::world::COLONY_HALF_WIDTH,
+        x1: bc_sim::world::COLONY_HALF_WIDTH,
+        cells,
+        columns,
+        blocks,
+        boulevard: [town::BOULEVARD_HALF, town::MEDIAN_HALF],
+        canal: [town::CANAL.0, town::CANAL.1],
+        districts,
+        lifts,
+        places,
+    }
+}
+
 /// The colony's city for the page's map (M): each strip's districts along it, its key places'
 /// doors and its sights, and the grid's lines the map draws them on (`bc_sim::colony::city`).
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -232,6 +379,7 @@ pub struct Init {
     pub frames: Vec<FrameCard>,
     pub controls: Vec<ControlGroup>,
     pub city: CityMap,
+    pub town: TownPlan,
     pub name: String,
     pub frame: String,
     pub autoplay: bool,
@@ -239,7 +387,15 @@ pub struct Init {
 
 impl Init {
     pub fn new(name: String, frame: String, autoplay: bool) -> Self {
-        Init { frames: frame_cards(), controls: control_groups(), city: city_map(), name, frame, autoplay }
+        Init {
+            frames: frame_cards(),
+            controls: control_groups(),
+            city: city_map(),
+            town: town_plan(),
+            name,
+            frame,
+            autoplay,
+        }
     }
 }
 

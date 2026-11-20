@@ -2204,6 +2204,10 @@ pub fn drive_onfoot(
                     away: false,
                 });
             }
+            // The town's map (M).
+            if live && keys.just_pressed(KeyCode::KeyM) {
+                ui.map = !ui.map;
+            }
             // Fares (F): stopped in a lift's square by someone standing there, they'll ride to
             // another gate's; stopped in that one, they're set down and pay.
             let fare = g.core.hangar.fare;
@@ -2641,7 +2645,7 @@ pub fn drive_onfoot(
         ui.driving = "car";
     }
     // The map (M), and where the pilot stands on it.
-    ui.map &= me.city.is_some();
+    ui.map &= me.city.is_some() || (in_town && me.town.is_some());
     let map_at = me.city.as_ref().filter(|_| ui.map).map(|c| {
         let at = c.feet();
         let h = c.walker.heading();
@@ -2802,6 +2806,14 @@ pub fn drive_onfoot(
     });
     if ui.radar != radar {
         ui.radar = radar;
+    }
+    let town_map = me.town.as_ref().filter(|_| in_town && ui.map && me.seq == Seq::Walking).map(|t| {
+        let yaw = t.drive.map_or(t.walker.yaw, |v| v.yaw);
+        let after: Vec<Vehicle> = t.pursuit.cars().chain(t.pursuit.hounds()).copied().collect();
+        town_foot::map_at(t.feet(), yaw, &after, g.core.hangar.fare.map(|(to, _)| to))
+    });
+    if ui.town_map != town_map {
+        ui.town_map = town_map;
     }
     // Leaving from inside the colony, the suit is brought home (`page`'s menu says so).
     ui.inside = flying_inside;

@@ -192,6 +192,24 @@ pub fn radar(at: DeckPos, yaw: f32, after: &[Vehicle], fare: Option<u16>) -> cra
     }
 }
 
+/// Where a pilot at `at` facing `yaw` is on the town's map (M), with the Watch's cars `after` them
+/// and where they're bound (their fare's lift `fare`, else the nearest lift).
+pub fn map_at(at: DeckPos, yaw: f32, after: &[Vehicle], fare: Option<u16>) -> crate::page::TownMapAt {
+    let r = radar(at, yaw, after, fare);
+    let t = town::town_t(at.s);
+    let q = |v: f32| (v * 2.0).round() * 0.5;
+    let on = |p: [f32; 2]| [q(at.x + p[0]), q(town::wrap(t + p[1]))];
+    crate::page::TownMapAt {
+        x: q(at.x),
+        t: q(t),
+        yaw: r.yaw,
+        district: district_at(at.s).1,
+        watch: after.iter().map(|v| on([v.x - at.x, deck::round_from(RING, at.s, v.s)])).collect(),
+        goal: on(r.goal),
+        fare: r.fare,
+    }
+}
+
 /// The district round the ring at `s`, and its name on the signs.
 pub fn district_at(s: f32) -> (u16, &'static str) {
     let d = town::cell_at(town::town_t(s)) / town::CELLS_PER_DISTRICT;
@@ -675,6 +693,32 @@ mod tests {
         // By the canal, its water's on it.
         let quay = DeckPos::new(RING, town::CANAL.0 - 3.0, at.s + 300.0, 0.0);
         assert!(radar(quay, 0.0, &[], None).blocks.iter().any(|b| b[4] == 4.0));
+    }
+
+    #[test]
+    fn the_map_has_every_block_district_and_lift_and_where_the_pilot_is() {
+        let plan = crate::page::town_plan();
+        assert_eq!(plan.blocks.len(), usize::from(town::CELLS) * usize::from(town::COLUMNS));
+        assert_eq!(
+            (plan.cells.len(), plan.columns.len()),
+            (usize::from(town::CELLS), usize::from(town::COLUMNS))
+        );
+        assert_eq!((plan.districts.len(), plan.lifts.len()), (12, 6));
+        // The Exchange floor, The Arrival, the Charter Board, and a station of the Watch's a district.
+        assert_eq!(plan.places.len(), 3 + 12);
+        assert_eq!(plan.blocks.matches('4').count(), plan.places.len());
+        assert!(plan.blocks.contains('1') && plan.blocks.contains('2') && plan.blocks.contains('3'));
+        assert!(plan.lifts.iter().all(|l| (0.0..plan.round).contains(&l.t)), "{:?}", plan.lifts);
+        // Out of Hub Gate's lift, bound for it; a step back over the seam, still near t = 0.
+        let (x, t) = town::out_of_the_lift(0);
+        let m = map_at(DeckPos::new(RING, x, town::deck_s(t), 0.0), 0.0, &[], None);
+        assert_eq!(m.district, "CHARTER SQUARE");
+        assert!((m.goal[0] - m.x).abs() < 1.0 && (m.goal[1] - m.t).abs() < 1.0, "{m:?}");
+        let back = map_at(DeckPos::new(RING, x, town::deck_s(-30.0), 0.0), 0.0, &[], Some(1));
+        assert!(
+            back.t > plan.round - 40.0 && back.fare && (back.goal[1] - plan.lifts[1].t).abs() < 30.0,
+            "{back:?}"
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use bc_client_core::gallery::gallery;
-use bc_client_core::page::{Cmd, MapAt, Radar, View};
+use bc_client_core::page::{Cmd, MapAt, Radar, TownMapAt, View};
 use serde_json::Value;
 
 fn repo(path: &str) -> String {
@@ -90,6 +90,7 @@ fn full_view() -> Value {
         map: Some(MapAt::default()),
         map_goal: Some("exchange"),
         radar: Some(Radar::default()),
+        town_map: Some(TownMapAt::default()),
         ..View::default()
     };
     serde_json::to_value(v).unwrap()
@@ -111,6 +112,8 @@ fn the_page_reads_only_what_the_view_sends_and_reads_all_of_it() {
     let r = reads(body(&js, "function drawRadar(r)"), "r");
     assert_sent("the radar", &r, &keys(&full_view()["radar"]));
     assert_eq!(r, keys(&full_view()["radar"]), "the radar's fields, all drawn");
+    let m = reads(body(&js, "function drawTownMap(m)"), "m");
+    assert_eq!(m, keys(&full_view()["townMap"]), "the town map's `m`: every field, and only those");
 }
 
 #[test]
@@ -140,6 +143,15 @@ fn the_page_reads_only_what_init_sends() {
         .iter()
         .flat_map(|s| s["places"].as_array().unwrap().iter().chain(s["sights"].as_array().unwrap()));
     assert_sent("a place or a sight", &reads(map, "p"), &keys_of(points));
+
+    let plan = &init["town"];
+    let tmap = body(&js, "function drawTownMap(m)");
+    assert_sent("the town", &reads(&js, "town"), &keys(plan));
+    let districts = plan["districts"].as_array().unwrap();
+    assert_sent("a town district", &reads(tmap, "d"), &keys_of(districts));
+    let marks = plan["lifts"].as_array().unwrap().iter().chain(plan["places"].as_array().unwrap());
+    assert_sent("a lift or a place", &reads(tmap, "p"), &keys_of(marks.clone()));
+    assert_sent("a lift", &reads(tmap, "l"), &keys_of(marks));
 }
 
 #[test]

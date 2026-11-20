@@ -896,8 +896,9 @@
       h?.closest("section")?.scrollIntoView({ block: "start" });
     }
     helpWas = v.help;
-    show($("map"), s === "playing" && !!v.map && v.panel === "none");
+    show($("map"), s === "playing" && (!!v.map || !!v.townMap) && v.panel === "none");
     if (s === "playing" && v.map && v.panel === "none") drawMap(v.map, v.mapGoal, v.mapFound || 0);
+    if (s === "playing" && v.townMap && v.panel === "none") drawTownMap(v.townMap);
     show($("prompt"), s === "playing" && v.clickToFly && !v.help && !v.sequence);
     // On foot in the bay or the city a click walks (at the wheel, drives); else it flies.
     const verb = v.driving === "car" || v.driving === "markab" ? "DRIVE" : v.driving ? "RIDE" : afoot ? "WALK" : "FLY";
@@ -1004,6 +1005,8 @@
 
   // --- The colony's map (M): the strip the pilot is on, drawn from the city's tables (`init`). ---
   let city = null;
+  // The ring's town's plan (`bc_client_core::page::TownPlan`), for its map.
+  let town = null;
   // A canvas the page's width, `data-h` CSS pixels tall, at the screen's resolution.
   function sizeCanvas(c) {
     const dpr = window.devicePixelRatio || 1;
@@ -1077,6 +1080,135 @@
     g.beginPath();
     g.arc(R, R, R - dpr, 0, Math.PI * 2);
     g.stroke();
+  }
+
+  // The ring's town on the map (M): the whole ring along the top, its districts and lifts; below,
+  // the streets round the pilot, round the ring left to right and across it top to bottom (the
+  // fore rim at the top), the blocks by what stands on them, the lifts and key places named, the
+  // Watch's cars after them and where they're bound.
+  function drawTownMap(m) {
+    if (!town) return;
+    $("map-title").textContent = `THE RING · ${m.district}`;
+    const css = getComputedStyle(document.documentElement);
+    const cyan = css.getPropertyValue("--cyan").trim();
+    const amber = css.getPropertyValue("--amber").trim();
+    const label = css.getPropertyValue("--label").trim();
+    const font = (px) => `${px}px ${css.getPropertyValue("--label-font")}`;
+    const dpr = window.devicePixelRatio || 1;
+    const quarters = ["rgba(120,170,235,", "rgba(90,200,200,", "rgba(130,210,130,", "rgba(255,181,71,"];
+    const diamond = (g, x, y, d, colour, fill) => {
+      g.beginPath();
+      g.moveTo(x, y - d); g.lineTo(x + d, y); g.lineTo(x, y + d); g.lineTo(x - d, y);
+      g.closePath();
+      if (fill) { g.fillStyle = colour; g.fill(); } else { g.strokeStyle = colour; g.lineWidth = 2 * dpr; g.stroke(); }
+    };
+
+    // The whole ring: its districts by quarter, the lifts, the pilot.
+    const top = sizeCanvas($("map-strip"));
+    const tw = top.canvas.width, th = top.canvas.height;
+    const tx = (t) => (t / town.round) * tw;
+    top.clearRect(0, 0, tw, th);
+    town.districts.forEach((d, i) => {
+      top.fillStyle = quarters[d.quarter] + (i % 2 ? "0.16)" : "0.28)");
+      top.fillRect(tx(d.t0), 0, tx(d.t1) - tx(d.t0), th);
+    });
+    top.fillStyle = label;
+    for (const l of town.lifts) top.fillRect(tx(l.t) - 1 * dpr, th * 0.55, 2 * dpr, th * 0.45);
+    if (m.goal) diamond(top, tx(m.goal[1]), th / 2, 5 * dpr, m.fare ? amber : cyan, true);
+    top.fillStyle = "#ffffff";
+    top.fillRect(tx(m.t) - 1.5 * dpr, 0, 3 * dpr, th);
+
+    // Round the pilot: the ring's whole width top to bottom.
+    const g = sizeCanvas($("map-near"));
+    const W = g.canvas.width, H = g.canvas.height;
+    const k = H / (town.x1 - town.x0);
+    const span = W / k;
+    const t0 = m.t - span / 2;
+    const X = (t) => (t - t0) * k;
+    const Y = (x) => (x - town.x0) * k;
+    // (A place `t` drawn in the window's turn of the ring.)
+    const near = (t) => { let d = t - m.t; d -= Math.round(d / town.round) * town.round; return m.t + d; };
+    g.clearRect(0, 0, W, H);
+    // The roads: everything that isn't a block, the canal or the rims.
+    g.fillStyle = "rgba(60,70,84,0.55)";
+    g.fillRect(0, 0, W, H);
+    const cells = town.cells.length, cols = town.columns.length;
+    const fills = ["rgba(159,198,230,0.30)", "rgba(110,200,140,0.42)", "rgba(220,235,250,0.45)",
+      "rgba(255,181,71,0.30)", "rgba(255,181,71,0.65)"];
+    const cell = town.round / cells;
+    for (let c = Math.floor(t0 / cell) - 1; c * cell < t0 + span + cell; c++) {
+      const ci = ((c % cells) + cells) % cells;
+      const turn = (c - ci) * cell;
+      const [a, b] = town.cells[ci];
+      for (let j = 0; j < cols; j++) {
+        const [x0, x1] = town.columns[j];
+        g.fillStyle = fills[+town.blocks[ci * cols + j]] || fills[0];
+        g.fillRect(X(a + turn), Y(x0), (b - a) * k, (x1 - x0) * k);
+      }
+    }
+    // The canal, the boulevard's median, the rim walks.
+    g.fillStyle = "rgba(70,170,200,0.75)";
+    g.fillRect(0, Y(town.canal[0]), W, (town.canal[1] - town.canal[0]) * k);
+    g.fillStyle = "rgba(110,200,140,0.35)";
+    g.fillRect(0, Y(-town.boulevard[1]), W, 2 * town.boulevard[1] * k);
+    g.fillStyle = "rgba(238,244,251,0.12)";
+    g.fillRect(0, 0, W, 60 * k);
+    g.fillRect(0, H - 60 * k, W, 60 * k);
+    // District lines and names.
+    g.font = font(11 * dpr);
+    g.textBaseline = "top";
+    for (const d of town.districts) {
+      const a = near(d.t0);
+      for (const at of [a, a + town.round, a - town.round]) {
+        if (X(at) < -2 || X(at) > W + 2) continue;
+        g.strokeStyle = "rgba(238,244,251,0.55)";
+        g.lineWidth = 1.5 * dpr;
+        g.beginPath(); g.moveTo(X(at), 0); g.lineTo(X(at), H); g.stroke();
+        g.fillStyle = label;
+        g.fillText(d.name, X(at) + 6 * dpr, 6 * dpr);
+      }
+    }
+    // Lifts and key places, named.
+    // (A name that would overlap one already put down is left off; its mark stays. Lifts first.)
+    const taken = [];
+    const named = (p, colour, size, name) => {
+      const x = X(near(p.t)), y = Y(p.x);
+      if (x < -60 || x > W + 60) return;
+      g.fillStyle = colour;
+      g.fillRect(x - size * dpr, y - size * dpr, 2 * size * dpr, 2 * size * dpr);
+      const r = [x + (size + 4) * dpr, y - 7 * dpr, g.measureText(name).width + 6 * dpr, 14 * dpr];
+      const hits = taken.some((o) => r[0] < o[0] + o[2] && o[0] < r[0] + r[2] && r[1] < o[1] + o[3] && o[1] < r[1] + r[3]);
+      if (hits) return;
+      taken.push(r);
+      g.fillStyle = "rgba(4,10,18,0.7)";
+      g.fillRect(r[0] - 2 * dpr, r[1], r[2], r[3]);
+      g.fillStyle = colour;
+      g.fillText(name, r[0], y - 6 * dpr);
+    };
+    for (const l of town.lifts) named(l, cyan, 4.5, `LIFT · ${l.name}`);
+    for (const p of town.places) named(p, amber, 3.5, p.name);
+    // The Watch's cars after them.
+    g.fillStyle = "#ff5b4f";
+    for (const [x, t] of m.watch) {
+      g.beginPath(); g.arc(X(near(t)), Y(x), 4 * dpr, 0, Math.PI * 2); g.fill();
+    }
+    // Where they're bound: a ◆, held at the edge when it's off it.
+    if (m.goal) {
+      const gx = Math.min(Math.max(X(near(m.goal[1])), 12 * dpr), W - 12 * dpr);
+      diamond(g, gx, Y(m.goal[0]), 8 * dpr, m.fare ? amber : cyan, false);
+    }
+    // The pilot, and the way they face: forward is (sin yaw, −cos yaw) in (x, s).
+    const px = X(m.t), py = Y(m.x), r = 9 * dpr;
+    const ang = Math.atan2(Math.sin(m.yaw), -Math.cos(m.yaw));
+    g.save();
+    g.translate(px, py);
+    g.rotate(ang);
+    g.fillStyle = "#ffffff";
+    g.beginPath(); g.moveTo(r, 0); g.lineTo(-r * 0.6, r * 0.6); g.lineTo(-r * 0.6, -r * 0.6); g.closePath();
+    g.fill();
+    g.restore();
+    $("map-sights").textContent = (m.fare ? "◆ YOUR FARE'S SQUARE" : "◆ THE NEAREST LIFT HOME") +
+      " · ■ LIFTS AND KEY PLACES · ● THE WATCH";
   }
 
   function drawMap(at, goal, found) {
@@ -1211,6 +1343,7 @@
   function init(data) {
     ready = true;
     city = data.city || null;
+    town = data.town || null;
     frames = data.frames || [];
     autoplay = !!data.autoplay;
     if (data.frame && frames.some((f) => f.slug === data.frame)) chosen = data.frame;
