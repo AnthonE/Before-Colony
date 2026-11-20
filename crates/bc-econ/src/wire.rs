@@ -145,6 +145,10 @@ pub enum Request {
     /// the server holds on them ([`watch_fine`]) is paid from the bay's credits, as much of it as
     /// there is, and the heat is cleared ([`Update::Heat`]). Nothing on them: refused.
     Stopped,
+    /// At the counter of one of the Watch's stations in the ring's town: they turn themselves in,
+    /// and pay half the fine their heat would cost if its cars stopped them ([`watch_fine`]); the
+    /// heat is cleared. Nothing on them, or not at a station's counter: refused.
+    TurnIn,
     /// In the ring's town, the pilot did something the Watch minds that the server can't see for
     /// itself (`bc_sim::colony::watch::Offence::reported`: a car taken from a kerb or its driver,
     /// one of the Watch's own, a knock against another car). It can only add heat: whether the
@@ -361,6 +365,7 @@ impl Request {
             | Request::EnterTown
             | Request::LeaveTown
             | Request::Stopped
+            | Request::TurnIn
             | Request::Offence { .. }
             | Request::Sighted
             | Request::Hit { .. }
@@ -953,6 +958,7 @@ pub fn apply(
         | Request::EnterTown
         | Request::LeaveTown
         | Request::Stopped
+        | Request::TurnIn
         | Request::Offence { .. }
         | Request::Sighted
         | Request::Hit { .. }
@@ -1238,6 +1244,7 @@ mod tests {
             (r#"{"t":"eject","destruct":true}"#, Request::Eject { destruct: true }),
             (r#"{"t":"say","text":"o7"}"#, Request::Say { text: "o7".into() }),
             (r#"{"t":"stopped"}"#, Request::Stopped),
+            (r#"{"t":"turn_in"}"#, Request::TurnIn),
             (r#"{"t":"offence","what":"took_a_car"}"#, Request::Offence { what: Offence::TookACar }),
             (r#"{"t":"sighted"}"#, Request::Sighted),
             (r#"{"t":"take_parked","kerb":131077}"#, Request::TakeParked { kerb: 131_077 }),
@@ -1297,6 +1304,7 @@ mod tests {
             (Request::EnterTown, None),
             (Request::LeaveTown, None),
             (Request::Stopped, None),
+            (Request::TurnIn, None),
             (Request::Offence { what: Offence::Knock }, None),
             (Request::Sighted, None),
             (Request::Hit { person: 7 }, None),
@@ -1323,7 +1331,7 @@ mod tests {
             .iter()
             .map(|(r, _)| serde_json::to_value(r).unwrap()["t"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(tags.len(), 46, "every request: {tags:?}");
+        assert_eq!(tags.len(), 47, "every request: {tags:?}");
         // Each refusal says where to go, as the server's notes and the e2e read them.
         for (k, place) in [
             (Floor, "the exchange floor's counter"),

@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use bc_econ::wire::{self, UnitState};
 use bc_sim::TICK_HZ;
 use bc_sim::colony::roads::{self, MOST, Waypoint};
+use bc_sim::colony::street;
 use bc_sim::colony::town::{self, DISTRICT_COUNT, ROUND};
 use bc_sim::colony::watch::{self as tables, AFOOT, Answer, CATCH, STATION_UNITS, UNIT_SIGHT, UnitKind};
 
@@ -59,6 +60,11 @@ const CHASE_SPREAD: [f32; 4] = [0.0, 7.0, -7.0, 14.0];
 /// How long the heat of a pilot holds while the units sent after them are on their way and none
 /// has had them in sight yet, ticks (else a first level cools before any could come).
 const ON_THE_WAY: u32 = 90 * TICK_HZ;
+/// The Watch's cars on patrol in the traffic (`street::Kind::Watch`) this near an incident or a
+/// wanted pilot, m, answer it before any from a station: at most this many looked at.
+pub const PATROL_REACH: f32 = 700.0;
+const MOST_PATROLS: usize = 6;
+
 /// Units sent out of one station together pull out this far apart, s (else they drive as one).
 const PULL_OUT: f32 = 1.5;
 
@@ -100,6 +106,8 @@ struct Unit {
     until: u32,
     /// Still at its station's door this long before it pulls out, s.
     wait: f32,
+    /// The car of the traffic it was on patrol as, promoted to answer (0: out of its station).
+    patrol: u32,
 }
 
 impl Unit {
@@ -123,6 +131,7 @@ impl Unit {
             routed: 0,
             until: 0,
             wait: 0.0,
+            patrol: 0,
         }
     }
 
@@ -244,6 +253,9 @@ struct Inner {
     sought: [Sought; MAX_CHASED],
     /// The tick of the last step.
     tick: Option<u32>,
+    /// The cars of the traffic promoted since the step's caller last took them: each car's id and
+    /// where it was (the deck's `s`), for the street's taken set.
+    promoted: Vec<(u32, f32)>,
 }
 
 /// Every unit of the Watch's, and who they're after.
@@ -271,6 +283,7 @@ impl Default for Dispatch {
                 answered: [None; MAX_INCIDENTS],
                 sought: [Sought::default(); MAX_CHASED],
                 tick: None,
+                promoted: Vec::new(),
             }),
             stops: AtomicU64::new(0),
         }
@@ -308,6 +321,53 @@ impl Inner {
         let mut sent = 0;
         // How many each station has sent so far: each pulls out after the one before.
         let mut pulled = [0u8; STATIONS];
+        // The Watch's own cars on patrol in the traffic near it answer first: promoted where they
+        // are, each into a free car of the nearest station that has one.
+        let mut patrols = [(f32::INFINITY, None::<street::Car>); MOST_PATROLS];
+        street::each_car(goal.0 - PATROL_REACH, goal.0 + PATROL_REACH, goal.1 - PATROL_REACH, goal.1 + PATROL_REACH, tick, 0.0, &mut |c| {
+            let far = apart((c.x, c.t), goal);
+            if c.kind != street::Kind::Watch || far > PATROL_REACH || self.units.iter().any(|u| u.patrol == c.id) {
+                return;
+            }
+            if let Some(worst) = patrols.iter_mut().max_by(|a, b| a.0.total_cmp(&b.0))
+                && far < worst.0
+            {
+                *worst = (far, Some(*c));
+            }
+        });
+        patrols.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut left_cars = want[0];
+        for c in patrols.iter().filter_map(|p| p.1) {
+            if left_cars == 0 {
+                break;
+            }
+            let free = by_road.iter().filter(|r| r.0.is_finite()).find_map(|&(_, station)| {
+                let base = usize::from(station) * STATION_UNITS;
+                (base..base + STATION_UNITS).find(|&k| self.units[k].kind == UnitKind::Car && !self.units[k].out())
+            });
+            let Some(k) = free else { break };
+            let place = if after != 0 {
+                (goal.0, goal.1 + CHASE_SPREAD[slot as usize % CHASE_SPREAD.len()])
+            } else {
+                let a = std::f32::consts::TAU * slot as f32 / total.max(1) as f32;
+                (goal.0 + answer.cordon * a.cos(), goal.1 + answer.cordon * a.sin())
+            };
+            let u = &mut self.units[k];
+            *u = Unit::at_home(UnitKind::Car, u.station);
+            (u.x, u.t, u.yaw) = (c.x, c.t, c.yaw);
+            if !u.route_to(place, tick) {
+                *u = Unit::at_home(UnitKind::Car, u.station);
+                continue;
+            }
+            u.state = State::Driving;
+            (u.incident, u.after, u.level, u.slot) = (incident, after, level, slot as u8);
+            u.patrol = c.id;
+            self.promoted.push((c.id, town::deck_s(c.t)));
+            slot += 1;
+            left_cars -= 1;
+            sent += 1;
+        }
+        let want = [left_cars, want[1]];
         for (k, kind) in UnitKind::ALL.into_iter().enumerate() {
             let mut left = want[k];
             for &(far, station) in by_road.iter().take(usize::from(answer.stations)) {
@@ -365,6 +425,20 @@ impl Dispatch {
     /// The units on the sector's tick `tick`: incidents answered, wanted pilots chased (and
     /// stopped), and every unit moved on.
     pub fn step(&self, watch: &Watch, tick: u32) {
+        self.step_and(watch, tick, &mut |_, _| {});
+    }
+
+    /// [`Dispatch::step`], telling `promoted` of each car of the traffic promoted to answer (its
+    /// id, and where it was: the deck's `s`): gone from the traffic for everyone while it's out.
+    pub fn step_and(&self, watch: &Watch, tick: u32, promoted: &mut impl FnMut(u32, f32)) {
+        self.step_inner(watch, tick);
+        let taken = self.inner.lock().map(|mut i| std::mem::take(&mut i.promoted)).unwrap_or_default();
+        for (car, s) in taken {
+            promoted(car, s);
+        }
+    }
+
+    fn step_inner(&self, watch: &Watch, tick: u32) {
         let Ok(mut guard) = self.inner.lock() else { return };
         let inner = &mut *guard;
         let dt = match inner.tick {

@@ -131,6 +131,35 @@ pub fn way_to_lift(at: DeckPos, yaw: f32, k: Option<u16>) -> (f32, char) {
     (best, ARROWS[k])
 }
 
+/// How near a key place's counter a pilot is served at it, m.
+pub const COUNTER_REACH: f32 = 2.4;
+
+/// The key place whose counter a pilot standing at `at` is at (inside, at its near side), if any.
+pub fn counter_at_hand(at: DeckPos) -> Option<bc_sim::content::town::PlaceKind> {
+    let mut found = None;
+    town::each_place_site(&mut |site| {
+        if found.is_some() || deck::round_from(RING, at.s, site.s).abs() > 80.0 {
+            return;
+        }
+        let c = site.to_walker(site.prefab.rooms[0].counter);
+        let (dx, ds) = (c.x - at.x, deck::round_from(RING, at.s, -c.z));
+        if dx.hypot(ds) <= COUNTER_REACH {
+            found = town::place_at(town_block(site.x, site.s));
+        }
+    });
+    found
+}
+
+/// The block under `(x, s)` (the ring deck's), as the town's plan has it (a place's site's block).
+fn town_block(x: f32, s: f32) -> town::BlockId {
+    let t = town::town_t(s);
+    // (A site's origin is on its front's corner, inside its block by the setback.)
+    match town::ground_at(x + if x < 0.0 { -1.0 } else { 1.0 }, t) {
+        town::Ground::Block(id) => id,
+        _ => town::BlockId::new(town::cell_at(t), 0),
+    }
+}
+
 /// How far the radar sees, m.
 pub const RADAR: f32 = 190.0;
 
@@ -719,6 +748,25 @@ mod tests {
             back.t > plan.round - 40.0 && back.fare && (back.goal[1] - plan.lifts[1].t).abs() < 30.0,
             "{back:?}"
         );
+    }
+
+    #[test]
+    fn a_pilot_at_a_key_places_counter_is_served_there_and_nowhere_else() {
+        use bc_sim::content::town::PlaceKind;
+        let mut seen = Vec::new();
+        town::each_place_site(&mut |site| {
+            let c = site.to_walker(site.prefab.rooms[0].counter);
+            let at = DeckPos::new(RING, c.x, -c.z, 0.0);
+            let kind = counter_at_hand(at).unwrap_or_else(|| panic!("{} not served", site.prefab.name));
+            assert_eq!(kind.name(), site.prefab.name);
+            seen.push(kind);
+            // Out at its door, nothing.
+            let door = site.to_walker(bc_sim::content::town::hall_door(site.prefab));
+            assert_eq!(counter_at_hand(DeckPos::new(RING, door.x, -door.z, 0.0)), None);
+        });
+        assert_eq!(seen.iter().filter(|k| **k == PlaceKind::WatchStation).count(), 12);
+        let (x, t) = town::out_of_the_lift(0);
+        assert_eq!(counter_at_hand(DeckPos::new(RING, x, town::deck_s(t), 0.0)), None);
     }
 
     #[test]

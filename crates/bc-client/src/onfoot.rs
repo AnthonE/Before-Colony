@@ -1022,6 +1022,8 @@ pub struct TownFoot {
     traffic: Traffic,
     /// A car of the traffic stopped at the pilot's hand, for the taking.
     jack: Option<bc_client_core::traffic::Shown>,
+    /// The key place whose counter they're at (inside it).
+    pub counter: Option<bc_sim::content::town::PlaceKind>,
     /// The cars near them: what their car and their legs run into.
     cars: town_foot::Obstacles,
     /// How much the Watch wants them (the server's word, `Update::Heat`), as last drawn, and its
@@ -1154,6 +1156,7 @@ impl TownFoot {
             told_watch: false,
             traffic: Traffic::default(),
             jack: None,
+            counter: None,
             cars: town_foot::Obstacles::default(),
             heat: 0,
             pursuit: Pursuit::default(),
@@ -2291,7 +2294,9 @@ pub fn drive_onfoot(
             *car = *v;
         }
         t.lift = if t.drive.is_none() { town_foot::lift_in_view(&t.walker) } else { None };
-        t.car = if t.drive.is_none() && t.lift.is_none() {
+        // A key place's counter, inside it.
+        t.counter = if t.drive.is_none() && t.lift.is_none() { town_foot::counter_at_hand(at) } else { None };
+        t.car = if t.drive.is_none() && t.lift.is_none() && t.counter.is_none() {
             let left: Vec<Vehicle> = town_cars.left.iter().map(|(v, _)| *v).collect();
             town_foot::car_at_hand(at, &town_cars.taken, &left)
         } else {
@@ -2306,6 +2311,16 @@ pub fn drive_onfoot(
         if used_key && !got_out && !ui.panel_open() && t.drive.is_none() {
             if t.lift.is_some() {
                 up_the_lift = true;
+            } else if let Some(kind) = t.counter {
+                use bc_sim::content::town::PlaceKind as K;
+                match kind {
+                    K::ExchangeFloor => ui.panel = Panel::Terminal(Spot::Exchange),
+                    K::CharterHall => ui.panel = Panel::Board,
+                    K::TheArrival => ui.panel = Panel::Arrival,
+                    // Wanted, they give themselves up for half the fine.
+                    K::WatchStation if t.heat > 0 => ask(&net, &g, &Request::TurnIn),
+                    K::WatchStation => ui.toast("THE WATCH HAS NOTHING ON YOU"),
+                }
             } else if let Some((car, left)) = t.car {
                 // It keeps its look: the one it had at the kerb, or where it was left. The server's
                 // told (somebody's car: the Watch minds, worse in sight of one of its own).
@@ -2434,6 +2449,7 @@ pub fn drive_onfoot(
         t.lift = None;
         t.car = None;
         t.jack = None;
+        t.counter = None;
         t.pursuit.clear();
     }
     if up_the_lift {
@@ -2760,6 +2776,19 @@ pub fn drive_onfoot(
                 }
             }
             Some(t) if t.lift.is_some() => "E  THE SPOKE LIFT, UP TO YOUR BAY".into(),
+            Some(TownFoot { counter: Some(kind), heat, .. }) => {
+                use bc_sim::content::town::PlaceKind as K;
+                match kind {
+                    K::ExchangeFloor => "E  THE EXCHANGE FLOOR · BUY AND SELL".into(),
+                    K::CharterHall => "E  THE CHARTER BOARD · CONTRACTS AND GREAT WORKS".into(),
+                    K::TheArrival => "E  THE ARRIVAL · A MEAL, AND THE MOST WANTED".into(),
+                    K::WatchStation if *heat > 0 => format!(
+                        "E  TURN YOURSELF IN · HALF THE FINE · {} CR",
+                        thousands(watch::fine(*heat) / 2)
+                    ),
+                    K::WatchStation => "THE WATCH · NOTHING ON YOU".into(),
+                }
+            }
             Some(t) if t.car.is_some() => "E  TAKE THE CAR".into(),
             Some(t) if t.jack.is_some() => "E  TAKE THE CAR FROM ITS DRIVER".into(),
             _ => String::new(),

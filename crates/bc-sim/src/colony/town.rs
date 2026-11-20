@@ -37,6 +37,9 @@ use crate::colony::deck::{DECKS, RING};
 use crate::colony::hub::{SPOKES, spoke_angle};
 use crate::content::town::{DISTRICTS, DistrictDef, DistrictKind, PLACES, PlaceKind};
 use crate::math::{floor, sqrt};
+use crate::pieces::parts::Aabb;
+use crate::pieces::prefab::Site;
+use crate::pieces::shape::CELL_M;
 use crate::world::{COLONY_HALF_WIDTH, COLONY_INNER_RADIUS, COLONY_RADIUS};
 
 /// Round the ring at its floor, m.
@@ -539,6 +542,63 @@ pub fn solid(min: Vec3, max: Vec3) -> bool {
     let q = TownBox::new(min.x, max.x, t0, t0 + (max.z - min.z), min.y, max.y);
     let mut hit = false;
     each_box(q.x0, q.x1, q.t0, q.t1, &mut |b| hit |= b.overlaps(&q));
+    hit || in_a_place(min, max)
+}
+
+/// Where a key place's building stands on block `id` (none if no place is there): on the ring's
+/// deck, its front a few metres in from the block's kerb on the boulevard, its doorway towards the
+/// boulevard, along the middle of the block's run round the ring.
+pub fn place_site(id: BlockId) -> Option<Site> {
+    let prefab = place_at(id)?.prefab();
+    let r = block_rect(id);
+    let long = (prefab.cells.2 + 1) as f32 * CELL_M;
+    let mid = deck_s(0.5 * (r.t0 + r.t1));
+    // Fore of the boulevard its depth runs to −x (turned three quarters: its +z the deck's −x),
+    // aft to +x (a quarter: its +z the deck's +x); either way its +x runs along the deck's `s`.
+    Some(if r.x1 <= 0.0 {
+        Site { deck: RING, x: r.x1 - PLACE_SETBACK, s: mid + 0.5 * long, turn: 3, prefab }
+    } else {
+        Site { deck: RING, x: r.x0 + PLACE_SETBACK, s: mid - 0.5 * long, turn: 1, prefab }
+    })
+}
+
+/// How far a key place's front stands back from its block's kerb, m.
+pub const PLACE_SETBACK: f32 = 4.0;
+
+/// Every key place's building: the listed places and a station of the Watch's in every district.
+pub fn each_place_site(f: &mut impl FnMut(Site)) {
+    for p in PLACES.iter() {
+        if let Some(site) = place_site(BlockId::new(p.cell, p.column)) {
+            f(site);
+        }
+    }
+    for d in 0..DISTRICT_COUNT {
+        if let Some(site) = place_site(watch_station(d)) {
+            f(site);
+        }
+    }
+}
+
+/// Whether the box `min..max` (the ring deck's walker frame, any turn of `s`) is in one of the key
+/// places' pieces.
+fn in_a_place(min: Vec3, max: Vec3) -> bool {
+    // (Only the boulevard's two columns hold one.)
+    let (lo, hi) = (column(BOULEVARD_COLUMNS.0).0, column(BOULEVARD_COLUMNS.1).1);
+    if max.x < lo || min.x > hi {
+        return false;
+    }
+    let mut hit = false;
+    each_place_site(&mut |site| {
+        if hit {
+            return;
+        }
+        // The query moved into the site's turn of the ring.
+        let round = DECKS[RING as usize].round();
+        let turns = floor((-max.z - site.s) / round + 0.5);
+        let dz = turns * round;
+        let q = Aabb::new(Vec3::new(min.x, min.y, min.z + dz), Vec3::new(max.x, max.y, max.z + dz));
+        hit = site.hits(&q);
+    });
     hit
 }
 

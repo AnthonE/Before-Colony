@@ -1379,6 +1379,7 @@ impl Session<'_> {
                 }
                 self.pay_the_watch().await
             }
+            Request::TurnIn => self.turn_in().await,
             Request::Offence { what } => {
                 // Something only their own screen saw them do: it can only add heat.
                 let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
@@ -2403,6 +2404,41 @@ impl Session<'_> {
     /// at, by its units, `crate::dispatch`, or on the client's word): its fine, as much of it as
     /// the bay has (their car goes with it, and whoever was riding in it). With nothing left to
     /// fine, the Watch walks them to a lift and sends them home.
+    /// At a Watch station's counter (where the plaza last had them): they give themselves up, pay
+    /// half the fine of their heat, and walk out with nothing on them.
+    async fn turn_in(&mut self) -> anyhow::Result<()> {
+        let at_counter = self.place == Place::Town
+            && self.game.plaza.pose_of(self.id).is_some_and(|p| {
+                let at = bc_sim::colony::deck::DeckPos::new(bc_sim::colony::deck::RING, p.x, p.s, 0.0);
+                // (A step more than the client's reach: the pose is a moment behind.)
+                let mut near = false;
+                bc_sim::colony::town::each_place_site(&mut |site| {
+                    if site.prefab.name == bc_sim::content::town::WATCH_STATION.name {
+                        let c = site.to_walker(site.prefab.rooms[0].counter);
+                        let ds = bc_sim::colony::deck::round_from(bc_sim::colony::deck::RING, at.s, -c.z);
+                        near |= (c.x - at.x).hypot(ds) <= 4.0;
+                    }
+                });
+                near
+            });
+        if !at_counter {
+            return self.note("the watch takes you in at the counter of one of its stations", false).await;
+        }
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        if self.game.watch.stop(self.id, tick).is_none() {
+            return self.note("THE WATCH HAS NOTHING ON YOU", false).await;
+        }
+        let Some(heat) = self.game.watch.take_fine(self.id) else { return Ok(()) };
+        self.send_heat().await?;
+        let fine = (wire::watch_fine(heat) / 2).min(self.hangar.credits);
+        self.hangar.credits -= fine;
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, heat, fine, "turned in to the Watch");
+        self.note(format!("YOU TURN YOURSELF IN · HALF THE FINE · {} CR", thousands(fine)), true).await?;
+        self.send_hangar().await?;
+        self.save().await;
+        Ok(())
+    }
+
     async fn pay_the_watch(&mut self) -> anyhow::Result<()> {
         let Some(heat) = self.game.watch.take_fine(self.id) else { return Ok(()) };
         // Their car goes with the Watch, whichever way they were stopped.

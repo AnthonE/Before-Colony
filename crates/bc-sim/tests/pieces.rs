@@ -112,3 +112,85 @@ fn a_pilot_walks_into_the_test_hall_to_its_counter_and_up_to_its_gallery() {
     assert!(!solid(BASE, lo, hi));
     assert!(bc_sim::colony::deck::deck_at(DeckPos::from_walker(BASE, w.feet).to_colony()).is_some());
 }
+
+/// The ring's town's key places (`content::town`'s halls), where `colony::town` stands them.
+fn town_sites() -> Vec<bc_sim::pieces::prefab::Site> {
+    let mut out = Vec::new();
+    bc_sim::colony::town::each_place_site(&mut |s| out.push(s));
+    out
+}
+
+#[test]
+fn the_towns_key_places_go_up_in_order_on_their_own_blocks() {
+    use bc_sim::colony::town::{self, Ground};
+    let sites = town_sites();
+    assert_eq!(
+        sites.len(),
+        3 + 12,
+        "the Exchange floor, The Arrival, the Charter Board and a station a district"
+    );
+    for site in &sites {
+        let mut b = Building(Vec::new());
+        for (k, p) in site.prefab.pieces.iter().enumerate() {
+            let a = p.addr(0);
+            if let Err(why) = check(&b, p.shape, &a) {
+                panic!("{}: piece {k} ({p:?}) refused: {why:?}", site.prefab.name);
+            }
+            b.0.push((p.shape, a));
+        }
+        // Every corner of it on one block, the one whose place it is.
+        let w = site.bounds();
+        let mut on = None;
+        for (x, z) in [(w.min.x, w.min.z), (w.max.x, w.min.z), (w.min.x, w.max.z), (w.max.x, w.max.z)] {
+            match town::ground_at(x, town::town_t(-z)) {
+                Ground::Block(id) => {
+                    assert!(on.is_none_or(|o| o == id), "{} spans two blocks", site.prefab.name);
+                    assert_eq!(town::place_at(id).map(|p| p.name()), Some(site.prefab.name));
+                    on = Some(id);
+                }
+                g => panic!("{}: a corner on {g:?}", site.prefab.name),
+            }
+        }
+        assert!(w.max.y < 12.0, "{}: {w:?}", site.prefab.name);
+    }
+}
+
+#[test]
+fn a_pilot_walks_off_the_boulevard_into_each_key_place_to_its_counter() {
+    use bc_sim::colony::deck::RING;
+    let ground = DeckGround { deck: RING };
+    for site in town_sites() {
+        let wide = (site.prefab.cells.2 + 1) as f32 * 3.0;
+        // On the pavement before its doorway, facing it.
+        let mid = bc_sim::content::town::hall_door(site.prefab);
+        let door = site.to_walker(mid + Vec3::new(0.0, 0.0, 0.2));
+        let outside = site.to_walker(mid + Vec3::new(0.0, 0.0, -3.0));
+        let mut w = Walker::at(outside, door - outside);
+        for _ in 0..30 {
+            w.step(&ground, &Stride::default(), 1.0 / 30.0);
+        }
+        assert!(w.grounded && w.feet.y.abs() < 0.01, "{}: standing outside: {:?}", site.prefab.name, w.feet);
+        assert!(
+            walk_to(&mut w, &ground, door, 0.3, 10.0),
+            "{}: to the door: stuck at {:?}",
+            site.prefab.name,
+            w.feet
+        );
+        let counter = site.to_walker(site.prefab.rooms[0].counter);
+        assert!(
+            walk_to(&mut w, &ground, counter, 0.5, 30.0),
+            "{}: to the counter: stuck at {:?}",
+            site.prefab.name,
+            w.feet
+        );
+        // The walls stop a walker: straight at its back wall from inside, they're held at the counter.
+        let (lo, hi) = (w.feet - Vec3::new(0.29, -0.01, 0.29), w.feet + Vec3::new(0.29, 1.79, 0.29));
+        assert!(!solid(RING, lo, hi), "{}", site.prefab.name);
+        let wall = site.to_walker(Vec3::new(wide * 0.5, 1.0, (site.prefab.cells.3 + 1) as f32 * 3.0));
+        assert!(
+            solid(RING, wall - Vec3::splat(0.2), wall + Vec3::splat(0.2)),
+            "{}: no back wall",
+            site.prefab.name
+        );
+    }
+}

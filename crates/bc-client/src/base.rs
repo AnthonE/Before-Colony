@@ -155,7 +155,7 @@ fn drum_kit() -> Kit {
 }
 
 /// A building's mesh, or Bay Row's, as the client draws it.
-fn to_mesh(m: PieceMesh) -> Mesh {
+pub(crate) fn to_mesh(m: PieceMesh) -> Mesh {
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, m.positions)
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, m.normals)

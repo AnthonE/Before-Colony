@@ -281,3 +281,86 @@ async fn an_incident_raised_by_hand_reaches_the_town_only_with_the_dev_hooks_on(
     assert_eq!(plain.status()["game"]["town"]["incidents"], 0);
     Ok(())
 }
+
+/// Steps `a` alone for `secs`.
+async fn alone(a: &mut BotClient, secs: f64) -> anyhow::Result<()> {
+    let end = std::time::Instant::now() + std::time::Duration::from_secs_f64(secs);
+    while std::time::Instant::now() < end {
+        a.step(&mut |_| Default::default()).await?;
+    }
+    Ok(())
+}
+
+/// Takes `a` from `(x, s)` to `(x1, s1)` on the ring's floor in a straight line, a plausible step at
+/// a time: at the wheel, or (`ride` 0) on foot.
+async fn go(a: &mut BotClient, from: (f32, f32), to: (f32, f32), ride: u8) -> anyhow::Result<()> {
+    let (dx, ds) = (to.0 - from.0, round_from(RING, from.1, to.1));
+    let step = if ride == RIDE_CAR { 15.0 } else { 2.0 };
+    let n = ((dx.hypot(ds) / step).ceil() as usize).max(1);
+    for k in 1..=n {
+        let u = k as f32 / n as f32;
+        a.set_pose(PersonPose {
+            strip: RING_DECK,
+            x: from.0 + dx * u,
+            s: from.1 + ds * u,
+            grounded: true,
+            ride,
+            speed: if ride == RIDE_CAR { 12.0 } else { 1.5 },
+            ..PersonPose::default()
+        });
+        alone(a, if ride == RIDE_CAR { 0.5 } else { 0.25 }).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_wanted_pilot_turns_themselves_in_at_a_stations_counter_for_half_the_fine() -> anyhow::Result<()> {
+    let server = bc_server::start(config()?).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut a = down(&http, "Maren").await?;
+    let (lx, lt) = town::out_of_the_lift(0);
+    let ls = town::deck_s(lt);
+    a.set_pose(standing(0.0, 0.0));
+    alone(&mut a, 1.0).await?;
+    // Charter Square's station, halfway round the district, aft of the boulevard: its counter, and
+    // the pavement before its door.
+    let mut station = None;
+    town::each_place_site(&mut |site| {
+        let id = town::watch_station(0);
+        if town::place_site(id).is_some_and(|s| s.s == site.s && s.x == site.x) {
+            station = Some(site);
+        }
+    });
+    let site = station.expect("Charter Square's station");
+    let door = site.to_walker(bc_sim::content::town::hall_door(site.prefab));
+    let counter = site.to_walker(site.prefab.rooms[0].counter);
+    let (door, counter) = ((door.x, -door.z), (counter.x, -counter.z));
+
+    // Not wanted, and not at a counter: refused either way.
+    let (_, ok) = ask(&mut a, Request::TurnIn).await?;
+    assert!(!ok);
+    // One of the Watch's own cars taken: wanted.
+    a.request(&Request::Offence { what: Offence::TookTheWatchs }).await?;
+    a.wait_until(5.0, "the heat", |c| c.hangar.heat >= 1).await?;
+    let level = a.core.hangar.heat;
+    let credits = a.core.hangar.credits();
+    // Round the lift's shaft, down the boulevard's aft carriageway, out at the station.
+    let lane = 20.0;
+    go(&mut a, (lx, ls), (lx, ls + 20.0), RIDE_CAR).await?;
+    go(&mut a, (lx, ls + 20.0), (lane, ls + 20.0), RIDE_CAR).await?;
+    go(&mut a, (lane, ls + 20.0), (lane, door.1), RIDE_CAR).await?;
+    go(&mut a, (lane, door.1), (door.0 - 3.0, door.1), 0).await?;
+    // At its door the counter's out of reach.
+    let (_, ok) = ask(&mut a, Request::TurnIn).await?;
+    assert!(!ok, "at the door");
+    go(&mut a, (door.0 - 3.0, door.1), door, 0).await?;
+    go(&mut a, door, counter, 0).await?;
+    let (text, ok) = ask(&mut a, Request::TurnIn).await?;
+    assert!(ok && text.starts_with("YOU TURN YOURSELF IN"), "{text}");
+    a.wait_until(5.0, "the fine", |c| c.hangar.heat == 0 && c.hangar.credits() < credits).await?;
+    assert_eq!(a.core.hangar.credits(), credits - watch_fine(level) / 2);
+    // Nothing on them now.
+    let (_, ok) = ask(&mut a, Request::TurnIn).await?;
+    assert!(!ok);
+    Ok(())
+}

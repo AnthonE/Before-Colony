@@ -95,9 +95,121 @@ impl Plugin for TownPlugin {
             .init_resource::<TownStats>()
             .add_systems(
                 Update,
-                (stream_town, draw_life, light_town, publish_stats).chain().in_set(crate::view::Vis::Fx),
+                (stream_town, draw_life, light_town, publish_stats, show_places)
+                    .chain()
+                    .in_set(crate::view::Vis::Fx),
             );
     }
+}
+
+/// One of the town's key places' buildings (`bc_sim::colony::town::place_site`): built from its
+/// pieces (`piece_mesh`) in its own frame, the walker's at its foot, and turned into the view's as
+/// the town's people are.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct TownPlace {
+    pub site: bc_sim::pieces::prefab::Site,
+    /// Its name hung over its door yet.
+    signed: bool,
+}
+
+/// How far round the ring a key place is drawn from the view, m.
+const PLACE_SEEN: f32 = 1_600.0;
+
+/// The key places' buildings: spawned once the station materials are there, their names hung once
+/// the letters are, and each turned into the view's frame while it's near.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn show_places(
+    mut commands: Commands,
+    view: Res<TownView>,
+    at: Res<TownAt>,
+    streamer: Res<Streamer>,
+    stations: Option<Res<crate::station::Stations>>,
+    mut atlas: ResMut<crate::station::SignAtlas>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut standard: ResMut<Assets<StandardMaterial>>,
+    mut places: Query<(Entity, &mut TownPlace, &mut Transform, &mut Visibility)>,
+    mut spawned: Local<bool>,
+) {
+    let Some(root) = streamer.root else { return };
+    if !*spawned {
+        let Some(stations) = stations else { return };
+        let layer = RenderLayers::layer(CITY_LAYER);
+        town::each_place_site(&mut |site| {
+            let place = commands
+                .spawn((
+                    Name::new(site.prefab.name),
+                    TownPlace { site, signed: false },
+                    Mesh3d(meshes.add(crate::base::to_mesh(bc_client_core::piece_mesh::site_mesh(&site)))),
+                    MeshMaterial3d(stations.muster.clone()),
+                    Transform::default(),
+                    Visibility::Hidden,
+                    layer.clone(),
+                    ChildOf(root),
+                ))
+                .id();
+            // A lamp in its hall (the roof keeps the day out), and one over its door.
+            let wide = (site.prefab.cells.2 + 1) as f32 * 3.0;
+            let deep = (site.prefab.cells.3 + 1) as f32 * 3.0;
+            for (p, lumens) in [
+                (Vec3::new(wide * 0.5, 4.6, deep * 0.5), 260_000.0),
+                (Vec3::new(wide * 0.5, 4.0, -2.0), 90_000.0),
+            ] {
+                commands.spawn((
+                    PointLight {
+                        intensity: lumens,
+                        range: wide.max(deep) * 0.9,
+                        color: Color::srgb(1.0, 0.93, 0.82),
+                        shadow_maps_enabled: false,
+                        ..default()
+                    },
+                    Transform::from_translation(place_local(&site, p)),
+                    layer.clone(),
+                    ChildOf(place),
+                ));
+            }
+        });
+        *spawned = true;
+        return;
+    }
+    for (entity, mut place, mut tf, mut vis) in &mut places {
+        let site = place.site;
+        if !place.signed && atlas.ready() {
+            // Its name over its door: `site_signs` puts it in the colony's frame; here it hangs in
+            // the building's own.
+            let (foot, turn) = bc_client_core::piece_mesh::site_frame(&site);
+            let inv = turn.inverse();
+            let signs: Vec<_> = bc_client_core::piece_mesh::site_signs(&site)
+                .into_iter()
+                .map(|s| bc_client_core::station::Sign {
+                    at: inv * (s.at - foot),
+                    normal: inv * s.normal,
+                    up: inv * s.up,
+                    ..s
+                })
+                .collect();
+            atlas.hang_on(&signs, entity, Some(CITY_LAYER), &mut commands, &mut meshes, &mut standard);
+            place.signed = true;
+        }
+        let near = view.active && round_from(RING, at.s, site.s).abs() < PLACE_SEEN;
+        let want = if near { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
+        }
+        if near {
+            let (pos, turn) = seen_from(at.s, site.x, site.s, 0.0);
+            let t = Transform::from_translation(pos).with_rotation(turn);
+            if *tf != t {
+                *tf = t;
+            }
+        }
+    }
+}
+
+/// A point of a building's frame (x along its front, y up, z into it) in the frame its mesh is
+/// built in (the walker's at its foot).
+fn place_local(site: &bc_sim::pieces::prefab::Site, p: Vec3) -> Vec3 {
+    let w = site.to_walker(p);
+    Vec3::new(w.x - site.x, w.y, w.z + site.s)
 }
 
 /// Whether the view is in the ring's town (it has its own light: `sky.rs` stands aside, as for the

@@ -385,6 +385,19 @@ impl Street {
         Ok((Held { from: Origin::Traffic(car), left_by: None }, c.kind))
     }
 
+    /// Car `car` of the traffic, one of the Watch's on patrol, promoted to answer something
+    /// (`crate::dispatch`), where it was (the deck's `s`): gone from the traffic for everyone, as a
+    /// car taken is, till its place is out of sight.
+    pub fn promote(&self, car: u32, s: f32, tick: u32) {
+        let Some(mut inner) = self.lock() else { return };
+        if inner.districts.iter().any(|d| d.lanes.iter().any(|m| m.id == car)) {
+            return;
+        }
+        let d = &mut inner.districts[district_at(s)];
+        d.lanes.push(Mark { id: car, at: tick, held: false }, |m| m.at);
+        inner.lanes += 1;
+    }
+
     /// A pilot on foot at `pose` takes the car left about that's `id`: if it's at their side.
     pub fn take_left(&self, id: u32, pose: &PersonPose) -> Result<Held, &'static str> {
         afoot(pose)?;

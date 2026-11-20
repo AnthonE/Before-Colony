@@ -540,13 +540,16 @@ impl GameRuntime {
             }
         });
         // The Watch's units, on the sector's clock, ten times a second.
+        // (A patrol car promoted to answer is gone from the traffic for everyone.)
         let (dispatch, watch, sector) = (game.dispatch.clone(), game.watch.clone(), game.sector.clone());
+        let street = game.street.clone();
         tokio::spawn(async move {
             let mut every = tokio::time::interval(crate::dispatch::STEP);
             every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             while !sector.stop.load(Ordering::Acquire) {
                 every.tick().await;
-                dispatch.step(&watch, sector.tick.load(Ordering::Acquire));
+                let tick = sector.tick.load(Ordering::Acquire);
+                dispatch.step_and(&watch, tick, &mut |car, s| street.promote(car, s, tick));
             }
         });
         Ok(Self {
