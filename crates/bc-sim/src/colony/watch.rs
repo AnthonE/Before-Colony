@@ -542,3 +542,119 @@ mod tests {
         assert!(n < there.len() && !person_near(p.x + 1.0, s, 3.0, 900, &there[..n]));
     }
 }
+
+/// The hounds on beat at each station while nothing happens (`docs/FREE_ROAM.md`, 4: "patrols are
+/// ambient"): this many a station, each flying a loop over the boulevard round it, half a loop
+/// apart. A closed form of the tick, like the traffic: the same on every screen, never stored or
+/// sent.
+pub const BEAT_HOUNDS: u16 = 2;
+/// A beat's loop: over the boulevard's two carriageways (`x` ± [`BEAT_ACROSS`]), [`BEAT_ALONG`] m
+/// either way round the ring from its station's door, at [`BEAT_SPEED`] m/s.
+pub const BEAT_ACROSS: f32 = 22.0;
+pub const BEAT_ALONG: f32 = 320.0;
+pub const BEAT_SPEED: f32 = 8.0;
+
+/// One of the hounds on beat, where the tick has it: across the ring, round it (`t`, in the turn
+/// of its station's), and its heading (the walker's yaw).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OnBeat {
+    pub id: u32,
+    pub station: u16,
+    pub x: f32,
+    pub t: f32,
+    pub yaw: f32,
+}
+
+/// Every hound on beat within `x0..x1` across and `t0..t1` round (any `t`), at tick `tick` plus
+/// `frac` of the next.
+pub fn each_hound_on_beat(
+    x0: f32,
+    x1: f32,
+    t0: f32,
+    t1: f32,
+    tick: u32,
+    frac: f32,
+    f: &mut impl FnMut(&OnBeat),
+) {
+    if x1 < -BEAT_ACROSS || x0 > BEAT_ACROSS {
+        return;
+    }
+    let lap = 4.0 * BEAT_ALONG + 4.0 * BEAT_ACROSS;
+    let secs = (tick % (TICK_HZ * 3_600)) as f32 / TICK_HZ as f32 + frac.clamp(0.0, 1.0) / TICK_HZ as f32;
+    for d in 0..town::DISTRICT_COUNT {
+        let (_, mid) = town::watch_door(d);
+        // The station's turn of the ring nearest the span asked about.
+        let mid = mid + libm::roundf((0.5 * (t0 + t1) - mid) / town::ROUND) * town::ROUND;
+        if mid + BEAT_ALONG < t0 || mid - BEAT_ALONG > t1 {
+            continue;
+        }
+        for k in 0..BEAT_HOUNDS {
+            let along = (secs * BEAT_SPEED + lap * f32::from(k) / f32::from(BEAT_HOUNDS)) % lap;
+            // Round the loop: up the aft side, across, down the fore side, across back.
+            let (x, t, yaw) = if along < 2.0 * BEAT_ALONG {
+                (BEAT_ACROSS, mid - BEAT_ALONG + along, core::f32::consts::PI)
+            } else if along < 2.0 * BEAT_ALONG + 2.0 * BEAT_ACROSS {
+                (BEAT_ACROSS - (along - 2.0 * BEAT_ALONG), mid + BEAT_ALONG, -core::f32::consts::FRAC_PI_2)
+            } else if along < 4.0 * BEAT_ALONG + 2.0 * BEAT_ACROSS {
+                (-BEAT_ACROSS, mid + BEAT_ALONG - (along - 2.0 * BEAT_ALONG - 2.0 * BEAT_ACROSS), 0.0)
+            } else {
+                (
+                    -BEAT_ACROSS + (along - 4.0 * BEAT_ALONG - 2.0 * BEAT_ACROSS),
+                    mid - BEAT_ALONG,
+                    core::f32::consts::FRAC_PI_2,
+                )
+            };
+            if (x0..=x1).contains(&x) && (t0..=t1).contains(&t) {
+                f(&OnBeat { id: u32::from(d) << 8 | u32::from(k), station: d, x, t, yaw });
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod beat_tests {
+    use super::*;
+
+    #[test]
+    fn the_hounds_on_beat_fly_their_loops_round_their_stations_smoothly() {
+        let (_, mid) = town::watch_door(3);
+        let mut last: Option<OnBeat> = None;
+        let mut seen = 0;
+        for tick in 0..(200 * TICK_HZ) {
+            let mut here = None;
+            each_hound_on_beat(-50.0, 50.0, mid - 400.0, mid + 400.0, tick, 0.0, &mut |h| {
+                assert_eq!(h.station, 3);
+                if h.id & 0xFF == 0 {
+                    here = Some(*h);
+                }
+                seen += 1;
+            });
+            let h = here.expect("hound 0 always on its beat");
+            assert!(h.x.abs() <= BEAT_ACROSS + 1e-3 && (h.t - mid).abs() <= BEAT_ALONG + 1e-3);
+            if let Some(l) = last {
+                // A tick's flight, no jumps (but the hour's turn).
+                let step = (h.x - l.x).hypot(h.t - l.t);
+                assert!(step <= BEAT_SPEED / TICK_HZ as f32 + 0.01, "{l:?} → {h:?}");
+            }
+            last = Some(h);
+        }
+        assert_eq!(seen, 2 * 200 * TICK_HZ, "both hounds, every tick");
+        // Across the seam, asked for in another turn of the ring: the same hounds.
+        let mut n = 0;
+        each_hound_on_beat(
+            -50.0,
+            50.0,
+            mid - 400.0 + town::ROUND,
+            mid + 400.0 + town::ROUND,
+            7,
+            0.0,
+            &mut |h| {
+                assert!((h.t - mid - town::ROUND).abs() <= BEAT_ALONG + 1e-3);
+                n += 1;
+            },
+        );
+        assert_eq!(n, 2);
+        // Nothing over the blocks.
+        each_hound_on_beat(100.0, 900.0, -1e5, 1e5, 7, 0.0, &mut |_| panic!("over the blocks"));
+    }
+}

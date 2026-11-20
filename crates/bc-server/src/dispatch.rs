@@ -243,6 +243,8 @@ pub struct Seen {
     pub until: u32,
     /// Still at its door this long before it pulls out, s.
     pub wait: f32,
+    /// The car of the traffic it was on patrol as (0: it came out of its station).
+    pub patrol: u32,
 }
 
 struct Inner {
@@ -324,17 +326,28 @@ impl Inner {
         // The Watch's own cars on patrol in the traffic near it answer first: promoted where they
         // are, each into a free car of the nearest station that has one.
         let mut patrols = [(f32::INFINITY, None::<street::Car>); MOST_PATROLS];
-        street::each_car(goal.0 - PATROL_REACH, goal.0 + PATROL_REACH, goal.1 - PATROL_REACH, goal.1 + PATROL_REACH, tick, 0.0, &mut |c| {
-            let far = apart((c.x, c.t), goal);
-            if c.kind != street::Kind::Watch || far > PATROL_REACH || self.units.iter().any(|u| u.patrol == c.id) {
-                return;
-            }
-            if let Some(worst) = patrols.iter_mut().max_by(|a, b| a.0.total_cmp(&b.0))
-                && far < worst.0
-            {
-                *worst = (far, Some(*c));
-            }
-        });
+        street::each_car(
+            goal.0 - PATROL_REACH,
+            goal.0 + PATROL_REACH,
+            goal.1 - PATROL_REACH,
+            goal.1 + PATROL_REACH,
+            tick,
+            0.0,
+            &mut |c| {
+                let far = apart((c.x, c.t), goal);
+                if c.kind != street::Kind::Watch
+                    || far > PATROL_REACH
+                    || self.units.iter().any(|u| u.patrol == c.id)
+                {
+                    return;
+                }
+                if let Some(worst) = patrols.iter_mut().max_by(|a, b| a.0.total_cmp(&b.0))
+                    && far < worst.0
+                {
+                    *worst = (far, Some(*c));
+                }
+            },
+        );
         patrols.sort_by(|a, b| a.0.total_cmp(&b.0));
         let mut left_cars = want[0];
         for c in patrols.iter().filter_map(|p| p.1) {
@@ -343,7 +356,8 @@ impl Inner {
             }
             let free = by_road.iter().filter(|r| r.0.is_finite()).find_map(|&(_, station)| {
                 let base = usize::from(station) * STATION_UNITS;
-                (base..base + STATION_UNITS).find(|&k| self.units[k].kind == UnitKind::Car && !self.units[k].out())
+                (base..base + STATION_UNITS)
+                    .find(|&k| self.units[k].kind == UnitKind::Car && !self.units[k].out())
             });
             let Some(k) = free else { break };
             let place = if after != 0 {
@@ -675,6 +689,7 @@ impl Dispatch {
                     to_go,
                     until: u.until,
                     wait: u.wait,
+                    patrol: u.patrol,
                 }
             })
             .collect()
@@ -744,6 +759,40 @@ mod tests {
     }
 
     #[test]
+    fn the_watchs_car_on_patrol_nearest_an_incident_answers_it_from_where_it_was() {
+        let (w, d) = (Watch::default(), Dispatch::default());
+        let tick = 2_000;
+        d.step(&w, tick);
+        // One of the Watch's cars on patrol, and an incident on the road 120 m ahead of it.
+        let mut patrol = None;
+        street::each_car(-900.0, 900.0, 3_000.0, 9_000.0, tick + DT, 0.0, &mut |c| {
+            if c.kind == street::Kind::Watch && patrol.is_none() {
+                patrol = Some(*c);
+            }
+        });
+        let c = patrol.expect("a car of the Watch's on patrol");
+        let dir = if c.yaw > 1.0 { 1.0 } else { -1.0 };
+        let goal = (c.x, c.t + dir * 120.0);
+        let id = w.raise((goal.0, town::deck_s(goal.1)), 1, Offence::Knock, tick);
+        let mut promoted = Vec::new();
+        d.step_and(&w, tick + DT, &mut |car, s| promoted.push((car, s)));
+        let sent: Vec<Seen> = d.seen().into_iter().filter(|u| u.incident == id).collect();
+        let p = sent.iter().find(|u| u.patrol != 0).expect("a patrol answered");
+        assert_eq!(p.kind, UnitKind::Car);
+        // It answers from about where it was (the nearest patrol: this one, or one nearer still).
+        assert!(apart((p.x, p.t), goal) <= apart((c.x, c.t), goal) + 1.0, "{p:?} vs {c:?}");
+        assert_eq!(promoted.len(), 1);
+        assert_eq!(promoted[0].0, p.patrol);
+        // The station's hound still comes; no second car.
+        assert_eq!(sent.iter().filter(|u| u.kind == UnitKind::Car).count(), 1, "{sent:?}");
+        // Promoted once: a second incident there doesn't take it again.
+        let again = w.raise((goal.0, town::deck_s(goal.1 + 5.0)), 1, Offence::Knock, tick + 2 * DT);
+        d.step(&w, tick + 2 * DT);
+        let twice = d.seen().into_iter().filter(|u| u.incident == again && u.patrol == p.patrol).count();
+        assert_eq!(twice, 0);
+    }
+
+    #[test]
     fn an_incident_brings_the_nearest_stations_units_who_hold_a_cordon_and_go_home() {
         let (w, d) = (Watch::default(), Dispatch::default());
         let mut tick = 1_000;
@@ -758,12 +807,17 @@ mod tests {
         d.step(&w, tick);
         let sent: Vec<Seen> = d.seen().into_iter().filter(|u| u.state != State::Home).collect();
         assert_eq!(sent.len(), 2, "{sent:?}");
-        assert!(sent.iter().all(|u| u.station == 3 && u.incident == id && u.state == State::Driving));
+        // (A car of the Watch's on patrol near answers for its station's: `promoted_patrols`.)
+        assert!(
+            sent.iter()
+                .all(|u| (u.station == 3 || u.patrol != 0) && u.incident == id && u.state == State::Driving)
+        );
         assert_eq!(sent.iter().filter(|u| u.kind == UnitKind::Car).count(), 1);
         // One after the other out of the door, not as one.
-        let mut waits: Vec<f32> = sent.iter().map(|u| u.wait).collect();
+        let mut waits: Vec<f32> = sent.iter().filter(|u| u.patrol == 0).map(|u| u.wait).collect();
         waits.sort_by(f32::total_cmp);
-        assert!(waits[0] == 0.0 && waits[1] > PULL_OUT * 0.5 && waits[1] <= PULL_OUT, "{waits:?}");
+        assert!(waits[0] == 0.0, "{waits:?}");
+        assert!(waits.len() < 2 || (waits[1] > PULL_OUT * 0.5 && waits[1] <= PULL_OUT), "{waits:?}");
         on_the_roads(&d);
         // Each there within its route's length at its speed, and a little.
         let haste = tables::answer(1).haste;

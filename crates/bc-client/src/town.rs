@@ -1033,6 +1033,35 @@ fn draw_life(
         let d2 = near(v.x, round_from(RING, at.s, v.s));
         cars.push(Seen { d2, id: 4 << 40 | k as u64, x: v.x, s: v.s, yaw: v.yaw, what: look, lie: hound });
     }
+    // The hounds on beat round the stations while nothing's happening: unlit, as the traffic's
+    // Watch cars on patrol are.
+    if gfx.life {
+        bc_sim::colony::watch::each_hound_on_beat(
+            at.x - reach,
+            at.x + reach,
+            t - reach,
+            t + reach,
+            tick,
+            frac,
+            &mut |h| {
+                let look = CarLook {
+                    livery: livery(street::Kind::Watch, 0, district),
+                    lights: Lights { lamps: lamps > 0.15, ..Lights::default() },
+                    seed: h.id,
+                };
+                let ds = h.t - t;
+                cars.push(Seen {
+                    d2: near(h.x, ds),
+                    id: 5 << 40 | u64::from(h.id),
+                    x: h.x,
+                    s: at.s + ds,
+                    yaw: h.yaw,
+                    what: look,
+                    lie: true,
+                });
+            },
+        );
+    }
     cars.retain(|c| c.d2 <= reach * reach);
     cars.sort_by(|a, b| a.d2.total_cmp(&b.d2));
 
