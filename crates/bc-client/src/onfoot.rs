@@ -2202,19 +2202,37 @@ pub fn drive_onfoot(
         {
             *car = *v;
         }
-        t.lift = if t.drive.is_none() { town_foot::lift_in_view(&t.walker) } else { None };
-        t.car = if t.drive.is_none() && t.lift.is_none() {
+        // What E would take: a lift's door looked at, a car at the kerb (or one left about), or one
+        // of the traffic's stopped in the road beside them. Of those in reach, the one they look at
+        // most squarely, else the nearest (`town_foot::pick`): E does what they look at.
+        (t.lift, t.car, t.jack) = (None, None, None);
+        if t.drive.is_none() {
+            enum AtHand {
+                Lift(u16),
+                Car(Vehicle, Option<usize>),
+                Jack(bc_client_core::traffic::Shown),
+            }
+            let look = t.walker.look();
+            let mut things: Vec<(AtHand, f32, f32)> = Vec::new();
+            if let Some(k) = town_foot::lift_in_view(&t.walker) {
+                let (x, lt) = bc_sim::colony::town::lift_door(k);
+                let s = bc_sim::colony::town::deck_s(lt);
+                things.push((AtHand::Lift(k), 0.0, town_foot::facing(at, look, x, s)));
+            }
             let left: Vec<Vehicle> = town_cars.left.iter().map(|(v, _)| *v).collect();
-            town_foot::car_at_hand(at, &town_cars.taken, &left)
-        } else {
-            None
-        };
-        // Or one of the traffic's, stopped in the road beside them.
-        t.jack = if t.drive.is_none() && t.lift.is_none() && t.car.is_none() {
-            t.traffic.at_hand(at, town_foot::CAR_USE)
-        } else {
-            None
-        };
+            for (v, k, far) in town_foot::cars_at_hand(at, &town_cars.taken, &left) {
+                things.push((AtHand::Car(v, k), far, town_foot::facing(at, look, v.x, v.s)));
+            }
+            for (c, far) in t.traffic.all_at_hand(at, town_foot::CAR_USE) {
+                things.push((AtHand::Jack(c), far, town_foot::facing(at, look, c.car.x, c.s)));
+            }
+            match town_foot::pick(things) {
+                Some(AtHand::Lift(k)) => t.lift = Some(k),
+                Some(AtHand::Car(v, k)) => t.car = Some((v, k)),
+                Some(AtHand::Jack(c)) => t.jack = Some(c),
+                None => {}
+            }
+        }
         if used_key && !got_out && !ui.panel_open() && t.drive.is_none() {
             if t.lift.is_some() {
                 up_the_lift = true;

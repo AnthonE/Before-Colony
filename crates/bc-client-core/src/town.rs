@@ -221,7 +221,16 @@ pub fn district_from(s: f32, last: Option<u16>) -> (u16, &'static str) {
 /// of the kerbs' parked cars ([`each_parked`], but those `taken` already) and the ones the pilot
 /// `left` where they got out (for those, which of them).
 pub fn car_at_hand(at: DeckPos, taken: &[(i32, i32)], left: &[Vehicle]) -> Option<(Vehicle, Option<usize>)> {
-    let mut best: Option<(f32, Vehicle, Option<usize>)> = None;
+    cars_at_hand(at, taken, left).into_iter().min_by(|a, b| a.2.total_cmp(&b.2)).map(|(v, k, _)| (v, k))
+}
+
+/// Every car [`car_at_hand`] could give, with how far from its side each is, m.
+pub fn cars_at_hand(
+    at: DeckPos,
+    taken: &[(i32, i32)],
+    left: &[Vehicle],
+) -> Vec<(Vehicle, Option<usize>, f32)> {
+    let mut near = Vec::new();
     let mut offer = |v: Vehicle, k: Option<usize>| {
         let ds = deck::round_from(RING, at.s, v.s);
         let (fx, fs) = v.forward();
@@ -229,8 +238,8 @@ pub fn car_at_hand(at: DeckPos, taken: &[(i32, i32)], left: &[Vehicle]) -> Optio
         let along = ((at.x - v.x) * fx - ds * fs).abs() - 0.5 * v.spec().length;
         let across = ((at.x - v.x) * -fs - ds * fx).abs() - 0.5 * v.spec().width;
         let d = along.max(0.0).hypot(across.max(0.0));
-        if d <= CAR_USE && best.is_none_or(|(b, ..)| d < b) {
-            best = Some((d, v, k));
+        if d <= CAR_USE {
+            near.push((v, k, d));
         }
     };
     each_parked(at.x, at.s, 12.0, |v| {
@@ -241,7 +250,37 @@ pub fn car_at_hand(at: DeckPos, taken: &[(i32, i32)], left: &[Vehicle]) -> Optio
     for (k, v) in left.iter().enumerate() {
         offer(*v, Some(k));
     }
-    best.map(|(_, v, k)| (v, k))
+    near
+}
+
+/// How squarely a pilot must look at a thing in reach for E to take it over one nearer: the
+/// cosine off their look, across the floor.
+pub const AIM: f32 = 0.6;
+
+/// How squarely `look` (a walker's, in the deck's frame) from `at` faces the point `(x, s)` on
+/// the ring's floor: the cosine off it across the floor (1: dead ahead, −1: behind).
+pub fn facing(at: DeckPos, look: Vec3, x: f32, s: f32) -> f32 {
+    let ds = deck::round_from(RING, at.s, s);
+    let to = Vec3::new(x - at.x, 0.0, -ds).normalize_or_zero();
+    Vec3::new(look.x, 0.0, look.z).normalize_or_zero().dot(to)
+}
+
+/// Of the things in reach (each with how far it is, m, and how squarely it's looked at, a cosine),
+/// the one E takes: the one looked at most squarely, if any is within [`AIM`] of the look; else
+/// the nearest. So E does what the pilot looks at, not what happens to stand nearest.
+pub fn pick<T>(things: impl IntoIterator<Item = (T, f32, f32)>) -> Option<T> {
+    let mut looked: Option<(T, f32)> = None;
+    let mut nearest: Option<(T, f32)> = None;
+    for (thing, far, square) in things {
+        if square >= AIM {
+            if looked.as_ref().is_none_or(|(_, b)| square > *b) {
+                looked = Some((thing, square));
+            }
+        } else if nearest.as_ref().is_none_or(|(_, b)| far < *b) {
+            nearest = Some((thing, far));
+        }
+    }
+    looked.or(nearest).map(|(t, _)| t)
 }
 
 pub use bc_sim::colony::street::{BAY, BAYS_PER_CELL};
@@ -767,6 +806,26 @@ mod tests {
         }
         let p = pose_of(&w);
         assert!(wrapped && p.s > 4.0 && p.s < 20.0, "{p:?}");
+    }
+
+    /// E takes what the pilot looks at, not what stands nearest (Kotaku on GTA 6: looting a body
+    /// got Jason into the car beside it); with nothing looked at, the nearest.
+    #[test]
+    fn e_takes_what_is_looked_at_over_what_is_nearest() {
+        let at = DeckPos::new(RING, 20.0, 500.0, 0.0);
+        // Looking along −x: (x − 3) is dead ahead, (s + 3) off to the side (−s is +z).
+        let look = Vec3::new(-1.0, 0.0, 0.0);
+        assert!((facing(at, look, 17.0, 500.0) - 1.0).abs() < 1e-5);
+        assert!(facing(at, look, 20.0, 503.0).abs() < 1e-5);
+        assert!(facing(at, look, 23.0, 500.0) < -0.99);
+        // Ahead but further beats beside and nearer; beside and behind, the nearer.
+        assert_eq!(pick([("beside", 0.5, 0.0), ("ahead", 2.0, 0.95)]), Some("ahead"));
+        assert_eq!(pick([("ahead", 2.0, 0.7), ("squarer", 2.4, 0.9)]), Some("squarer"));
+        assert_eq!(pick([("beside", 1.5, 0.1), ("behind", 0.4, -0.9)]), Some("behind"));
+        assert_eq!(pick::<&str>([]), None);
+        // Round the ring's seam too.
+        let near_seam = DeckPos::new(RING, 20.0, round() - 1.0, 0.0);
+        assert!(facing(near_seam, Vec3::new(0.0, 0.0, -1.0), 20.0, 1.0) > 0.99);
     }
 
     #[test]
