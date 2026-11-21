@@ -848,6 +848,7 @@ pub fn update_hud(
     mut ui: ResMut<crate::page::Ui>,
     settings: Res<crate::settings::SettingsRes>,
     mut readings: ResMut<Readings>,
+    mut safe_said: Local<f64>,
 ) {
     let game = game.borrow();
     let core = &game.core;
@@ -1085,6 +1086,14 @@ pub fn update_hud(
         // Inside the colony nothing fires, by its law and the sector's, but in the Blast Hall.
         let safe = core.welcome.is_some_and(|wl| wl.interior)
             && !core.own_view().is_some_and(|v| bc_sim::colony::hall::weapons_free(v.pos));
+        // A trigger pulled where nothing fires: why, there and then, not only the heading's word (a
+        // dead trigger with no reason reads as a bug, or as the game saying no).
+        if safe && controls.buttons & (FIRE_PRIMARY | FIRE_SECONDARY) != 0 && now - *safe_said > 6.0 {
+            *safe_said = now;
+            ui.toast(
+                "WEAPONS SAFE · A SHOT IN A PRESSURE HULL STOPS A STRIP · THE BLAST HALL IS WEAPONS FREE",
+            );
+        }
         if core.welcome.is_some_and(|wl| wl.interior) {
             (r.arms.title, r.arms.title_tone) = if safe {
                 ("WEAPONS SAFE".into(), Tone::Dim)
