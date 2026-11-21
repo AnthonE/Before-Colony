@@ -604,7 +604,7 @@ pub fn struck(v: &Vehicle, (tick, frac): (u32, f32), down: &[u32]) -> Option<bc_
 }
 
 /// Where a guide walks a pilot in the town to from `from` (their feet), by name (the dev hooks'
-/// `walk_to`): `lift`, the step at Hub Gate's lift's door; `boulevard`, the boulevard's pavement
+/// `walk_to`): `lift`, the step at the nearest lift's door; `boulevard`, the boulevard's pavement
 /// between the lift's piers; `car`, beside the nearest parked car. The square and its avenue are open
 /// ground, so these go straight. The route, and the way to face at its end.
 pub fn route(spot: &str, from: Vec3) -> Option<(Vec<Vec3>, Vec3)> {
@@ -615,7 +615,12 @@ pub fn route(spot: &str, from: Vec3) -> Option<(Vec<Vec3>, Vec3)> {
     };
     match spot {
         "lift" => {
-            let (x, t) = town::out_of_the_lift(0);
+            let k = (0..town::LIFTS).min_by(|a, b| {
+                let far =
+                    |k: u16| deck::round_from(RING, at.s, town::deck_s(town::out_of_the_lift(k).1)).abs();
+                far(*a).total_cmp(&far(*b))
+            })?;
+            let (x, t) = town::out_of_the_lift(k);
             Some((vec![near(x, t)], Vec3::X))
         }
         "boulevard" => Some((vec![near(-town::BOULEVARD_HALF - 4.0, town::lift_t(0))], Vec3::X)),
