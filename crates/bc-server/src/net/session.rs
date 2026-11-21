@@ -1364,7 +1364,7 @@ impl Session<'_> {
                 self.game.street.set_down(person);
                 self.hangar.credits += pay;
                 tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, pay, "a fare set down");
-                self.send(&Update::Fare { to: None, pay: 0 }).await?;
+                self.send(&Update::Fare { to: None, pay }).await?;
                 self.note(format!("FARE SET DOWN · {pay} CR"), true).await?;
                 self.send_hangar().await?;
                 self.save().await;
@@ -2392,6 +2392,10 @@ impl Session<'_> {
     /// Their heat, if it's changed since it was last sent: the level and what raised it.
     async fn send_heat(&mut self) -> anyhow::Result<()> {
         let (level, cause) = self.game.watch.heat(self.id);
+        // What the Watch made of what they did since, first: who saw it, or that nobody did.
+        for (what, seen) in self.game.watch.take_said(self.id) {
+            self.send(&Update::Watched { what, seen, level }).await?;
+        }
         if level == self.heat_sent {
             return Ok(());
         }

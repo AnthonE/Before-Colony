@@ -56,6 +56,9 @@ pub struct HangarState {
     /// (`Update::Heat`).
     pub heat: u8,
     pub heat_cause: Option<bc_sim::colony::watch::Offence>,
+    /// What the Watch made of what the pilot did, oldest first (`Update::Watched`): the offence as
+    /// taken, whether anybody saw it, and their level after. The UI takes them.
+    pub watched: Vec<(bc_sim::colony::watch::Offence, bool, u8)>,
     /// The incidents the Watch is answering in the town (`Update::Incidents`).
     pub incidents: Vec<bc_econ::wire::Incident>,
     /// The Watch's units near the pilot in the town (`Update::Units`), and how many times they've
@@ -69,6 +72,9 @@ pub struct HangarState {
     pub said: Vec<(String, String)>,
     /// Sales filled on the Exchange this session (its `SOLD …` notes; `objectives`).
     pub sales: u32,
+    /// Fares set down and paid this session (`Update::Fare` with none aboard and a pay;
+    /// `objectives`).
+    pub fares: u32,
     /// Bumped by every update (the UI redraws when it moves).
     pub version: u64,
 }
@@ -124,8 +130,19 @@ impl HangarState {
                 self.taken.apply(&near, districts, lanes);
                 self.street = self.taken.down();
             }
-            Update::Fare { to, pay } => self.fare = to.map(|k| (k, pay)),
+            Update::Fare { to, pay } => {
+                if to.is_none() && pay > 0 {
+                    self.fares += 1;
+                }
+                self.fare = to.map(|k| (k, pay));
+            }
             Update::Heat { level, cause } => (self.heat, self.heat_cause) = (level, cause),
+            Update::Watched { what, seen, level } => {
+                if self.watched.len() >= 8 {
+                    self.watched.remove(0);
+                }
+                self.watched.push((what, seen, level));
+            }
             Update::Incidents { incidents } => self.incidents = incidents,
             Update::Units { units } => {
                 self.units = units;

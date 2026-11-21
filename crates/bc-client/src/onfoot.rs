@@ -1028,6 +1028,10 @@ pub struct TownFoot {
     /// units near them, the server's (`bc_client_core::watch`).
     pub heat: u8,
     pub pursuit: Pursuit,
+    /// The highest level a word of the Watch's has already explained (`Update::Watched`), and
+    /// the last offence said without a rise, and when (so a run of knocks isn't said each time).
+    said_heat: u8,
+    said_at: Option<(Offence, f64)>,
     /// How long till a knock is reported again, s.
     knock_wait: f32,
     /// The people their own car has knocked down, till the server's word has them
@@ -1079,6 +1083,8 @@ impl TownFoot {
             cars: town_foot::Obstacles::default(),
             heat: 0,
             pursuit: Pursuit::default(),
+            said_heat: 0,
+            said_at: None,
             knock_wait: 0.0,
             struck: Vec::new(),
             hail: None,
@@ -2265,14 +2271,30 @@ pub fn drive_onfoot(
         t.pursuit.hear(g.core.hangar.units_heard, &g.core.hangar.units);
         t.pursuit.step(walk_dt(false));
         let level = g.core.hangar.heat;
+        // What the Watch made of what they did, every time: who saw it and what it leaves them at,
+        // or that nobody did (seen, not done). A rise it explains isn't said again below.
+        let watched = std::mem::take(&mut g.core.hangar.watched);
+        for (what, seen, after) in watched {
+            if !seen {
+                ui.toast(what.unseen_line());
+            } else if after > t.heat.max(t.said_heat) {
+                ui.news(format!("{} · {}", what.seen_line(), watch::stars(after)), true);
+                t.said_heat = after;
+            } else if t.said_at.is_none_or(|(o, at)| o != what || now - at > 5.0) {
+                // (A knock a second in a chase is said once in a while.)
+                let held = match after {
+                    0 => "THE WATCH IS TOLD".to_string(),
+                    l => format!("STILL {}", watch::stars(l)),
+                };
+                ui.toast(format!("{} · {held}", what.seen_line()));
+                t.said_at = Some((what, now));
+            }
+        }
         if level != t.heat {
             if level > t.heat {
-                // (The first time it's a car, say what for: nothing else tells them it's somebody's.)
-                let why = match g.core.hangar.heat_cause {
-                    Some(Offence::TookACarInSight) => "THE WATCH SAW YOU TAKE THAT CAR",
-                    _ => "THE WATCH WANTS YOU",
-                };
-                ui.news(format!("{why} · {}", watch::stars(level)), true);
+                if level > t.said_heat {
+                    ui.news(format!("THE WATCH WANTS YOU · {}", watch::stars(level)), true);
+                }
             } else if level == 0 && t.pursuit.near(t.feet(), bc_sim::colony::watch::AFOOT.0) {
                 // Cleared with one of its units at hand (none lets it cool in its sight): stopped,
                 // and the fine's note is on its way. The car goes with it (the server drops it too).
@@ -2287,6 +2309,7 @@ pub fn drive_onfoot(
                 });
             }
             t.heat = level;
+            t.said_heat = t.said_heat.min(level);
         }
         // (The first time, what it means.)
         if level > 0 && !t.told_watch {
