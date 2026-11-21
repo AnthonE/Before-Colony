@@ -22,6 +22,11 @@ const CARS = 40 + 128;
 // and then stretched by the browser's thread waiting its turn (twice the budget, seen here on four
 // shared cores), so the bound is four budgets, and the fill is checked to have taken frames.
 const BUDGET_MS = 5;
+// What the street costs to draw, held: the town's triangles and its meshes in view. SwiftShader can't
+// distort a count, so these are the frame rate's guard here: a change that draws much more fails the
+// night it lands, not when a player's frame rate drops (94k triangles and 65 meshes when set, at High).
+const TRIS = 120_000;
+const DRAWS = 85;
 
 test("the town's crowded street, streamed in and held", async ({ page }, info) => {
   test.setTimeout(900_000);
@@ -108,6 +113,10 @@ test("the town's crowded street, streamed in and held", async ({ page }, info) =
   expect(report.fill.frames).toBeGreaterThanOrEqual(2);
   expect(fill.some((x) => x.town_missing > 0)).toBe(true);
   for (const x of [...loaded, ...held]) expect(x.town_ms).toBeLessThanOrEqual(4 * BUDGET_MS);
+  for (const x of held) {
+    expect(x.town_tris).toBeLessThanOrEqual(TRIS);
+    expect(x.town_draws).toBeLessThanOrEqual(DRAWS);
+  }
   const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked|wgpu error|validation error/i.test(l));
   if (bad.length) console.log(bad.join("\n"));
   expect(bad).toEqual([]);
