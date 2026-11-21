@@ -2418,6 +2418,11 @@ pub fn drive_onfoot(
     if came_across {
         me.done(now);
     }
+    // (Out of the town, a word of the Watch's or a ride across said as they left is forgotten.)
+    if !in_town {
+        g.core.hangar.watched.clear();
+        g.core.hangar.across = None;
+    }
     if !in_city && !on_deck && !in_town {
         g.core.set_pose(None);
     }
