@@ -1041,6 +1041,9 @@ pub struct TownFoot {
     /// they carry is where they asked to be set down.
     pub hail: Option<u32>,
     pub fare_there: bool,
+    /// Q at a lift's door rides across the hub to the square this many lifts on round the ring
+    /// (R picks another).
+    across: u16,
     /// What their own hands have taken out of the town's crowd and left about that the server's
     /// word (`Update::Street`) may not have yet; the server's id of each car left about as
     /// `TownCars::left` has them (0: their own, not the server's yet); and where the car they hold
@@ -1089,6 +1092,7 @@ impl TownFoot {
             struck: Vec::new(),
             hail: None,
             fare_there: false,
+            across: 1,
             mine: Default::default(),
             left_ids: Vec::new(),
             held: None,
@@ -2018,7 +2022,18 @@ pub fn drive_onfoot(
     // car's side takes it (W/S the throttle and the brake, A/D the wheel, Space the handbrake, Tab
     // the driver's seat's view, E out again), and at a lift's door rides back up to the bay.
     let mut up_the_lift = false;
+    let mut came_across = false;
     if in_town && let Some(t) = me.town.as_mut() {
+        // Down another spoke, across the hub (`Request::RideAcross`): out of that lift's door, the
+        // screen fading back in, the district's name said.
+        if let Some(to) = g.core.hangar.across.take() {
+            t.walker = town_foot::out_of_the_lift(to);
+            t.guide = None;
+            t.district = None;
+            t.traffic = Traffic::default();
+            (t.lift, t.car, t.jack) = (None, None, None);
+            came_across = true;
+        }
         for cmd in &cmds.0 {
             if let UiCmd::WalkTo { spot } = cmd
                 && t.drive.is_none()
@@ -2233,6 +2248,20 @@ pub fn drive_onfoot(
                 None => {}
             }
         }
+        // Q at a lift's door: up its spoke, across the hub and down another to its square, the
+        // quick way round the ring (R picks which).
+        if let Some(k) = t.lift
+            && live
+            && !ui.panel_open()
+        {
+            if keys.just_pressed(KeyCode::KeyR) {
+                t.across = t.across % (bc_sim::colony::town::LIFTS - 1) + 1;
+            }
+            if keys.just_pressed(KeyCode::KeyQ) {
+                let to = (k + t.across) % bc_sim::colony::town::LIFTS;
+                ask(&net, &g, &Request::RideAcross { to });
+            }
+        }
         if used_key && !got_out && !ui.panel_open() && t.drive.is_none() {
             if t.lift.is_some() {
                 up_the_lift = true;
@@ -2385,6 +2414,9 @@ pub fn drive_onfoot(
     }
     if up_the_lift {
         ask(&net, &g, &Request::LeaveTown);
+    }
+    if came_across {
+        me.done(now);
     }
     if !in_city && !on_deck && !in_town {
         g.core.set_pose(None);
@@ -2706,7 +2738,13 @@ pub fn drive_onfoot(
                     format!("{kmh:.0} KM/H")
                 }
             }
-            Some(t) if t.lift.is_some() => "E  THE SPOKE LIFT, UP TO YOUR BAY".into(),
+            Some(t) if let Some(k) = t.lift => {
+                let to = (k + t.across) % bc_sim::colony::town::LIFTS;
+                format!(
+                    "E  UP TO YOUR BAY · Q  ACROSS THE HUB TO {} · R  ANOTHER",
+                    bc_sim::colony::town::lift_name(to).to_uppercase()
+                )
+            }
             Some(t) if t.car.is_some() => "E  TAKE THE CAR".into(),
             Some(t) if t.jack.is_some() => "E  TAKE THE CAR FROM ITS DRIVER".into(),
             _ => String::new(),

@@ -286,3 +286,53 @@ async fn a_fare_is_taken_in_a_lifts_square_and_lost_up_the_lift() -> anyhow::Res
     assert_eq!(b.core.hangar.credits(), credits);
     Ok(())
 }
+
+/// The town's quick way round the ring: from a lift's door on foot, up its spoke, across the hub
+/// and down another's, out into that square, where whoever else came that way sees them. Not from
+/// a walk away from a door, and not to the square they're in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pilot_rides_across_the_hub_from_one_lifts_square_to_another() -> anyhow::Result<()> {
+    let server = bc_server::start(config()?).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut a = down(&http, "Maren").await?;
+    let mut b = down(&http, "Pagan").await?;
+    a.set_pose(standing(0.0, 0.0));
+    b.set_pose(standing(-3.0, 2.0));
+    both(&mut a, &mut b, 1.0).await?;
+    // A walk away from Hub Gate's door: refused.
+    for k in 1..=3 {
+        a.set_pose(standing(-5.0 * k as f32, 0.0));
+        both(&mut a, &mut b, 1.0).await?;
+    }
+    let (text, ok) = ask(&mut a, Request::RideAcross { to: 3 }).await?;
+    assert!(!ok && text.contains("lift's door"), "{text}");
+    for k in (0..3).rev() {
+        a.set_pose(standing(-5.0 * k as f32, 0.0));
+        both(&mut a, &mut b, 1.0).await?;
+    }
+    // At its door, to its own square: refused; to The Basin's (lift 3, across the ring): across.
+    let (text, ok) = ask(&mut a, Request::RideAcross { to: 0 }).await?;
+    assert!(!ok && text.contains("already"), "{text}");
+    let (text, ok) = ask(&mut a, Request::RideAcross { to: 3 }).await?;
+    assert!(ok && text.starts_with("ACROSS THE HUB · DOWN TO "), "{text}");
+    assert_eq!(a.core.hangar.across, Some(3));
+    let (text, ok) = ask(&mut b, Request::RideAcross { to: 3 }).await?;
+    assert!(ok, "{text}");
+    // Out of lift 3's door, both: each passed on, and seen by the other there.
+    let (x, t) = town::out_of_the_lift(3);
+    let at = |dx: f32, ds: f32| PersonPose {
+        strip: RING_DECK,
+        x: x + dx,
+        s: town::deck_s(t) + ds,
+        grounded: true,
+        ..PersonPose::default()
+    };
+    a.set_pose(at(0.0, 0.0));
+    b.set_pose(at(-3.0, 2.0));
+    both(&mut a, &mut b, 1.5).await?;
+    let seen = b.people();
+    let there = seen.iter().find(|p| p.1 == "Maren").map(|p| p.2).expect("Pagan sees Maren");
+    assert!((there.x - x).hypot(there.s - town::deck_s(t)) < 0.05, "{there:?}");
+    assert_eq!(server.status()["game"]["town"]["people"], 2);
+    Ok(())
+}

@@ -48,6 +48,8 @@ pub struct HangarState {
     /// News, oldest first. The UI takes it.
     /// The fare in the pilot's car in the town: the lift whose square they asked for, and their pay.
     pub fare: Option<(u16, u64)>,
+    /// Across the hub and down lift `k`'s spoke (`Update::Across`), till the walk takes it.
+    pub across: Option<u16>,
     /// The ring's town's people knocked down (or away as fares) round the pilot, as the server last
     /// said (`Update::Street`), and all it said of what's been taken out of the town's crowd there.
     pub street: Vec<bc_econ::wire::Down>,
@@ -137,6 +139,7 @@ impl HangarState {
                 self.fare = to.map(|k| (k, pay));
             }
             Update::Heat { level, cause } => (self.heat, self.heat_cause) = (level, cause),
+            Update::Across { to } => self.across = Some(to),
             Update::Watched { what, seen, level } => {
                 if self.watched.len() >= 8 {
                     self.watched.remove(0);

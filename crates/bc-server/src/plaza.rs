@@ -389,6 +389,22 @@ impl Plaza {
             })
     }
 
+    /// Which of the town's lifts `id` is on foot within `reach` m of the step out of (where the
+    /// plaza last had them; before their first pose, where they came down).
+    pub fn lift_at(&self, id: u16, reach: f32) -> Option<u16> {
+        let all = self.people.lock().ok()?;
+        let me = all.get(&id).filter(|p| p.strip == RING_DECK)?;
+        let (x, s) = match me.pose {
+            Some(p) if mode(&p) == Mode::Foot => (p.x, p.s),
+            Some(_) => return None,
+            None => (me.arrival.1, me.arrival.0),
+        };
+        (0..town::LIFTS).find(|k| {
+            let (lx, t) = town::out_of_the_lift(*k);
+            (x - lx).hypot(deck::round_from(RING, town::deck_s(t), s)) <= reach
+        })
+    }
+
     /// `id` came into strip `strip`'s city at `(s, x)` (out of a trainer, at the Blast Hall's
     /// gantry), onto the base's deck ([`BASE_DECK`]) or into the ring's town ([`RING_DECK`]): their
     /// first pose must be near there.

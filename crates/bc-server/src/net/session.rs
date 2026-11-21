@@ -1292,6 +1292,7 @@ impl Session<'_> {
             Request::LeaveBase => self.leave_base().await,
             Request::EnterTown => self.enter_town().await,
             Request::LeaveTown => self.leave_town().await,
+            Request::RideAcross { to } => self.ride_across(to).await,
             Request::Hit { person } => {
                 // Their car hit one of the town's people: taken if that person was there.
                 if self.place == Place::Town {
@@ -1747,6 +1748,35 @@ impl Session<'_> {
         self.send_hangar().await?;
         self.publish_hangar();
         Ok(())
+    }
+
+    /// Up a spoke from the door of the town's lift they stand at, across the hub, and down lift
+    /// `to`'s spoke to its square: the town's quick way round the ring. Their car stays where they
+    /// left it, and a fare aboard is lost, as up to the bay; the Watch's heat goes with them.
+    async fn ride_across(&mut self, to: u16) -> anyhow::Result<()> {
+        use bc_sim::colony::town;
+        if self.place != Place::Town {
+            return self.note("you're not down in the town", false).await;
+        }
+        let Some(from) = self.game.plaza.lift_at(self.id, LIFT_REACH) else {
+            return self.note("the lifts are under the spokes: on foot, at a lift's door", false).await;
+        };
+        let to = to % town::LIFTS;
+        if to == from {
+            return self.note("you're in its square already", false).await;
+        }
+        self.lose_fare().await?;
+        self.let_go_of_the_car();
+        let (x, t) = town::out_of_the_lift(to);
+        self.game.plaza.enter_at(
+            self.id,
+            &self.callsign,
+            bc_proto::presence::RING_DECK,
+            (town::deck_s(t), x),
+        );
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, from, to, "across the hub");
+        self.send(&Update::Across { to }).await?;
+        self.note(format!("ACROSS THE HUB · DOWN TO {}", town::lift_name(to).to_uppercase()), true).await
     }
 
     /// A car taken in the town (`crate::street`): from a kerb, out of the traffic, or where it was
