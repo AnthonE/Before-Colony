@@ -227,10 +227,10 @@ impl Inner {
 
     /// Something frightening at `from` on the town's floor (`(x, t)`): everyone within `reach` m of
     /// `around` runs from it, out of the crowd (but those lying in the road).
-    fn scare(&mut self, from: (f32, f32), around: (f32, f32), reach: f32, tick: u32) {
+    fn scare(&mut self, from: (f32, f32), around: (f32, f32), reach: f32, tick: u32) -> usize {
         let districts = &self.districts;
         let lying = |id: u32| districts.iter().any(|d| d.down.iter().any(|p| p.id == id));
-        self.crowd.scare(from, around, reach, tick, &lying);
+        self.crowd.scare(from, around, reach, tick, &lying)
     }
 
     /// `p` is down (or away) in district `d` from now: the one soonest up gets up to make room.
@@ -594,6 +594,14 @@ impl Street {
         inner.crowd.step(tick, dt, &sights);
     }
 
+    /// Something frightening at `(x, s)` on the town's floor at tick `tick` (the dev hooks'
+    /// `/dev/scare`): everyone within `reach` m runs from it. How many were taken out of the crowd.
+    pub fn scare_at(&self, (x, s): (f32, f32), reach: f32, tick: u32) -> usize {
+        let Some(mut inner) = self.lock() else { return 0 };
+        let at = (x, town::town_t(s));
+        inner.scare(at, at, reach, tick)
+    }
+
     /// The town's people out of its crowd round a pilot at `(x, s)` on its floor, in tiers
     /// (`crate::crowd::Crowd::near`).
     pub fn crowd_near(&self, (x, s): (f32, f32)) -> Update {
@@ -824,6 +832,21 @@ mod tests {
         assert!(n >= 1 && scared == n, "{n} {scared}");
         let (near, _) = loose(&street, car.x, car.s);
         assert!(near.iter().any(|q| q.id == p.id));
+    }
+
+    #[test]
+    fn a_fright_by_hand_sends_those_round_it_running_but_not_the_one_lying_there() {
+        let (x, t) = town::out_of_the_lift(0);
+        let mut all = Vec::new();
+        street::each_person(x - 150.0, x + 150.0, t - 150.0, t + 150.0, 3_000, 0.0, &mut |p| all.push(*p));
+        let p = all.iter().find(|p| p.id >> 28 != 0xF).copied().expect("somebody about");
+        let street = Street::default();
+        let here = town::deck_s(p.t);
+        assert!(street.hit(p.id, &at(p.x + 2.0, here, RIDE_CAR), 3_000));
+        let before = street.crowd_counts().0;
+        let n = street.scare_at((p.x, here), 60.0, 3_001);
+        assert!(n >= 1 && street.crowd_counts().0 == before + n, "{n}");
+        assert!(loose(&street, p.x, here).0.iter().all(|q| q.id != p.id && q.scared));
     }
 
     #[test]

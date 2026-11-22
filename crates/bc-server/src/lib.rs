@@ -139,6 +139,20 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         };
         Arc::new(raise) as http::IncidentFn
     });
+    // And the town's crowd round a place sent running.
+    let scare: Option<http::ScareFn> = shared.clone().filter(|g| g.dev_hooks).map(|g| {
+        let scare = move |ask: &http::ScareAsk| {
+            let reach = ask.reach.unwrap_or(20.0);
+            if !ask.x.is_finite() || !ask.s.is_finite() || !(0.0..=200.0).contains(&reach) {
+                return Err("a place on the ring's floor, and a reach of 0 to 200 m".to_string());
+            }
+            let tick = g.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            let n = g.street.scare_at((ask.x, ask.s), reach, tick);
+            tracing::info!(n, "the town's crowd sent running by hand");
+            Ok(n)
+        };
+        Arc::new(scare) as http::ScareFn
+    });
     let http_state = http::HttpState {
         // A CA-issued certificate is validated by the browser: nothing to pin.
         cert_hash_hex: pinned.then(|| hex::encode(cert_hash)),
@@ -161,6 +175,7 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         }),
         cors_origins: cfg.cors_origins.clone().into(),
         incident,
+        scare,
     };
     let router = http::router(http_state);
     let mut http_shutdown = shutdown_rx.clone();

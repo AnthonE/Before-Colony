@@ -180,7 +180,9 @@ fn main() -> anyhow::Result<()> {
         ..Config::default()
     };
     if cfg.dev_hooks {
-        tracing::warn!("--dev-hooks: the dev HTTP takes /dev/incident (never in a deployment)");
+        tracing::warn!(
+            "--dev-hooks: the dev HTTP takes /dev/incident and /dev/scare (never in a deployment)"
+        );
     }
     match (args.rules, args.colony) {
         (Ruleset::Survival, true) => {

@@ -210,7 +210,7 @@ and let go once settled with both them and their place in the crowd out of every
 settled one furthest from every pilot gives way. On the wire in tiers (`Update::Crowd`): within 130 m
 whole, out to 320 m in four numbers each, and a count past that; a screen draws the crowd but these
 where these are (`bc_client_core::crowd`), and its cars can run them down where they're drawn. `/status`
-has the counts. Still to do: the pools in the interior sector's tick (with S1), and a fare set down
+has the counts, and `/dev/scare` (with `--dev-hooks`) frightens a place by hand. Still to do: the pools in the interior sector's tick (with S1), and a fare set down
 coming out of the car where it stopped.
 
 ### 4. The Watch as infrastructure (W)

@@ -8,8 +8,9 @@
 //! `Config::cors_origins`), since the store serves the game's page from its own site.
 //!
 //! With the dev hooks on (`Config::dev_hooks`, never in a deployment), `POST /dev/incident` raises
-//! one of the Watch's incidents by hand (`crate::watch::Watch::raise`). Without them the route isn't
-//! there at all.
+//! one of the Watch's incidents by hand (`crate::watch::Watch::raise`), and `POST /dev/scare` has the
+//! ring's town's crowd run from a place (`crate::street::Street::scare_at`). Without them the routes
+//! aren't there at all.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -39,6 +40,19 @@ pub struct IncidentAsk {
     pub cause: Option<String>,
 }
 
+/// Has the town's crowd round a place run from it: how many were taken out of it, or why not.
+pub type ScareFn = Arc<dyn Fn(&ScareAsk) -> Result<usize, String> + Send + Sync>;
+
+/// `POST /dev/scare`'s body: where on the ring's floor (across it, round it, m), and how far round
+/// it (m; 20 if not said).
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct ScareAsk {
+    pub x: f32,
+    pub s: f32,
+    #[serde(default)]
+    pub reach: Option<f32>,
+}
+
 #[derive(Clone)]
 pub struct HttpState {
     /// The self-signed certificate's SHA-256 for browsers to pin; None with a CA-issued one.
@@ -54,8 +68,9 @@ pub struct HttpState {
     pub floor: StatusFn,
     /// `/nonce`: a fresh nonce for a pass, or null when this server takes none.
     pub nonce: StatusFn,
-    /// `POST /dev/incident`, with the dev hooks on (none: no such route).
+    /// `POST /dev/incident` and `POST /dev/scare`, with the dev hooks on (none: no such routes).
     pub incident: Option<IncidentFn>,
+    pub scare: Option<ScareFn>,
     /// Origins allowed to read the JSON routes from another site.
     pub cors_origins: Arc<[String]>,
 }
@@ -72,6 +87,9 @@ pub fn router(state: HttpState) -> Router {
         .route("/nonce", get(nonce));
     if state.incident.is_some() {
         api = api.route("/dev/incident", post(incident));
+    }
+    if state.scare.is_some() {
+        api = api.route("/dev/scare", post(scare));
     }
     let api = api.with_state(state).layer(middleware::from_fn(move |req: Request, next: Next| {
         let origins = origins.clone();
@@ -143,6 +161,15 @@ async fn incident(
     let raise = s.incident.as_ref().ok_or((StatusCode::NOT_FOUND, String::new()))?;
     let id = raise(&ask).map_err(|why| (StatusCode::BAD_REQUEST, why))?;
     Ok(Json(serde_json::json!({ "id": id })))
+}
+
+async fn scare(
+    State(s): State<HttpState>,
+    Json(ask): Json<ScareAsk>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let scare = s.scare.as_ref().ok_or((StatusCode::NOT_FOUND, String::new()))?;
+    let n = scare(&ask).map_err(|why| (StatusCode::BAD_REQUEST, why))?;
+    Ok(Json(serde_json::json!({ "promoted": n })))
 }
 
 #[cfg(test)]
