@@ -579,8 +579,14 @@ pub fn dodge(x: f32, s: f32, seed: u32, car: &Mover) -> (f32, f32) {
 }
 
 /// Whoever of the town's people a car at `v` runs down at tick `tick` plus `frac`: someone it
-/// reaches, going [`HIT_SPEED`] or more, wherever they'd stepped aside to. Not those `down` already.
-pub fn struck(v: &Vehicle, (tick, frac): (u32, f32), down: &[u32]) -> Option<bc_sim::colony::street::Person> {
+/// reaches, going [`HIT_SPEED`] or more, wherever they'd stepped aside to (or, out of the crowd,
+/// wherever `loose` has them). Not those `down` already.
+pub fn struck(
+    v: &Vehicle,
+    (tick, frac): (u32, f32),
+    down: &[u32],
+    loose: &crate::crowd::Loose,
+) -> Option<bc_sim::colony::street::Person> {
     if v.speed.abs() < HIT_SPEED {
         return None;
     }
@@ -588,9 +594,16 @@ pub fn struck(v: &Vehicle, (tick, frac): (u32, f32), down: &[u32]) -> Option<bc_
     let t = town::town_t(v.s);
     let reach = CAR_CIRCLE.0 + bc_sim::foot::HALF;
     let circles = Obstacles::circles(v.x, v.s, v.yaw);
+    let out = loose.within(v.x, v.s, 7.0).find(|l| {
+        !down.contains(&l.id)
+            && circles.iter().any(|(cx, cs)| (cx - l.x).hypot(deck::round_from(RING, *cs, l.s)) < reach)
+    });
+    if let Some(l) = out {
+        return Some(l.person(v.s, t));
+    }
     let mut hit = None;
     bc_sim::colony::street::each_person(v.x - 7.0, v.x + 7.0, t - 7.0, t + 7.0, tick, frac, &mut |p| {
-        if hit.is_some() || down.contains(&p.id) {
+        if hit.is_some() || down.contains(&p.id) || loose.has(p.id) {
             return;
         }
         let s = v.s + (p.t - t);
@@ -981,7 +994,7 @@ mod tests {
                 if d.abs() < 2.0 {
                     least = least.min(dx.hypot(ds));
                 }
-                hit |= struck(&car, (0, 0.0), &[]).is_some_and(|h| h.id == p.id);
+                hit |= struck(&car, (0, 0.0), &[], &Default::default()).is_some_and(|h| h.id == p.id);
                 d -= speed / 60.0;
             }
             (least, hit)
@@ -992,8 +1005,8 @@ mod tests {
         assert!(aside < 0.4 && hit, "a fast one: {aside} m aside, hit {hit}");
         // Already down, nobody's hit twice; and nobody minds a car standing still or one going away.
         let on_them = Vehicle { speed: 18.0, ..Vehicle::new(Kind::Car, RING_FLOOR, s, p.x, p.yaw) };
-        assert!(struck(&on_them, (0, 0.0), &[]).is_some());
-        assert!(struck(&on_them, (0, 0.0), &[p.id]).is_none_or(|h| h.id != p.id));
+        assert!(struck(&on_them, (0, 0.0), &[], &Default::default()).is_some());
+        assert!(struck(&on_them, (0, 0.0), &[p.id], &Default::default()).is_none_or(|h| h.id != p.id));
         let parked = Mover { speed: 0.0, ..Mover::of(&on_them) };
         assert_eq!(dodge(p.x + 0.5, s, 0, &parked), (0.0, 0.0));
         let gone = Mover { x: p.x + fx * 12.0, s: s + fs * 12.0, ..Mover::of(&on_them) };

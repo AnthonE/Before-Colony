@@ -20,6 +20,7 @@
 pub mod census;
 pub mod city;
 pub mod course;
+pub mod crowd;
 pub mod deck;
 pub mod frame;
 pub mod furniture;

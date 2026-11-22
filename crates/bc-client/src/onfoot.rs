@@ -1028,6 +1028,8 @@ pub struct TownFoot {
     /// units near them, the server's (`bc_client_core::watch`).
     pub heat: u8,
     pub pursuit: Pursuit,
+    /// The town's people out of its crowd round them, the server's (`bc_client_core::crowd`).
+    pub loose: bc_client_core::crowd::Loose,
     /// The highest level a word of the Watch's has already explained (`Update::Watched`), and
     /// the last offence said without a rise, and when (so a run of knocks isn't said each time).
     said_heat: u8,
@@ -1086,6 +1088,7 @@ impl TownFoot {
             cars: town_foot::Obstacles::default(),
             heat: 0,
             pursuit: Pursuit::default(),
+            loose: Default::default(),
             said_heat: 0,
             said_at: None,
             knock_wait: 0.0,
@@ -2122,7 +2125,7 @@ pub fn drive_onfoot(
             t.struck.retain(|d| d.until > clock.0 && !g.core.hangar.street.iter().any(|o| o.id == d.id));
             let down: Vec<u32> = g.core.hangar.street.iter().chain(&t.struck).map(|d| d.id).collect();
             if let Some(v) = t.drive
-                && let Some(p) = town_foot::struck(&v, clock, &down)
+                && let Some(p) = town_foot::struck(&v, clock, &down, &t.loose)
             {
                 ask(&net, &g, &Request::Hit { person: p.id });
                 let at = DeckPos::new(RING, p.x, bc_sim::colony::town::deck_s(p.t), 0.0).wrapped();
@@ -2317,6 +2320,9 @@ pub fn drive_onfoot(
         }
         t.pursuit.hear(g.core.hangar.units_heard, &g.core.hangar.units);
         t.pursuit.step(walk_dt(false));
+        let (near, mid, _) = &g.core.hangar.crowd;
+        t.loose.hear(g.core.hangar.crowd_heard, near, mid);
+        t.loose.step(walk_dt(false));
         let level = g.core.hangar.heat;
         // What the Watch made of what they did, every time: who saw it and what it leaves them at,
         // or that nobody did (seen, not done). A rise it explains isn't said again below.
@@ -2391,6 +2397,9 @@ pub fn drive_onfoot(
         if town_cars.down != down {
             town_cars.down = down;
         }
+        if town_cars.loose != t.loose {
+            town_cars.loose.clone_from(&t.loose);
+        }
         // A district's name on the way into it.
         let (district, name) = town_foot::district_from(at.s, t.district);
         if t.district.is_some_and(|d| d != district) {
@@ -2411,6 +2420,7 @@ pub fn drive_onfoot(
         t.car = None;
         t.jack = None;
         t.pursuit.clear();
+        t.loose.clear();
     }
     if up_the_lift {
         ask(&net, &g, &Request::LeaveTown);
@@ -2952,6 +2962,9 @@ pub fn publish_onfoot(
             // The lift whose square the fare aboard asked for (-1: none).
             dev.set("town_fare", h.fare.map_or(-1.0, |(to, _)| f64::from(to)));
             dev.set("town_watch", t.pursuit.units.len() as u32);
+            // The town's people out of its crowd round them, and how many of those are running.
+            dev.set("town_loose", t.loose.people.len() as u32);
+            dev.set("town_scared", t.loose.people.iter().filter(|d| d.scared).count() as u32);
             if me.seq == Seq::Walking {
                 let focus = if t.lift.is_some() {
                     "lift"

@@ -67,6 +67,11 @@ pub struct HangarState {
     /// been said (`crate::watch::Pursuit` eases them from one word to the next).
     pub units: Vec<bc_econ::wire::Unit>,
     pub units_heard: u64,
+    /// The town's people out of its crowd round the pilot (`Update::Crowd`: near, placed further
+    /// off, and how many more), and how many times they've been said (`crate::crowd::Loose` eases
+    /// them from one word to the next).
+    pub crowd: (Vec<bc_econ::wire::Promoted>, Vec<bc_econ::wire::Placed>, u32),
+    pub crowd_heard: u64,
     pub news: Vec<String>,
     /// In the city: the names of the people seen there, by the slot the plaza knows them by.
     pub people: std::collections::HashMap<u16, String>,
@@ -150,6 +155,10 @@ impl HangarState {
             Update::Units { units } => {
                 self.units = units;
                 self.units_heard += 1;
+            }
+            Update::Crowd { near, mid, far } => {
+                self.crowd = (near, mid, far);
+                self.crowd_heard += 1;
             }
         }
         false

@@ -14,6 +14,7 @@
 
 pub mod charter;
 pub mod config;
+pub mod crowd;
 pub mod dispatch;
 pub mod elo;
 pub mod floor;

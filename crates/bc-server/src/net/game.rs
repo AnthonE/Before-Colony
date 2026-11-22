@@ -539,14 +539,20 @@ impl GameRuntime {
                 aces.watch(&notes);
             }
         });
-        // The Watch's units, on the sector's clock, ten times a second.
+        // The Watch's units and the town's people out of its crowd, on the sector's clock, ten times
+        // a second.
         let (dispatch, watch, sector) = (game.dispatch.clone(), game.watch.clone(), game.sector.clone());
+        let (street, plaza) = (game.street.clone(), game.plaza.clone());
         tokio::spawn(async move {
             let mut every = tokio::time::interval(crate::dispatch::STEP);
             every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             while !sector.stop.load(Ordering::Acquire) {
                 every.tick().await;
-                dispatch.step(&watch, sector.tick.load(Ordering::Acquire));
+                let tick = sector.tick.load(Ordering::Acquire);
+                dispatch.step(&watch, tick);
+                let sights: Vec<(f32, f32)> =
+                    plaza.in_town_at().into_iter().map(|(_, x, s)| (x, s)).collect();
+                street.step(tick, &sights, &plaza.town_poses());
             }
         });
         Ok(Self {
@@ -879,9 +885,15 @@ impl StatusView {
         // (Its people knocked down and the Watch's incidents: counts, never where or whose.)
         let tick = self.sector.tick.load(Ordering::Acquire);
         let (down, kerbs, lanes, left) = self.street.counts(tick);
+        let (promoted, scared, by_district) = self.street.crowd_counts();
         status["town"] = serde_json::json!({
             "people": self.plaza.in_town(),
             "down": down,
+            // Its people out of the crowd (`crate::crowd`): how many, how many running scared, and
+            // how many in each district.
+            "promoted": promoted,
+            "scared": scared,
+            "promoted_by_district": by_district,
             // (What's been taken out of its crowd: kerbs emptied, the traffic's cars, cars left.)
             "kerbs": kerbs,
             "jacked": lanes,

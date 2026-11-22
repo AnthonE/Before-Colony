@@ -162,6 +162,7 @@ pub(super) async fn run(
         incidents_seen: None,
         watch_news_seen: game.watch.news_seq(),
         units_sent: (Instant::now(), false),
+        crowd_sent: (Instant::now(), false),
         homes_near: Vec::new(),
         knocks_heard: game.homes.with(|h| h.knocks_for("", u64::MAX).1),
         waking: None,
@@ -258,6 +259,9 @@ struct Session<'a> {
     /// The Watch's units near them (`crate::dispatch`): when they were last sent, and whether any
     /// were.
     units_sent: (Instant, bool),
+    /// When the town's people out of its crowd round them were last sent, and whether there were
+    /// any (`Update::Crowd`).
+    crowd_sent: (Instant, bool),
     homes_near: Vec<(i32, i32, u8)>,
     knocks_heard: u64,
     /// Back from asleep in a bed at home: where they get up, for the next `Update::Place`.
@@ -2364,13 +2368,29 @@ impl Session<'_> {
             let town = self.game.plaza.in_town_at();
             let sights: Vec<(f32, f32)> = town.iter().map(|&(_, x, s)| (x, s)).collect();
             self.game.street.sweep(tick, &sights);
-            let (_, lt) = bc_sim::colony::town::out_of_the_lift(0);
-            let at = town.iter().find(|p| p.0 == self.id).map_or(bc_sim::colony::town::deck_s(lt), |p| p.2);
-            if let Some(update) = self.game.street.update_for(at, tick, &mut self.street_sent) {
+            let (lx, lt) = bc_sim::colony::town::out_of_the_lift(0);
+            let (x, at) = town
+                .iter()
+                .find(|p| p.0 == self.id)
+                .map_or((lx, bc_sim::colony::town::deck_s(lt)), |p| (p.1, p.2));
+            let street = self.game.street.update_for(at, tick, &mut self.street_sent);
+            // The people out of the crowd round them a few times a second (and once more when there
+            // are none), and first of all before anyone's up off the road: so there's never a moment
+            // the crowd has them back where it would have them.
+            if street.is_some() || self.crowd_sent.0.elapsed() >= crate::dispatch::SEND_EVERY {
+                let crowd = self.game.street.crowd_near((x, at));
+                let any =
+                    matches!(&crowd, Update::Crowd { near, mid, .. } if !near.is_empty() || !mid.is_empty());
+                if std::mem::replace(&mut self.crowd_sent, (Instant::now(), any)).1 || any {
+                    self.send(&crowd).await?;
+                }
+            }
+            if let Some(update) = street {
                 self.send(&update).await?;
             }
         } else {
             self.street_sent = Default::default();
+            self.crowd_sent = (Instant::now(), false);
             if let Some(held) = self.car.take() {
                 self.game.street.drop_held(held);
             }

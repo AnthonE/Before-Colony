@@ -590,6 +590,46 @@ pub enum UnitState {
     Returning,
 }
 
+/// One of the ring's town's people out of its crowd (`docs/FREE_ROAM.md`, 3: the promoted tier, the
+/// server's from something done by them till they've settled out of everyone's sight): who
+/// (`bc_sim::colony::street::Person::id`: their look is still `street::seed_of`'s), where on the
+/// ring's floor (across it, round it: the deck's own `s`, m), the way they face (the walker's yaw),
+/// how fast they go (m/s: none, standing about) and whether they're running scared. Everyone down
+/// in the town is told those near them ([`Update::Crowd`]).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Promoted {
+    pub id: u32,
+    pub x: f32,
+    pub s: f32,
+    pub yaw: f32,
+    pub speed: f32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub scared: bool,
+}
+
+/// One of the town's people out of its crowd further off ([`Update::Crowd`]'s middle tier): who,
+/// across the ring in decimetres, round it in metres, and the way they face in 256ths of a turn.
+pub type Placed = (u32, i16, u16, u8);
+
+impl Promoted {
+    /// As the middle tier has them.
+    pub fn placed(&self) -> Placed {
+        let turn = self.yaw.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU;
+        (
+            self.id,
+            (self.x * 10.0).round().clamp(-32_767.0, 32_767.0) as i16,
+            self.s.round().clamp(0.0, 65_535.0) as u16,
+            ((turn * 256.0).round() as u32 % 256) as u8,
+        )
+    }
+
+    /// One of the middle tier's, standing (it carries no more).
+    pub fn from_placed((id, x, s, yaw): Placed) -> Promoted {
+        let yaw = f32::from(yaw) / 256.0 * std::f32::consts::TAU;
+        Promoted { id, x: f32::from(x) / 10.0, s: f32::from(s), yaw, speed: 0.0, scared: false }
+    }
+}
+
 /// Where the pilot is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -740,6 +780,22 @@ pub enum Update {
     Units {
         units: Vec<Unit>,
     },
+    /// The town's people out of its crowd round the pilot (`docs/FREE_ROAM.md`, 3, in tiers): those
+    /// near them whole, nearest first; past those, out to as far as any screen draws the crowd, each
+    /// placed in a few numbers; and how many more there are in the districts round them. A few times
+    /// a second while there are any (and once more, empty, when there aren't): a screen draws its
+    /// crowd's people but these where these are.
+    Crowd {
+        near: Vec<Promoted>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mid: Vec<Placed>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        far: u32,
+    },
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// The held homes near a pilot, as they see them.

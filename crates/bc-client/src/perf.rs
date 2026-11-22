@@ -66,7 +66,7 @@ fn update(
         if view.active {
             let s = *town;
             t.push_str(&format!(
-                "\ntown: {} cells in {} pieces ({} built, {} to build)  {}k tris  build {:.1} ms  life {:.1} ms\n{} people  {} cars  {} meshes in view",
+                "\ntown: {} cells in {} pieces ({} built, {} to build)  {}k tris  build {:.1} ms  life {:.1} ms\n{} people  {} cars ({}k tris in {} batches)  {} meshes in view",
                 s.cells,
                 s.pieces,
                 s.cached,
@@ -76,6 +76,8 @@ fn update(
                 s.life_ms,
                 s.people,
                 s.cars,
+                s.life_tris / 1000,
+                s.life_batches,
                 s.draws
             ));
         }

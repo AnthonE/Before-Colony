@@ -2,7 +2,7 @@
 //! the closed forms have them at the [`TramClock`], the same on every screen. Nothing about them
 //! comes over the wire, and nobody can touch them: a pilot's own car and body pass through them.
 //!
-//! - **Pools.** Entities made at start-up (at Ultra's caps, hidden), five pools: people near and
+//! - **Pools.** Entities made the first time the city's shown (at Ultra's caps, hidden), five pools: people near and
 //!   far, cars near and far, and cars parked for good. Each frame `bc_client_core::life::Choice`
 //!   picks who each pool draws round the camera, nearest first up to the tier's caps; an entity
 //!   keeps the car or person it showed while they're still picked (`life::Slots`).
@@ -103,7 +103,8 @@ struct Pool {
 /// meshes and material: `town.rs`).
 #[derive(Resource)]
 pub(crate) struct LifeScene {
-    pools: [Pool; 5],
+    /// Made the first time the city is shown (it's closed by default: the ring's town draws its own).
+    pools: Option<[Pool; 5]>,
     /// The one material all of life is drawn with.
     pub(crate) material: Handle<LifeMaterial>,
     /// Near figures by cut, then the bank's frame (`life_mesh::bank_frame`); far figures by frame.
@@ -111,6 +112,9 @@ pub(crate) struct LifeScene {
     pub(crate) mid_figures: Vec<Handle<Mesh>>,
     /// Vehicles by body: near and mid.
     pub(crate) vehicles: [[Handle<Mesh>; 2]; 5],
+    /// Each of those meshes' triangles (they're the render world's once made: their data isn't
+    /// kept here).
+    pub(crate) tris: std::collections::HashMap<AssetId<Mesh>, u32>,
     /// Keeps the library loaded, so `life.wgsl` can import it.
     _lib: Handle<Shader>,
 }
@@ -146,37 +150,16 @@ fn palette() -> [Vec4; 64] {
     })
 }
 
-/// Makes the meshes, the material and the pools (hidden).
-fn setup_life(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<LifeMaterial>>,
-    assets: Res<AssetServer>,
-) {
-    let material = materials.add(ExtendedMaterial {
-        base: StandardMaterial { perceptual_roughness: 0.5, ..default() },
-        extension: LifeExt { life: LifeParams { palette: palette() } },
-    });
-    let mut near_figures = Vec::new();
-    for cut in 0..CUTS {
-        for (g, u) in life_mesh::bank(true) {
-            near_figures.push(meshes.add(to_mesh(life_mesh::civilian_mesh(cut, g, u))));
-        }
-    }
-    let mid_figures = life_mesh::bank(false)
-        .into_iter()
-        .map(|(g, u)| meshes.add(to_mesh(life_mesh::mid_figure(g, u))))
-        .collect();
-    let vehicles =
-        Body::ALL.map(|b| [true, false].map(|near| meshes.add(to_mesh(life_mesh::vehicle_mesh(b, near)))));
+/// The pools' entities, hidden (at Ultra's caps).
+fn spawn_pools(commands: &mut Commands, mesh: &Handle<Mesh>, material: &Handle<LifeMaterial>) -> [Pool; 5] {
     let most = plan::TIERS[3].levels();
-    let pools = most.map(|l| {
+    most.map(|l| {
         let entities = (0..l.cap)
             .map(|_| {
                 commands
                     .spawn((
                         LifeSlot,
-                        Mesh3d(vehicles[0][1].clone()),
+                        Mesh3d(mesh.clone()),
                         MeshMaterial3d(material.clone()),
                         MeshTag(0),
                         Placed(Default::default()),
@@ -189,13 +172,43 @@ fn setup_life(
             })
             .collect();
         Pool { entities, slots: Slots::new(l.cap), shown: vec![false; l.cap] }
+    })
+}
+
+/// Makes the meshes and the material (the pools come when the city's first shown).
+fn setup_life(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<LifeMaterial>>,
+    assets: Res<AssetServer>,
+) {
+    let material = materials.add(ExtendedMaterial {
+        base: StandardMaterial { perceptual_roughness: 0.5, ..default() },
+        extension: LifeExt { life: LifeParams { palette: palette() } },
     });
+    let mut tris = std::collections::HashMap::new();
+    let mut add = |m: LifeMesh| {
+        let n = (m.indices.len() / 3) as u32;
+        let h = meshes.add(to_mesh(m));
+        tris.insert(h.id(), n);
+        h
+    };
+    let mut near_figures = Vec::new();
+    for cut in 0..CUTS {
+        for (g, u) in life_mesh::bank(true) {
+            near_figures.push(add(life_mesh::civilian_mesh(cut, g, u)));
+        }
+    }
+    let mid_figures =
+        life_mesh::bank(false).into_iter().map(|(g, u)| add(life_mesh::mid_figure(g, u))).collect();
+    let vehicles = Body::ALL.map(|b| [true, false].map(|near| add(life_mesh::vehicle_mesh(b, near))));
     commands.insert_resource(LifeScene {
-        pools,
+        pools: None,
         material,
         near_figures,
         mid_figures,
         vehicles,
+        tris,
         _lib: assets.load("embedded://bc_client/shaders/life_lib.wgsl"),
     });
 }
@@ -211,6 +224,7 @@ type Shown = (
 /// Picks who's drawn round the camera and puts each pool's entities on them.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn draw_life(
+    mut commands: Commands,
     view: Res<CityView>,
     clock: Res<TramClock>,
     gfx: Res<Gfx>,
@@ -233,7 +247,7 @@ fn draw_life(
         Under::Window { .. } => None,
     });
     let Some((at, look)) = on.filter(|_| view.active && gfx.life) else {
-        for pool in &mut scene.pools {
+        for pool in scene.pools.iter_mut().flatten() {
             hide_all(pool, &mut shown);
             pool.slots.assign(&[], &mut frame.seats);
         }
@@ -270,9 +284,10 @@ fn draw_life(
     // The indicators' beat, on the visuals' clock (so the showcase's shots are the same each run).
     let beat = plan::beat(time.now);
     let scene = &mut *scene;
+    let (mesh, material) = (&scene.vehicles[0][1], &scene.material);
+    let pools = scene.pools.get_or_insert_with(|| spawn_pools(&mut commands, mesh, material));
     let (mut people, mut cars) = (0, 0);
-    for k in 0..5 {
-        let pool = &mut scene.pools[k];
+    for (k, pool) in pools.iter_mut().enumerate() {
         let picks = &frame.choice.picks[k];
         let car_pool = k >= CARS_NEAR;
         frame.ids.clear();
