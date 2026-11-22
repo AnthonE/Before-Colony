@@ -78,6 +78,21 @@ struct Wanted {
     /// Where the plaza last had them in the town (across the ring's floor, round it), as their
     /// session's tick said (none: not in the town).
     at: Option<(f32, f32)>,
+    /// What they're to be told the Watch made of what they did, oldest first, till their session
+    /// takes it ([`Watch::take_said`]): the offence as taken, and whether anybody saw it.
+    said: Vec<(Offence, bool)>,
+}
+
+/// The most of what the Watch made of a pilot's doings kept to tell them.
+const SAID_KEPT: usize = 4;
+
+impl Wanted {
+    fn tell(&mut self, o: Offence, seen: bool) {
+        if self.said.len() >= SAID_KEPT {
+            self.said.remove(0);
+        }
+        self.said.push((o, seen));
+    }
 }
 
 /// A pilot the Watch wants, and where they are in the town: what its units chase.
@@ -226,6 +241,7 @@ impl Watch {
     pub fn offend(&self, id: u16, name: &str, o: Offence, at: (f32, f32), tick: u32) -> bool {
         self.with(id, |inner, w| {
             let rose = w.heat.offend(o, tick);
+            w.tell(o, true);
             if rose {
                 w.cause = Some(o);
                 inner.raise((id, Some(name)), &mut w.incident, at, w.heat.level(), o, tick);
@@ -256,7 +272,19 @@ impl Watch {
             return false;
         }
         let seen = tables::car_sees(at.0, at.1, tables::SIGHT, tick, 0.0);
+        // Seen, not done (`docs/OPEN_CITY.md`): a car taken from its kerb with nobody about adds
+        // nothing, and they're told so.
+        if !seen && o.wants_a_witness() && !tables::person_near(at.0, at.1, tables::WITNESS, tick, &[]) {
+            self.with(id, |_, w| w.tell(o, false));
+            return false;
+        }
         self.offend(id, name, if seen { o.in_sight() } else { o }, at, tick)
+    }
+
+    /// What they're to be told of what the Watch made of their doings since last asked, oldest
+    /// first: the offence as it was taken, and whether anybody saw it (if not, it added nothing).
+    pub fn take_said(&self, id: u16) -> Vec<(Offence, bool)> {
+        self.with(id, |_, w| std::mem::take(&mut w.said)).unwrap_or_default()
     }
 
     /// One of the cars after `id` has them in sight (their client says, at most once in
@@ -654,5 +682,40 @@ mod tests {
         assert_eq!(w.level(5), 0);
         w.resume(6, 0.0, 0, 400);
         assert_eq!(w.heat(6), (0, None));
+    }
+
+    /// Seen, not done (`docs/OPEN_CITY.md`): a car taken from its kerb with nobody about adds
+    /// nothing; with somebody on the pavement it does; and either way the pilot is told which.
+    /// What's seen by its nature (a knock) is always taken.
+    #[test]
+    fn a_car_taken_from_its_kerb_adds_heat_only_if_somebody_saw() {
+        let tick = 100;
+        // Along the pavement by the boulevard, round the ring: a spot with somebody near, and one
+        // with nobody, neither in sight of the Watch's cars.
+        let (mut seen, mut lone) = (None, None);
+        for k in 0..(town::ROUND / 4.0) as u32 {
+            let (x, s) = (36.0, town::deck_s(k as f32 * 4.0));
+            if tables::car_sees(x, s, tables::SIGHT, tick, 0.0) {
+                continue;
+            }
+            if tables::person_near(x, s, tables::WITNESS, tick, &[]) {
+                seen.get_or_insert((x, s));
+            } else {
+                lone.get_or_insert((x, s));
+            }
+        }
+        let (seen, lone) = (seen.expect("somebody about somewhere"), lone.expect("nobody about somewhere"));
+        let w = Watch::default();
+        assert!(!w.report(1, "Maren", Offence::TookACar, lone, tick));
+        assert_eq!(w.points(1, tick), 0.0);
+        assert_eq!(w.take_said(1), [(Offence::TookACar, false)]);
+        assert!(w.take_said(1).is_empty(), "told once");
+        w.report(2, "Pagan", Offence::TookACar, seen, tick);
+        assert!(w.points(2, tick) > 0.0);
+        assert_eq!(w.take_said(2), [(Offence::TookACar, true)]);
+        // A knock where nobody walks is still somebody's: the car knocked into.
+        w.report(3, "Ines", Offence::Knock, lone, tick);
+        assert!(w.points(3, tick) > 0.0);
+        assert_eq!(w.take_said(3), [(Offence::Knock, true)]);
     }
 }

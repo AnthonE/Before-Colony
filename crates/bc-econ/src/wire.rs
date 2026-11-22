@@ -100,6 +100,12 @@ pub enum Request {
     EnterTown,
     /// Back up the lift to the bay, from the door of any of the town's lifts.
     LeaveTown,
+    /// From the door of one of the town's lifts, on foot: up its spoke, across the hub and down
+    /// lift `to`'s spoke to its square (the town's quick way round the ring). Answered with
+    /// [`Update::Across`], or refused with a `note`.
+    RideAcross {
+        to: u16,
+    },
     /// At the wheel in the ring's town, the pilot's car hit one of its people on foot
     /// (`bc_sim::colony::street`'s person `person`): the server checks where that person was, and
     /// everyone in the town sees them down ([`Update::Street`]).
@@ -360,6 +366,7 @@ impl Request {
             | Request::LeaveBase
             | Request::EnterTown
             | Request::LeaveTown
+            | Request::RideAcross { .. }
             | Request::Stopped
             | Request::Offence { .. }
             | Request::Sighted
@@ -696,7 +703,7 @@ pub enum Update {
         lanes: Option<Vec<u32>>,
     },
     /// The fare in the pilot's car (the ring's town): the lift whose square they asked for, and
-    /// what they pay there; none, set down or lost.
+    /// what they pay there; none, set down (with what they paid) or lost (paying nothing).
     Fare {
         to: Option<u16>,
         pay: u64,
@@ -707,6 +714,21 @@ pub enum Update {
         level: u8,
         #[serde(default, skip_serializing_if = "Option::is_none", with = "opt_offence_serde")]
         cause: Option<Offence>,
+    },
+    /// Down lift `to`'s spoke into its square, across the hub from another's (`Request::RideAcross`):
+    /// the pilot's first pose is out of its door.
+    Across {
+        to: u16,
+    },
+    /// What the Watch made of something the pilot did in the ring's town, each time (before the
+    /// heat it leaves them at): the offence as it was taken (worse in the sight of its cars), and
+    /// whether anybody saw it. Unseen, it added nothing (`docs/OPEN_CITY.md`: seen, not done).
+    Watched {
+        #[serde(with = "offence_serde")]
+        what: Offence,
+        seen: bool,
+        /// Their level after it.
+        level: u8,
     },
     /// The incidents the Watch is answering in the ring's town, to everyone down in it whenever
     /// they change.
@@ -952,6 +974,7 @@ pub fn apply(
         | Request::LeaveBase
         | Request::EnterTown
         | Request::LeaveTown
+        | Request::RideAcross { .. }
         | Request::Stopped
         | Request::Offence { .. }
         | Request::Sighted
@@ -1296,6 +1319,7 @@ mod tests {
             (Request::LeaveBase, None),
             (Request::EnterTown, None),
             (Request::LeaveTown, None),
+            (Request::RideAcross { to: 3 }, None),
             (Request::Stopped, None),
             (Request::Offence { what: Offence::Knock }, None),
             (Request::Sighted, None),
@@ -1323,7 +1347,7 @@ mod tests {
             .iter()
             .map(|(r, _)| serde_json::to_value(r).unwrap()["t"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(tags.len(), 46, "every request: {tags:?}");
+        assert_eq!(tags.len(), 47, "every request: {tags:?}");
         // Each refusal says where to go, as the server's notes and the e2e read them.
         for (k, place) in [
             (Floor, "the exchange floor's counter"),
@@ -1368,6 +1392,10 @@ mod tests {
         let json = String::from_utf8(encode(&hot)).unwrap();
         assert_eq!(json, r#"{"t":"heat","level":3,"cause":"hit_someone"}"#);
         assert_eq!(decode::<Update>(json.as_bytes()), Some(hot));
+        let unseen = Update::Watched { what: Offence::TookACar, seen: false, level: 0 };
+        let json = String::from_utf8(encode(&unseen)).unwrap();
+        assert_eq!(json, r#"{"t":"watched","what":"took_a_car","seen":false,"level":0}"#);
+        assert_eq!(decode::<Update>(json.as_bytes()), Some(unseen));
         let one = Incident {
             id: 7,
             x: -120.5,

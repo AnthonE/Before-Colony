@@ -98,6 +98,35 @@ impl Offence {
     pub const fn reported(self) -> bool {
         matches!(self, Offence::TookACar | Offence::Jacked | Offence::TookTheWatchs | Offence::Knock)
     }
+
+    /// Whether it adds heat only if somebody saw it (`docs/OPEN_CITY.md`: seen, not done). The
+    /// rest are seen by their nature: a driver put out or knocked into, the one run down, the
+    /// people driven at, the Watch's own car. Only a car taken from a kerb can go unseen.
+    pub const fn wants_a_witness(self) -> bool {
+        matches!(self, Offence::TookACar)
+    }
+
+    /// What the pilot is told when the Watch takes it: who saw what.
+    pub const fn seen_line(self) -> &'static str {
+        match self {
+            Offence::TookACar => "SEEN TAKING A CAR",
+            Offence::TookACarInSight => "THE WATCH SAW YOU TAKE THAT CAR",
+            Offence::Jacked => "ITS DRIVER SAW YOUR FACE",
+            Offence::JackedInSight => "THE WATCH SAW YOU PUT ITS DRIVER OUT",
+            Offence::TookTheWatchs => "YOU TOOK ONE OF THE WATCH'S OWN",
+            Offence::Knock => "THE CAR YOU KNOCKED CALLED IT IN",
+            Offence::Reckless => "SEEN DRIVING WHERE PEOPLE WALK",
+            Offence::HitSomeone => "SEEN RUNNING SOMEONE DOWN",
+        }
+    }
+
+    /// What the pilot is told when nobody saw it.
+    pub const fn unseen_line(self) -> &'static str {
+        match self {
+            Offence::TookACar | Offence::TookACarInSight => "NOBODY SAW YOU TAKE IT",
+            _ => "NOBODY SAW",
+        }
+    }
 }
 
 /// The most the Watch wants anyone.
@@ -340,6 +369,8 @@ impl Heat {
 
 /// How far one of the Watch's cars sees down a street, m.
 pub const SIGHT: f32 = 80.0;
+/// How near one of the town's people sees a car taken from its kerb, m.
+pub const WITNESS: f32 = 30.0;
 /// A car driven faster than this where people walk is driven recklessly, m/s.
 pub const RECKLESS_SPEED: f32 = 9.0;
 

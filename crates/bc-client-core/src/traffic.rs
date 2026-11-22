@@ -200,15 +200,20 @@ impl Traffic {
     /// A car of the traffic stopped within `reach` m of the side of a pilot on foot at `at`: the
     /// nearest, for the taking.
     pub fn at_hand(&self, at: DeckPos, reach: f32) -> Option<Shown> {
-        let near = |c: &Shown| {
+        self.all_at_hand(at, reach).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(c, _)| c)
+    }
+
+    /// Every car [`Traffic::at_hand`] could give, with how far from its side each is, m.
+    pub fn all_at_hand(&self, at: DeckPos, reach: f32) -> impl Iterator<Item = (Shown, f32)> + '_ {
+        let near = move |c: &Shown| {
             let (along, across) = ((at.s - c.s).abs() - CAR_HALF, (at.x - c.car.x).abs() - 0.9);
             along.max(0.0).hypot(across.max(0.0))
         };
         self.shown
             .iter()
-            .filter(|c| c.car.speed <= STOPPED && near(c) <= reach)
-            .min_by(|a, b| near(a).total_cmp(&near(b)))
-            .copied()
+            .filter(|c| c.car.speed <= STOPPED)
+            .map(move |c| (*c, near(c)))
+            .filter(move |(_, d)| *d <= reach)
     }
 
     /// The cars out of the traffic now are `ids` (`crate::taken`: the server's word, and the pilot's

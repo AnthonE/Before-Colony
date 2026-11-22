@@ -48,6 +48,8 @@ pub struct HangarState {
     /// News, oldest first. The UI takes it.
     /// The fare in the pilot's car in the town: the lift whose square they asked for, and their pay.
     pub fare: Option<(u16, u64)>,
+    /// Across the hub and down lift `k`'s spoke (`Update::Across`), till the walk takes it.
+    pub across: Option<u16>,
     /// The ring's town's people knocked down (or away as fares) round the pilot, as the server last
     /// said (`Update::Street`), and all it said of what's been taken out of the town's crowd there.
     pub street: Vec<bc_econ::wire::Down>,
@@ -56,6 +58,9 @@ pub struct HangarState {
     /// (`Update::Heat`).
     pub heat: u8,
     pub heat_cause: Option<bc_sim::colony::watch::Offence>,
+    /// What the Watch made of what the pilot did, oldest first (`Update::Watched`): the offence as
+    /// taken, whether anybody saw it, and their level after. The UI takes them.
+    pub watched: Vec<(bc_sim::colony::watch::Offence, bool, u8)>,
     /// The incidents the Watch is answering in the town (`Update::Incidents`).
     pub incidents: Vec<bc_econ::wire::Incident>,
     /// The Watch's units near the pilot in the town (`Update::Units`), and how many times they've
@@ -69,6 +74,9 @@ pub struct HangarState {
     pub said: Vec<(String, String)>,
     /// Sales filled on the Exchange this session (its `SOLD …` notes; `objectives`).
     pub sales: u32,
+    /// Fares set down and paid this session (`Update::Fare` with none aboard and a pay;
+    /// `objectives`).
+    pub fares: u32,
     /// Bumped by every update (the UI redraws when it moves).
     pub version: u64,
 }
@@ -124,8 +132,20 @@ impl HangarState {
                 self.taken.apply(&near, districts, lanes);
                 self.street = self.taken.down();
             }
-            Update::Fare { to, pay } => self.fare = to.map(|k| (k, pay)),
+            Update::Fare { to, pay } => {
+                if to.is_none() && pay > 0 {
+                    self.fares += 1;
+                }
+                self.fare = to.map(|k| (k, pay));
+            }
             Update::Heat { level, cause } => (self.heat, self.heat_cause) = (level, cause),
+            Update::Across { to } => self.across = Some(to),
+            Update::Watched { what, seen, level } => {
+                if self.watched.len() >= 8 {
+                    self.watched.remove(0);
+                }
+                self.watched.push((what, seen, level));
+            }
             Update::Incidents { incidents } => self.incidents = incidents,
             Update::Units { units } => {
                 self.units = units;

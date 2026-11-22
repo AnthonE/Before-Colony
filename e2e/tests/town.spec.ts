@@ -139,6 +139,13 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   await push(page, { cmd: "walk_to", spot: "lift" });
   await until(page, "back at the lift", (s) => s.focus === "lift" && !s.town_walking_to, 900_000);
   marks.push(["back", Date.now()]);
+  // Across the hub: Q at its door rides up the spoke and down the next, Tower Hill's, 3 km round;
+  // a walk to a lift there finds that one's door.
+  await expect(page.locator("#use")).toContainText("Q  ACROSS THE HUB TO TOWER HILL");
+  await page.keyboard.press("KeyQ");
+  s = await until(page, "across the hub", (s) => s.town_district === "TOWER HILL", 120_000);
+  await push(page, { cmd: "walk_to", spot: "lift" });
+  await until(page, "at its lift", (s) => s.focus === "lift" && !s.town_walking_to, 300_000);
   const perf = townReport(await sampler.stop(), marks, loaded);
   console.log(`the town's cost: ${JSON.stringify(perf)}`);
   writeFileSync("artifacts/perf-town.json", JSON.stringify(perf, null, 2));

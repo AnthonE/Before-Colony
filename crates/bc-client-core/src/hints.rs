@@ -183,7 +183,7 @@ impl Hint {
                 "M is the city's map. Walk onto a platform to ride a tram, E at a motor pool takes a car (R a Markab: it drives up walls); E at Hub Gate's lift goes back up to your bay."
             }
             Hint::Town => {
-                "E at a car by a kerb takes it. E at a spoke lift's door (Hub Gate's stands over the boulevard) rides up to your bay, where your suit is. The Watch minds knocks, and driving where people walk."
+                "E at a car by a kerb takes it. E at a spoke lift's door (Hub Gate's stands over the boulevard) rides up to your bay, where your suit is; Q there rides across the hub to another lift's square. The Watch minds knocks, and driving where people walk."
             }
             Hint::InnerGate => {
                 "To go home from in here, come to rest inside the inner gate's ring of lights and press Enter."

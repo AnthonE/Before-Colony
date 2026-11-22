@@ -85,6 +85,12 @@ pub enum Objective {
     TryPrototype,
     /// Make siderium (or have it in the making) at the colony's zero-G foundry.
     Siderium,
+    /// Take a car in the ring's town (`docs/FREE_ROAM.md`: a new pilot's first hour is the street).
+    TakeACar,
+    /// Carry a fare from one lift's square to another's, and set them down there.
+    CarryAFare,
+    /// Ride a spoke's lift up from the town to the bay, where the suit stands.
+    UpToYourSuit,
 }
 
 /// Where an objective is done.
@@ -98,6 +104,8 @@ pub enum Realm {
     City,
     /// On foot at any terminal: in the bay, or at a desk in the city.
     Afoot,
+    /// On foot or at the wheel in the ring's town.
+    Town,
 }
 
 /// Where the pilot is, for the objectives: flying (or not yet anywhere), on foot in their bay, out
@@ -132,7 +140,7 @@ pub enum Waypoint {
 }
 
 impl Objective {
-    pub const ALL: [Objective; 19] = [
+    pub const ALL: [Objective; 22] = [
         Objective::LandStation,
         Objective::Hide,
         Objective::Mine,
@@ -152,13 +160,16 @@ impl Objective {
         Objective::AlmagestAce,
         Objective::TryPrototype,
         Objective::Siderium,
+        Objective::TakeACar,
+        Objective::CarryAFare,
+        Objective::UpToYourSuit,
     ];
 
     /// Survival's order: `docs/TRAINING.md`'s first ten minutes, a new Arrival on foot in their bay
     /// with a worn Argo: down the cap lift, and a straight walk along the avenue from Hub Gate past
     /// the Blast Hall to the Exchange floor and the Charter Board's hall; then home to arm the suit,
     /// and out. The ore brought home is sold; then the drones, and their aces.
-    const SURVIVAL: [Objective; 19] = [
+    const SURVIVAL: [Objective; 22] = [
         Objective::RideDown,
         Objective::ProvingGround,
         Objective::Certify,
@@ -178,13 +189,20 @@ impl Objective {
         Objective::AlmagestAce,
         Objective::TryPrototype,
         Objective::Siderium,
+        Objective::TakeACar,
+        Objective::CarryAFare,
+        Objective::UpToYourSuit,
     ];
     /// Survival's with the colony closed (`docs/RING.md`): the Board's rifle for a flight
     /// certificate is the city's, so a new Arrival can't arm the suit until they've the credits.
     /// Standing at the bay's terminals, then out to mine, bring the ore home and sell it, and arm
     /// the suit with what it fetched; then the drones and their aces. The city's come last (they
-    /// don't show while it's closed).
-    const SURVIVAL_CLOSED: [Objective; 19] = [
+    /// don't show while it's closed). First of all, the street a new pilot wakes in
+    /// (`docs/FREE_ROAM.md`): a car, a fare, and up the spoke to the suit.
+    const SURVIVAL_CLOSED: [Objective; 22] = [
+        Objective::TakeACar,
+        Objective::CarryAFare,
+        Objective::UpToYourSuit,
         Objective::Standing,
         Objective::LandStation,
         Objective::Hide,
@@ -207,7 +225,7 @@ impl Objective {
     ];
     /// Arcade's: a pilot launches by the field, in whatever suit they like, among the drones (and
     /// the colony is closed: what's the colony's or the bay's doesn't show).
-    const ARCADE: [Objective; 19] = [
+    const ARCADE: [Objective; 22] = [
         Objective::Bounty,
         Objective::Mine,
         Objective::Deliver,
@@ -227,6 +245,9 @@ impl Objective {
         Objective::AlmagestAce,
         Objective::TryPrototype,
         Objective::Siderium,
+        Objective::TakeACar,
+        Objective::CarryAFare,
+        Objective::UpToYourSuit,
     ];
 
     pub fn bit(self) -> u32 {
@@ -235,7 +256,7 @@ impl Objective {
 
     /// In the order the rules show them.
     /// The order for the rules, the colony open or not.
-    pub fn order(survival: bool, colony: bool) -> &'static [Objective; 19] {
+    pub fn order(survival: bool, colony: bool) -> &'static [Objective; 22] {
         match (survival, colony) {
             (true, true) => &Self::SURVIVAL,
             (true, false) => &Self::SURVIVAL_CLOSED,
@@ -263,6 +284,8 @@ impl Objective {
             | Objective::AlmagestAce
             | Objective::Siderium => i.survival,
             Objective::Deliver | Objective::Bounty | Objective::FiveDrones => true,
+            // The ring's town is survival's, under the spokes (the old inside closed).
+            Objective::TakeACar | Objective::CarryAFare | Objective::UpToYourSuit => i.survival && !i.colony,
         }
     }
 
@@ -285,6 +308,7 @@ impl Objective {
             | Objective::MostWanted
             | Objective::TryPrototype => Realm::City,
             Objective::Sell | Objective::Standing => Realm::Afoot,
+            Objective::TakeACar | Objective::CarryAFare | Objective::UpToYourSuit => Realm::Town,
         }
     }
 
@@ -312,6 +336,9 @@ impl Objective {
             Objective::AlmagestAce => "DOWN ONE OF THE ALMAGEST'S ACES".into(),
             Objective::TryPrototype => format!("TRY A NEW {} ON THE TEST RANGE", proto().to_uppercase()),
             Objective::Siderium => "MAKE SIDERIUM".into(),
+            Objective::TakeACar => "TAKE A CAR".into(),
+            Objective::CarryAFare => "CARRY A FARE".into(),
+            Objective::UpToYourSuit => "GO UP TO YOUR SUIT".into(),
         }
     }
 
@@ -409,6 +436,18 @@ impl Objective {
                 "Only the colony's zero-G foundry makes it, from titanium alloy and exotics, for a fee: queue it at your bay's fabricator. Exotics are in the field's rarest rocks."
                     .into()
             }
+            Objective::TakeACar => {
+                "Cars stand at the kerbs all over the town: walk up to one and E takes it. One stopped in the traffic can be taken from its driver too, but the Watch minds that more. W/S and A/D drive; E gets you out once it's slow."
+                    .into()
+            }
+            Objective::CarryAFare => {
+                "People wait for a ride in the lifts' squares, every other district round the ring: stop by one and F takes them. The radar points to the square they ask for; stop by its lift and F sets them down, paid by the kilometre."
+                    .into()
+            }
+            Objective::UpToYourSuit => format!(
+                "Your {} stands in your bay up the spoke, worn but yours. E at any spoke lift's door rides up: the radar's LIFT points to the nearest, and Hub Gate's stands over the boulevard.",
+                argo()
+            ),
         }
     }
 
@@ -441,8 +480,20 @@ impl Objective {
     /// another strip of the city, [`Objective::how_on`]'s way there), else the way there first.
     pub fn how_from(self, survival: bool, colony: bool, here: Here) -> String {
         let first = match (self.realm(), here) {
-            (Realm::Space, Here::Space) | (Realm::Bay | Realm::Afoot, Here::Bay) => {
+            (Realm::Space, Here::Space)
+            | (Realm::Bay | Realm::Afoot, Here::Bay)
+            | (Realm::Town, Here::Town) => {
                 return self.how(survival, colony);
+            }
+            (Realm::Town, Here::Bay) => "Down to the town first: Q at your airlock rides a spoke's lift. ",
+            (Realm::Town, Here::Space) => {
+                "Home first: dock at the ◆, and Q at your bay's airlock rides a spoke's lift down to the town. "
+            }
+            (Realm::Town, Here::Deck) => {
+                "Back into your bay (E at its airlock's door), and Q at its airlock rides a spoke's lift down. "
+            }
+            (Realm::Town, Here::City(_)) => {
+                "Back up to your bay (E at Hub Gate's lift), and Q at its airlock rides a spoke's lift down. "
             }
             (Realm::City | Realm::Afoot, Here::City(strip)) => {
                 return self.how_on(survival, colony, Some(strip));
@@ -478,7 +529,12 @@ impl Objective {
             Objective::LandStation => Waypoint::Landmark(0),
             Objective::Hide => Waypoint::HideSpot(0, 0),
             Objective::Mine => Waypoint::Rock,
-            Objective::Deliver | Objective::Arm | Objective::Siderium => Waypoint::Dock,
+            Objective::Deliver
+            | Objective::Arm
+            | Objective::Siderium
+            | Objective::TakeACar
+            | Objective::CarryAFare
+            | Objective::UpToYourSuit => Waypoint::Dock,
             Objective::Bounty | Objective::FiveDrones => Waypoint::Drones,
             Objective::AlmagestAce => Waypoint::Ace,
             Objective::Hermit => Waypoint::Landmark(1),
@@ -607,6 +663,10 @@ pub struct ObjectiveInput {
     pub smelting: bool,
     /// The Charter Board holds something for the pilot at its desk (`HangarState::board_holds`).
     pub waiting: bool,
+    /// At the wheel of a car in the ring's town.
+    pub driving: bool,
+    /// Fares set down and paid (`HangarState::fares`).
+    pub fares: u32,
 }
 
 /// What the objectives remember between frames.
@@ -659,6 +719,10 @@ impl Objectives {
         mark(Objective::AlmagestAce, i.aces);
         mark(Objective::TryPrototype, i.tried_prototype);
         mark(Objective::Siderium, i.smelting);
+        mark(Objective::TakeACar, i.driving && i.here == Here::Town);
+        mark(Objective::CarryAFare, i.fares > 0);
+        // (Only where there's a town to come up from.)
+        mark(Objective::UpToYourSuit, i.here == Here::Bay && Objective::UpToYourSuit.available(i));
         if *downed >= 1 {
             *done |= Objective::Bounty.bit();
         }
@@ -675,17 +739,20 @@ impl Objectives {
     /// the chart lists it. On foot, too, the Charter Board's desk is open again while the Board
     /// holds something for the pilot there (a certificate's rifle earned after the walk past it):
     /// its line says it's paid out there, and its `◆` is on the hall's door, not the way home to a
-    /// console with no rifle in the stores yet.
+    /// console with no rifle in the stores yet. The town's wait for the town: anywhere else they
+    /// show only once nothing else is open (a pilot who went straight up the spoke isn't sent back
+    /// down for a car).
     pub fn current(done: u32, i: &ObjectiveInput) -> Option<Objective> {
         let order = Objective::order(i.survival, i.colony);
         let open = |o: &Objective| done & o.bit() == 0 && o.available(i);
         let space = |o: &Objective| o.realm() == Realm::Space;
-        match i.here {
+        let elsewhere = |o: &Objective| o.realm() == Realm::Town && i.here != Here::Town;
+        let shown = match i.here {
             Here::Space => order
                 .iter()
                 .copied()
                 .find(|o| open(o) && space(o))
-                .or_else(|| order.iter().copied().find(open)),
+                .or_else(|| order.iter().copied().find(|o| open(o) && !elsewhere(o))),
             Here::Bay | Here::Deck | Here::City(_) | Here::Town => {
                 let due = |o: &Objective| *o == Objective::CharterDesk && i.waiting && o.available(i);
                 let flown_past =
@@ -693,10 +760,11 @@ impl Objectives {
                 order
                     .iter()
                     .enumerate()
-                    .find(|&(k, o)| (open(o) && !(space(o) && flown_past(k))) || due(o))
+                    .find(|&(k, o)| (open(o) && !(space(o) && flown_past(k)) && !elsewhere(o)) || due(o))
                     .map(|(_, o)| *o)
             }
-        }
+        };
+        shown.or_else(|| order.iter().copied().find(|o| open(o) && elsewhere(o)))
     }
 }
 
@@ -810,7 +878,7 @@ mod tests {
     fn every_objective_has_its_bit_and_both_orders_list_them_all() {
         let all = bits(&Objective::ALL);
         assert_eq!(all.count_ones() as usize, Objective::ALL.len());
-        assert_eq!(Objective::ALL.len(), 19);
+        assert_eq!(Objective::ALL.len(), 22);
         for (k, o) in Objective::ALL.iter().enumerate() {
             assert_eq!(o.bit(), 1 << k, "ALL is in bit order: {o:?}");
         }
@@ -821,6 +889,7 @@ mod tests {
             assert_eq!(o.bit(), 1 << (11 + k), "{o:?}");
         }
         assert_eq!(Objective::Siderium.bit(), 1 << 18);
+        assert_eq!(Objective::UpToYourSuit.bit(), 1 << 21);
         for (survival, colony) in [(true, true), (true, false), (false, false)] {
             let order = Objective::order(survival, colony);
             assert_eq!(bits(order), all);
@@ -1071,6 +1140,45 @@ mod tests {
         assert_eq!(Objectives::current(0, &waiting), Some(Objective::Standing));
     }
 
+    /// A new pilot wakes in the ring's town (`docs/FREE_ROAM.md`): the street comes first (a car,
+    /// a fare), then up the spoke to the suit, then the bay's. A pilot who goes straight up isn't
+    /// sent back down; the town's wait for the next time they're there.
+    #[test]
+    fn a_new_pilot_in_the_town_takes_a_car_and_a_fare_then_goes_up_to_the_suit() {
+        let town = ObjectiveInput { flying: false, here: Here::Town, ..flying(true) };
+        let (mut o, mut done, mut downed) = (Objectives::default(), 0u32, 0u32);
+        assert_eq!(o.step(&mut done, &mut downed, &town), Some(Objective::TakeACar));
+        let how = Objective::TakeACar.how_from(true, false, Here::Town);
+        assert!(how.starts_with("Cars stand at the kerbs"), "{how}");
+        let driving = ObjectiveInput { driving: true, ..town };
+        assert_eq!(o.step(&mut done, &mut downed, &driving), Some(Objective::CarryAFare));
+        let paid = ObjectiveInput { fares: 1, ..driving };
+        assert_eq!(o.step(&mut done, &mut downed, &paid), Some(Objective::UpToYourSuit));
+        let bay = in_bay(paid);
+        assert_eq!(o.step(&mut done, &mut downed, &bay), Some(Objective::Standing));
+        assert_eq!(done, bits(&[Objective::TakeACar, Objective::CarryAFare, Objective::UpToYourSuit]));
+
+        // Straight up the spoke: the bay's first, and the town's again once back down.
+        let (mut o, mut done, mut downed) = (Objectives::default(), 0u32, 0u32);
+        assert_eq!(o.step(&mut done, &mut downed, &in_bay(flying(true))), Some(Objective::Standing));
+        assert_eq!(done, Objective::UpToYourSuit.bit());
+        assert_eq!(o.step(&mut done, &mut downed, &town), Some(Objective::TakeACar));
+        // Driving a car anywhere but the town takes none.
+        let (mut o, mut d2, mut downed) = (Objectives::default(), 0u32, 0u32);
+        o.step(&mut d2, &mut downed, &ObjectiveInput { driving: true, ..in_city(open()) });
+        assert_eq!(d2 & Objective::TakeACar.bit(), 0);
+        // In the bay the town's line begins with the way down.
+        let down = Objective::CarryAFare.how_from(true, false, Here::Bay);
+        assert!(down.starts_with("Down to the town first: Q at your airlock"), "{down}");
+        // Everything else done: in the bay, the town's are what's left.
+        let rest = bits(&Objective::ALL) & !Objective::CarryAFare.bit();
+        assert_eq!(Objectives::current(rest, &in_bay(flying(true))), Some(Objective::CarryAFare));
+        // The colony open (the retired cylinder), or arcade: no town.
+        for i in [open(), flying(false)] {
+            assert!(!Objective::TakeACar.available(&i));
+        }
+    }
+
     /// The Standing line names no work that may have all it needs (or be done, the charter signed):
     /// what each still needs is the board's to say.
     #[test]
@@ -1162,6 +1270,7 @@ mod tests {
                     charter_strip.to_string(),
                 ),
                 Realm::Afoot => (format!("{home}{how}"), how.clone(), how.clone(), charter_strip.to_string()),
+                Realm::Town => unreachable!("the town's are tested on their own"),
             };
             assert_eq!(from(Here::Space), space, "{o:?} flying");
             assert_eq!(from(Here::Bay), bay, "{o:?} in the bay");

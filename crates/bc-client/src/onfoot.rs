@@ -1028,6 +1028,10 @@ pub struct TownFoot {
     /// units near them, the server's (`bc_client_core::watch`).
     pub heat: u8,
     pub pursuit: Pursuit,
+    /// The highest level a word of the Watch's has already explained (`Update::Watched`), and
+    /// the last offence said without a rise, and when (so a run of knocks isn't said each time).
+    said_heat: u8,
+    said_at: Option<(Offence, f64)>,
     /// How long till a knock is reported again, s.
     knock_wait: f32,
     /// The people their own car has knocked down, till the server's word has them
@@ -1037,6 +1041,9 @@ pub struct TownFoot {
     /// they carry is where they asked to be set down.
     pub hail: Option<u32>,
     pub fare_there: bool,
+    /// Q at a lift's door rides across the hub to the square this many lifts on round the ring
+    /// (R picks another).
+    across: u16,
     /// What their own hands have taken out of the town's crowd and left about that the server's
     /// word (`Update::Street`) may not have yet; the server's id of each car left about as
     /// `TownCars::left` has them (0: their own, not the server's yet); and where the car they hold
@@ -1079,10 +1086,13 @@ impl TownFoot {
             cars: town_foot::Obstacles::default(),
             heat: 0,
             pursuit: Pursuit::default(),
+            said_heat: 0,
+            said_at: None,
             knock_wait: 0.0,
             struck: Vec::new(),
             hail: None,
             fare_there: false,
+            across: 1,
             mine: Default::default(),
             left_ids: Vec::new(),
             held: None,
@@ -2012,7 +2022,18 @@ pub fn drive_onfoot(
     // car's side takes it (W/S the throttle and the brake, A/D the wheel, Space the handbrake, Tab
     // the driver's seat's view, E out again), and at a lift's door rides back up to the bay.
     let mut up_the_lift = false;
+    let mut came_across = false;
     if in_town && let Some(t) = me.town.as_mut() {
+        // Down another spoke, across the hub (`Request::RideAcross`): out of that lift's door, the
+        // screen fading back in, the district's name said.
+        if let Some(to) = g.core.hangar.across.take() {
+            t.walker = town_foot::out_of_the_lift(to);
+            t.guide = None;
+            t.district = None;
+            t.traffic = Traffic::default();
+            (t.lift, t.car, t.jack) = (None, None, None);
+            came_across = true;
+        }
         for cmd in &cmds.0 {
             if let UiCmd::WalkTo { spot } = cmd
                 && t.drive.is_none()
@@ -2196,19 +2217,51 @@ pub fn drive_onfoot(
         {
             *car = *v;
         }
-        t.lift = if t.drive.is_none() { town_foot::lift_in_view(&t.walker) } else { None };
-        t.car = if t.drive.is_none() && t.lift.is_none() {
+        // What E would take: a lift's door looked at, a car at the kerb (or one left about), or one
+        // of the traffic's stopped in the road beside them. Of those in reach, the one they look at
+        // most squarely, else the nearest (`town_foot::pick`): E does what they look at.
+        (t.lift, t.car, t.jack) = (None, None, None);
+        if t.drive.is_none() {
+            enum AtHand {
+                Lift(u16),
+                Car(Vehicle, Option<usize>),
+                Jack(bc_client_core::traffic::Shown),
+            }
+            let look = t.walker.look();
+            let mut things: Vec<(AtHand, f32, f32)> = Vec::new();
+            if let Some(k) = town_foot::lift_in_view(&t.walker) {
+                let (x, lt) = bc_sim::colony::town::lift_door(k);
+                let s = bc_sim::colony::town::deck_s(lt);
+                things.push((AtHand::Lift(k), 0.0, town_foot::facing(at, look, x, s)));
+            }
             let left: Vec<Vehicle> = town_cars.left.iter().map(|(v, _)| *v).collect();
-            town_foot::car_at_hand(at, &town_cars.taken, &left)
-        } else {
-            None
-        };
-        // Or one of the traffic's, stopped in the road beside them.
-        t.jack = if t.drive.is_none() && t.lift.is_none() && t.car.is_none() {
-            t.traffic.at_hand(at, town_foot::CAR_USE)
-        } else {
-            None
-        };
+            for (v, k, far) in town_foot::cars_at_hand(at, &town_cars.taken, &left) {
+                things.push((AtHand::Car(v, k), far, town_foot::facing(at, look, v.x, v.s)));
+            }
+            for (c, far) in t.traffic.all_at_hand(at, town_foot::CAR_USE) {
+                things.push((AtHand::Jack(c), far, town_foot::facing(at, look, c.car.x, c.s)));
+            }
+            match town_foot::pick(things) {
+                Some(AtHand::Lift(k)) => t.lift = Some(k),
+                Some(AtHand::Car(v, k)) => t.car = Some((v, k)),
+                Some(AtHand::Jack(c)) => t.jack = Some(c),
+                None => {}
+            }
+        }
+        // Q at a lift's door: up its spoke, across the hub and down another to its square, the
+        // quick way round the ring (R picks which).
+        if let Some(k) = t.lift
+            && live
+            && !ui.panel_open()
+        {
+            if keys.just_pressed(KeyCode::KeyR) {
+                t.across = t.across % (bc_sim::colony::town::LIFTS - 1) + 1;
+            }
+            if keys.just_pressed(KeyCode::KeyQ) {
+                let to = (k + t.across) % bc_sim::colony::town::LIFTS;
+                ask(&net, &g, &Request::RideAcross { to });
+            }
+        }
         if used_key && !got_out && !ui.panel_open() && t.drive.is_none() {
             if t.lift.is_some() {
                 up_the_lift = true;
@@ -2265,14 +2318,30 @@ pub fn drive_onfoot(
         t.pursuit.hear(g.core.hangar.units_heard, &g.core.hangar.units);
         t.pursuit.step(walk_dt(false));
         let level = g.core.hangar.heat;
+        // What the Watch made of what they did, every time: who saw it and what it leaves them at,
+        // or that nobody did (seen, not done). A rise it explains isn't said again below.
+        let watched = std::mem::take(&mut g.core.hangar.watched);
+        for (what, seen, after) in watched {
+            if !seen {
+                ui.toast(what.unseen_line());
+            } else if after > t.heat.max(t.said_heat) {
+                ui.news(format!("{} · {}", what.seen_line(), watch::stars(after)), true);
+                t.said_heat = after;
+            } else if t.said_at.is_none_or(|(o, at)| o != what || now - at > 5.0) {
+                // (A knock a second in a chase is said once in a while.)
+                let held = match after {
+                    0 => "THE WATCH IS TOLD".to_string(),
+                    l => format!("STILL {}", watch::stars(l)),
+                };
+                ui.toast(format!("{} · {held}", what.seen_line()));
+                t.said_at = Some((what, now));
+            }
+        }
         if level != t.heat {
             if level > t.heat {
-                // (The first time it's a car, say what for: nothing else tells them it's somebody's.)
-                let why = match g.core.hangar.heat_cause {
-                    Some(Offence::TookACarInSight) => "THE WATCH SAW YOU TAKE THAT CAR",
-                    _ => "THE WATCH WANTS YOU",
-                };
-                ui.news(format!("{why} · {}", watch::stars(level)), true);
+                if level > t.said_heat {
+                    ui.news(format!("THE WATCH WANTS YOU · {}", watch::stars(level)), true);
+                }
             } else if level == 0 && t.pursuit.near(t.feet(), bc_sim::colony::watch::AFOOT.0) {
                 // Cleared with one of its units at hand (none lets it cool in its sight): stopped,
                 // and the fine's note is on its way. The car goes with it (the server drops it too).
@@ -2287,6 +2356,7 @@ pub fn drive_onfoot(
                 });
             }
             t.heat = level;
+            t.said_heat = t.said_heat.min(level);
         }
         // (The first time, what it means.)
         if level > 0 && !t.told_watch {
@@ -2344,6 +2414,14 @@ pub fn drive_onfoot(
     }
     if up_the_lift {
         ask(&net, &g, &Request::LeaveTown);
+    }
+    if came_across {
+        me.done(now);
+    }
+    // (Out of the town, a word of the Watch's or a ride across said as they left is forgotten.)
+    if !in_town {
+        g.core.hangar.watched.clear();
+        g.core.hangar.across = None;
     }
     if !in_city && !on_deck && !in_town {
         g.core.set_pose(None);
@@ -2665,7 +2743,13 @@ pub fn drive_onfoot(
                     format!("{kmh:.0} KM/H")
                 }
             }
-            Some(t) if t.lift.is_some() => "E  THE SPOKE LIFT, UP TO YOUR BAY".into(),
+            Some(t) if let Some(k) = t.lift => {
+                let to = (k + t.across) % bc_sim::colony::town::LIFTS;
+                format!(
+                    "E  UP TO YOUR BAY · Q  ACROSS THE HUB TO {} · R  ANOTHER",
+                    bc_sim::colony::town::lift_name(to).to_uppercase()
+                )
+            }
             Some(t) if t.car.is_some() => "E  TAKE THE CAR".into(),
             Some(t) if t.jack.is_some() => "E  TAKE THE CAR FROM ITS DRIVER".into(),
             _ => String::new(),

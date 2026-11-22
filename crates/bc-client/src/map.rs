@@ -281,6 +281,8 @@ pub fn update_objectives(
         tried_prototype: h.trainer && own.is_some_and(|o| bc_sim::content::salvage::is_lodestar(o.frame)),
         smelting: h.smelting(),
         waiting: h.board_holds(),
+        driving: onfoot.town.as_ref().is_some_and(|t| t.drive.is_some()),
+        fares: h.fares,
     };
     let (mut done, mut downed) = (settings.0.objectives_done, settings.0.drones_downed);
     let before = done;
