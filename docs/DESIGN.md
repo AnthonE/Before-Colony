@@ -6,6 +6,12 @@
 
 Every name in the game is its own (`STORY.md`, "Voice and naming"). All art is procedural.
 
+> **Where the game is now** (November 2026): the colony is a ring (`RING.md`), and the direction is
+> free roam (`FREE_ROAM.md`): a town at GTA's scale on its floor, where a new pilot wakes on foot, with
+> its crowd, its traffic and the Watch; the bay and the suit are up a spoke's lift. This document is the
+> design of the suits, the fighting and survival, written before that turn; where it says the cylinder or
+> a start in the bay, `FREE_ROAM.md` and `RING.md` win.
+
 ## Pillars
 
 1. **It flies like a suit in space.** Newtonian 6DOF, limb trim, pilot G limits. There is no

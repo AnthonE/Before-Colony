@@ -18,8 +18,15 @@ A space mech MMO prototype.
   damaged suit coughs, leaks, scrams, jams and smokes. Fourteen equipment modules (a G-seat, an
   auxiliary tank, an ion drive, radiators, plating, damage control…) trade one stat for another,
   and three grades of propellant go further the purer they are.
-- **Survival:** you build your own suit. You start on foot in your hangar bay in the docking hub of
-  the First Colony, a ring a kilometre across (`docs/RING.md`), with a worn-out Argo. Walk the bay in
+- **The ring's town** (`docs/FREE_ROAM.md`): the First Colony is a ring 3 km in radius (`docs/RING.md`),
+  and a town at GTA's scale stands on its floor, painted like the anime, all the way round. A new pilot
+  wakes there on foot: its traffic and its people are closed forms every screen shares, anyone run down,
+  scared off or getting up is the server's till they're out of sight, any car can be taken (from its
+  kerb, its driver, wherever it was left), fares ride between the lifts' squares, and the Watch answers
+  what it sees: heat, units sent by road, chases, stops and fines. The bay and the suit are up a spoke's
+  lift.
+- **Survival:** you build your own suit, starting from a worn-out Argo in your hangar bay in the
+  docking hub (`--start bay` wakes a new pilot there instead of in the town). Walk the bay in
   first person, fabricate parts from what you mine and salvage, deliver to the Charter Board's
   contracts and trade on the **Colony Exchange** (order books, with the colony as a market maker
   whose prices follow its stock), both at the bay's terminals. A Lodestar takes tonnes of exotic

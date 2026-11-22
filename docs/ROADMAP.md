@@ -1,5 +1,9 @@
 # Roadmap: how PEERS.md's list gets built
 
+> **The current direction is `FREE_ROAM.md`** (November 2026): a town at GTA's scale on the ring's
+> floor, a new pilot starting on foot in it, and the infrastructure for crowds and the Watch before
+> more mechanics. Its phases table is the live status; this roadmap's items below still stand, behind it.
+
 `PEERS.md` says what the nearest games teach and what comes first. This is how each item gets built:
 where it lands in the code, what goes on the wire, and how it's tested. It follows the house rule
 from `PEERS.md`: **connect before deepening**, so every item sends pilots along the chain (the city,
@@ -34,7 +38,9 @@ the bay, space, home).
 | Mecha Royale, 27: wrecks that die their own way | built |
 | Mecha Royale, 28: crews | open |
 | Contracts on the Charter Board: supply contracts, patrols, the great works and the charter vote (P1, below) | begun |
-| The open city (`OPEN_CITY.md`): homes not instanced (H0 to H3), the street in the tick, cars you own, heat and the Watch, intrusion, raids, businesses | homes built; the street in the tick begun; the rest designed |
+| The open city (`OPEN_CITY.md`): homes not instanced (H0 to H3), the street in the tick, cars you own, heat and the Watch, intrusion, raids, businesses | homes built (the cylinder's, on hold); heat and the Watch built in the ring's town; the street in the tick begun; the rest designed |
+| Free roam (`FREE_ROAM.md`): the ring at 3 km, the town's plan, its look, its crowd and traffic, the Watch's infrastructure, a new pilot waking in it | F1, T1, V1, P1, W1, O1 built; P2 built off the tick; the floating origin, the Watch's patrols and the district sectors (D1) to do |
+| Sign-in: a wallet (SIWE, and its Solana form) or an Elo Pros pass (`PROTOCOL.md`) | built |
 | P1's rest, P2 below, the loose ends left | planned |
 
 ## The loop's loose ends

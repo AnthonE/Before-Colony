@@ -2,6 +2,10 @@
 
 > **On hold for the ring** (October 2026, `RING.md`): the cylinder's homes are refunded in full when its inside is
 > cleared, and no rent runs till then. The lock, the crew and the tenure carry over to the ring's town.
+>
+> **Being built in the ring's town now** (November 2026, `FREE_ROAM.md`, which wins where the two
+> disagree): its street, cars taken, heat and the Watch are there, as infrastructure first. The status
+> below says which phase stands where.
 
 > A multiplayer GTA inside one O'Neill cylinder, on Rust's rules: your flat is a real door in a real
 > building that everyone walks past, and what's behind it is yours for as long as you can keep it.
@@ -27,11 +31,11 @@ each tested.
 | H1: a door of your own: leases and deeds, the code lock, the panel, rent as upkeep | built |
 | H2: furnishing: furniture bought and placed, seen by everyone who comes in; storage | built |
 | H3: your bed: asleep at home when logged out, waking there | built |
-| S1: the street in the tick: people on foot and their vehicles in the interior sector | in progress: the shared models (`bc_sim::foot`, `car`, `markab`), the homes overlay and the v39 codecs built; the tick next |
-| S2: collisions: cars meet cars and people | planned |
-| C1: cars you own | planned |
-| X1: heat and the Watch | planned |
-| X2: a huge deal: incidents the whole strip sees | planned |
+| S1: the street in the tick: people on foot and their vehicles in the interior sector | in progress: the shared models (`bc_sim::foot`, `car`, `markab`), the homes overlay and the v39 codecs built; in the ring's town, pilots on foot and at the wheel are the server's off the tick (the plaza), the crowd's people taken out of it when something's done by them (`FREE_ROAM.md`, P2); the interior sector's tick next |
+| S2: collisions: cars meet cars and people | in part, in the ring's town: a car scrapes along walls and knocks against others (the Watch hears of it), people step aside from cars and are run down, and run from what frightens them |
+| C1: cars you own | planned; any car can be taken in the ring's town (from its kerb, from its driver, where it was left) |
+| X1: heat and the Watch | built in the ring's town (`FREE_ROAM.md`, W1): heat from what's seen, the Watch's units sent by road, cordons, chases, stops and fines; its patrols to do |
+| X2: a huge deal: incidents the whole strip sees | begun: the Watch's incidents told to everyone in the town (`Update::Incidents`) |
 | I1: intrusion: the Astrolabe's skills | planned |
 | R1: raids | planned |
 | B1: businesses: shopfronts leased like flats | planned |
