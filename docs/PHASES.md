@@ -260,7 +260,7 @@ From oneshot:
 | Content as data compiled to checked-in Rust with a `--check`, and a design template a place is written in | oneshot `tools/maps/compile.mjs`, `docs/maps/cloudbreak.md` | idea | 0.3: the base's buildings, places |
 | A load tool of bot clients | oneshot `tools/load` | port beside `bc-bot` | 0.4 |
 | Reports that audit how it feels against the game it's measured by, with ranked causes | oneshot `reports/`, `research_notes/` | idea | every phase's look check |
-| Paid contributions: a price for a merged PR, more for content that ships, paid to a `Wallet:` line | oneshot `CONTRIBUTING.md`, `AGENTS.md`; Gates' board | idea, the owner's call | 0.5 on |
+| Paid contributions: a price for a merged PR, more for content that ships, paid to a `Wallet:` line | oneshot `CONTRIBUTING.md`, `AGENTS.md`; Gates' board | taken: `CONTRIBUTING.md`, `AGENTS.md`, `SECURITY.md`, `docs/NOW.md` | now (`DECISIONS.md`) |
 
 From Gates (on Bevy 0.18: anything Bevy-side needs a port):
 
