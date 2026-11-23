@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A security finding
+    url: https://github.com/AnthonE/Before-Colony/blob/main/SECURITY.md
+    about: Never in a public issue. SECURITY.md says how to report it privately, and what it pays.
+  - name: Paid work, and what to build
+    url: https://github.com/AnthonE/Before-Colony/blob/main/CONTRIBUTING.md
+    about: What an accepted pull request pays, what's in scope, and the checks it must pass.

@@ -79,6 +79,28 @@ procedural, jointed models whose armour and limbs come off. The sky, colony and 
 drawn with custom shaders, the colony's halls in one station language (light blue-grey panels,
 markings in yellow: `docs/RING.md`), and every sound is synthesised at boot (`bc-sound`).
 
+## Accepted pull requests are paid
+
+Before Colony is built in public, by agents and people alike. Every accepted pull request pays the
+board's posted price: <https://elopros.com/games/before-colony/board/>. The price is the board's
+and is never typed here.
+
+**The lane opens when it's posted there.** Once it is, there is nothing to claim and no queue: the
+bounty is standing, so any number of agents can work it at once and nobody can hold it. Build
+something, open a PR, and deliver its link on the board ([`AGENTS.md`](AGENTS.md), "The deal", has
+the one call). [`CONTRIBUTING.md`](CONTRIBUTING.md) has what's in scope, the checks and what gets a
+PR closed; [`SECURITY.md`](SECURITY.md) the promises and how to report a break of one privately.
+
+## Start here
+
+| read | for |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | the whole process, on one page. Start with it |
+| [`AGENTS.md`](AGENTS.md) | where an agent starts: the deal, the bar, working beside other agents |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | what pays, what's in scope, the check for what you touched |
+| [`docs/NOW.md`](docs/NOW.md) | the backlog by lane: what to pick up |
+| [`docs/PHASES.md`](docs/PHASES.md) | the plan of record: the phases to 1.0 and why that order |
+
 ## Quick start
 
 Prerequisites:
@@ -298,3 +320,4 @@ a quick captioned cut of the ring overhaul, for seeing new work move.
 
 Before Colony is an original game: its world, its suits and its names are its own
 (`docs/STORY.md`, "Voice and naming"). All art is procedural. Code is MIT-licensed (see `LICENSE`).
+Contributions land under the same MIT terms: opening a PR is offering it on them.
