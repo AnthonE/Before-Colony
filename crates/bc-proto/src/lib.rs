@@ -12,6 +12,8 @@
 //!     own state, the Orrery info, events and changed rocks repeated until acked, the missiles in flight
 //!     nearby, then as many prioritised entities and salvage objects as fit in [`MAX_DATAGRAM`]
 //!     bytes.
+//!   - both ways, voice ([`voice`]): one Opus frame per datagram, relayed by the server to the
+//!     listeners it picks (people near on foot, suits in radio range in space), never decoded.
 //! - Control stream (reliable, length-prefixed frames): [`control`] handshake and roster messages,
 //!   and hangar frames (JSON, `bc_econ::wire`) that this crate only frames.
 //!
@@ -34,6 +36,7 @@ pub mod presence;
 pub mod quant;
 pub mod snapshot;
 pub mod types;
+pub mod voice;
 
 pub use bits::{BitReader, BitWriter};
 pub use entity::{Delta, QEntity};
@@ -49,7 +52,7 @@ pub use snapshot::{
 pub use types::{BodyRef, Faction, FrameId, Part, PilotKind, WeaponKind};
 
 /// Bumped on any incompatible wire change; the handshake rejects mismatches.
-pub const PROTOCOL_VERSION: u16 = 48;
+pub const PROTOCOL_VERSION: u16 = 49;
 
 /// Upper bound for every datagram we send. 1200 bytes is the smallest UDP payload QUIC guarantees;
 /// the QUIC short header, AEAD tag and HTTP/3 datagram prefix need ~30–40 of those.
@@ -86,6 +89,9 @@ pub enum PacketKind {
     Pose = 3,
     /// The people near a pilot in the colony, and the sector's tick (server → client).
     Plaza = 4,
+    /// One frame of someone's voice: a talker's own (client → server), or relayed to a listener
+    /// (server → client, [`voice`]).
+    Voice = 5,
 }
 
 pub const PACKET_KIND_BITS: u32 = 4;
@@ -97,6 +103,7 @@ pub fn packet_kind(bytes: &[u8]) -> Option<PacketKind> {
         2 => Some(PacketKind::Snapshot),
         3 => Some(PacketKind::Pose),
         4 => Some(PacketKind::Plaza),
+        5 => Some(PacketKind::Voice),
         _ => None,
     }
 }
