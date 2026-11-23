@@ -8,7 +8,9 @@
 //!   from spoofed addresses never gets as far as a handshake.
 //! - **A share per address.** One address holds at most [`Limits::per_address`] connections,
 //!   handshaking or open. Loopback is excepted: the server's own agents connect from it.
-//! - **A ceiling.** At most [`Limits::connections`] in all.
+//! - **A ceiling.** At most [`Limits::connections`] in all: counted by the passes here, and again
+//!   by what QUIC really holds (the accept loop, `endpoint.rs`), so a connection that outlives its
+//!   pass can't pile up past it unseen.
 //! - **A deadline.** A handshake, QUIC's and WebTransport's, finishes within [`HANDSHAKE`].
 //!
 //! What a session may do once it's in is limited where it's read (`session.rs`: inputs, the
@@ -101,6 +103,11 @@ impl Admission {
         self.open.fetch_add(1, Ordering::Relaxed);
         self.handshaking.fetch_add(1, Ordering::Relaxed);
         Verdict::Admit(Pass { admission: self.clone(), ip, handshaking: true })
+    }
+
+    /// What it takes.
+    pub fn limits(&self) -> Limits {
+        self.limits
     }
 
     /// Connections held, handshaking or open.

@@ -59,7 +59,15 @@ pub fn make_endpoint(port: u16, identity: Identity) -> anyhow::Result<Endpoint<S
     }
 }
 
+/// How often the accept loop publishes what QUIC holds when nobody is connecting.
+const GAUGE_EVERY: Duration = Duration::from_millis(500);
+
 /// Takes connections as `admission` allows (`admit`), each to its session, until shutdown.
+///
+/// What QUIC really holds is counted apart from the admission's passes: a connection whose task
+/// gave its pass back but which lives on (a driver stuck in its handshake, as wtransport's was
+/// before upstream 1df1c05) still counts against the ceiling, and `/status` shows it
+/// (`open_connections`, `refused_open`).
 pub async fn accept_loop(
     endpoint: Endpoint<Server>,
     mode: Mode,
@@ -68,11 +76,25 @@ pub async fn accept_loop(
     admission: Arc<Admission>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
+    let ceiling = admission.limits().connections as usize;
+    let mut gauge = tokio::time::interval(GAUGE_EVERY);
+    gauge.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         let incoming = tokio::select! {
             incoming = endpoint.accept() => incoming,
+            _ = gauge.tick() => {
+                NetStats::set(&stats.open_connections, endpoint.open_connections() as u64);
+                continue;
+            }
             _ = shutdown.changed() => break,
         };
+        let open = endpoint.open_connections();
+        NetStats::set(&stats.open_connections, open as u64);
+        if open >= ceiling {
+            NetStats::add(&stats.refused_open, 1);
+            incoming.refuse();
+            continue;
+        }
         let from = incoming.remote_address().ip();
         let validated = incoming.remote_address_validated();
         let mut pass = match admission.admit(from, validated) {
