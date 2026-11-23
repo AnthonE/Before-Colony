@@ -1,8 +1,10 @@
 # Roadmap: how PEERS.md's list gets built
 
-> **The current direction is `FREE_ROAM.md`** (November 2026): a town at GTA's scale on the ring's
-> floor, a new pilot starting on foot in it, and the infrastructure for crowds and the Watch before
-> more mechanics. Its phases table is the live status; this roadmap's items below still stand, behind it.
+> **The whole game's order is `PHASES.md`** (November 2026): releases 0.2 to 1.0, each with an exit
+> bar, and what we take from Gates and oneshot. The current direction inside it is `FREE_ROAM.md`: a
+> town at GTA's scale on the ring's floor, a new pilot starting on foot in it, and the infrastructure
+> for crowds and the Watch before more mechanics. This roadmap's items below still stand; `PHASES.md`
+> says which release each lands in.
 
 `PEERS.md` says what the nearest games teach and what comes first. This is how each item gets built:
 where it lands in the code, what goes on the wire, and how it's tested. It follows the house rule

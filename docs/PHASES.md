@@ -43,7 +43,9 @@ What makes it possible with agents, and is already in the repo:
   reference board for how an effect looks.
 
 The pace so far, for sizing: the game began on 24 September 2026; everything above was built in two
-months (478 commits, 76 pull requests). The sizes below are in that currency.
+months (478 commits, 76 pull requests). The sizes below are in that currency. Gates, built the same
+way from 30 July, reached its browser build in seven weeks and released about once a week after
+that (0.9 and 0.10 in October; 61 merges in four weeks, by its own count).
 
 ## Where we are (November 2026)
 
@@ -77,7 +79,8 @@ quick.
 - **Built from:** `FREE_ROAM.md`'s V1 rest (the floating origin) and O1 (the street's objectives);
   `RING.md` R4's first buildings on the Muster's deck; `PEERS.md`'s still-open P0 item (a marker on
   the door in the view itself); the hints and the boot that says when it's stuck; `UI.md`'s rules on
-  every screen the first hour shows.
+  every screen the first hour shows; sound for everything on foot (the town and the bay are silent
+  now); a report key for playtesters (Gates', below).
 - **Exit bar:**
   - five people who've never played, and a playtester agent per step, get from waking to home and
     paid in under an hour with no help; every place one of them got stuck is fixed and replayed;
@@ -133,6 +136,13 @@ the chain again and again, and people to cross it with".
   the store page, the trailer (`scripts/trailer`), the notes; player reports from inside the game;
   moderation for the radio and names; account recovery; settings and accessibility (rebinding is
   `CONTROLS.md`'s; subtitles, colour-blind palettes, text size); the business the owner picks.
+- **Steam and wallets don't mix.** Valve won't publish "applications built on blockchain technology
+  that issue or allow exchange of cryptocurrencies or NFTs", and sales inside the game go through the
+  Steam Wallet (Gates' `docs/STEAM.md`, quoting Valve, October 2026). Our wallet sign-in (`bc-auth`)
+  and anything a pilot earns that could become a token are inside that line. Gates' answer, planned
+  not built: a server-side economy switch, a build with the wallet code compiled out and a CI check
+  for its strings, and Steam's own sign-in ticket checked by the server. Ours would be the same,
+  decided before the Steam build starts (Open questions).
 - **Exit bar:**
   - installs and runs on the reference machine and a low one from the store;
   - a report filed in the game reaches a person and an agent within the hour;
@@ -167,7 +177,7 @@ Every phase's exit includes its row of each.
 | **Look:** one art direction, animation, effects, light | The first hour's places on the reference board, signed off; the painted look everywhere it shows | Figures and suits animated, not swapped (`life_mesh`'s bank, `bc-model`); every effect judged on the fx stage | Streaming without pops; the far tiers indistinguishable at speed | A look per era; marketing shots straight from the showcase |
 | **Sound:** the mix, music, voice | Every action in the first hour has its sound: the town's streets, traffic and crowd, the bay, a car, a lift | A positional mix for crowds and traffic; music for the town and the bay as `bc-sound`'s follows the fight | Holds up with hundreds near | Voice for the Board, the Watch and the Orrery, if the owner wants it |
 | **Feel:** frame time, input, load | 60 fps High on the reference machine; cold start under 30 s | No frame over 33 ms on the crowded camera | Same, with 500 in the world | The low machine at Low |
-| **Trust:** fairness, uptime, data | Nothing the client says is believed that can't be checked (as now) | Exploits found by agents fixed before release | The threat model, the bounty, backups | Uptime measured and published |
+| **Trust:** fairness, uptime, data | Nothing the client says is believed that can't be checked, but what's listed (the rewind's depth: below) | Exploits found by agents fixed before release | The threat model, the bounty, backups | Uptime measured and published |
 | **Agents:** population and builders | Playtester agents walk the first hour every night | Agents fill the lanes and the streets when people are few | 500-pilot load tests from `bc-bot` | Outside agents building on a paid board, if the owner opens one |
 
 ## How we build it
@@ -181,21 +191,29 @@ Every phase's exit includes its row of each.
 - **The owner signs off looks and feel**, once a phase at least, on a real GPU: SwiftShader lies
   about the look (`CLAUDE.md`'s traps).
 - **Releases are named and noted.** A version in `Cargo.toml`, a name, and notes a player would read.
+  The version is typed once and gates the protocol and the oldest client a server takes, as Gates'
+  does; a release script that's a dry run till told to go, and a check that names what a change
+  takes to ship (client, server, wire), are Gates' `ci/release.sh` and `ci/deploy_kind.py`.
+- **A phase's state is derived, never stamped** (Gates' `DESIGN.md`, "Milestones"): its exit bar is
+  checked by running things, and the status tables say what was run.
+- **The owner's decisions are kept in one place.** Gates' `docs/DECISIONS.md` has two tables: what
+  the operator said (the date, their words, where it lands) and the knobs still open, with the
+  default that ships until they speak. The area docs' "owner's decisions" sections would move there.
 
 ## What we take from Gates and oneshot
 
-Gates (`AnthonE/Gates`) is a survival game in the same family, shipped and on its tenth release, on
-the desktop and in the browser; oneshot (`AnthonE/oneshot`) is a ranked shooter built from Gates'
+Gates (`AnthonE/Gates`) is a survival game in the same family, shipped and at 0.10, on the desktop and
+in the browser; oneshot (`AnthonE/oneshot`) is a ranked shooter built from Gates'
 parts, and its `docs/RIP.md` says what it took, file by file. We already take Gates' `fx` crate
 (`scripts/fx-sync.sh`) and its building pieces (`bc_sim::pieces`). How each lifts: **copy** the
 files and trim them, **port** them (rewrite here, to our rules), or take **the idea** only. Files
 are copied, never depended on, as oneshot does: their crates are tied to their own simulations.
 
+From oneshot:
+
 | What | From | How | For |
 |---|---|---|---|
 | A RIP doc: every lift with its source, lines, destination, how, and what was left behind | oneshot `docs/RIP.md` | idea | now: this table grows into it |
-| The desktop build: one client crate as `cdylib` and a `[[bin]]`, a native transport beside the wasm one, Linux, Windows and macOS built on a tag | oneshot `crates/client/DESKTOP.md`, `client-net/src/native.rs`, `.github/workflows/desktop.yml` | port (they're on Bevy 0.18, we're on 0.19) | 0.5 |
-| Bug and crash reports from inside the game | oneshot `server/src/bugs.rs`, `client/src/crash.rs` | port | 0.2 (playtesters), 0.5 (everyone) |
 | The rewind's depth chosen by the server from the link it measures, capped (160 ms there); ours believes the client's claim up to 8 ticks, 267 ms (`sim/combat.rs`, `MAX_REWIND_TICKS`) | oneshot `room/src/lib.rs` (`favour_for`), Gates `stats.rs` | port | 0.4 |
 | Cheat flags, decoys and an aim model trained on players; a `SECURITY.md` of promises and a bounty by severity; anticheat staged by how many play | oneshot `room/src/watch.rs`, `decoy.rs`, `tools/aim`, `SECURITY.md`, `docs/ANTICHEAT.md` | idea, then port: our lock-on changes what an aimbot is | 0.4 |
 | A leak gate (a test that no client is sent what it mustn't know) and an impaired-network gate | oneshot `room/tests/leaks.rs`, `client-net/tests/loopback.rs` | idea | 0.4 |
@@ -206,12 +224,37 @@ are copied, never depended on, as oneshot does: their crates are tied to their o
 | Reports that audit how it feels against the game it's measured by, with ranked causes | oneshot `reports/`, `research_notes/` | idea | every phase's look check |
 | Paid contributions: a price for a merged PR, more for content that ships, paid to a `Wallet:` line | oneshot `CONTRIBUTING.md`, `AGENTS.md`; Gates' board | idea, the owner's call | 0.5 on |
 
-*(Gates' own column is being filled in from its survey.)*
+From Gates (on Bevy 0.18: anything Bevy-side needs a port):
+
+| What | From | How | For |
+|---|---|---|---|
+| The desktop build: the transport behind one `Wire` trait (native and web), release builds for Linux, Windows and macOS on a tag, packaged for the Elo Pros launcher; Discord and deep links. (Its Windows and macOS builds have never been run on those machines.) oneshot's port of it is the nearer model: one client crate as a `cdylib` and a `[[bin]]` (`crates/client/DESKTOP.md`, `client-net/src/native.rs`, `.github/workflows/desktop.yml`) | `crates/client/src/net/mod.rs`, `native.rs`, `web.rs`; `.github/workflows/release.yml`; `ci/depot.py` | port (both are on Bevy 0.18, we're on 0.19) | 0.5 |
+| An asset pipeline without a person in the loop: headless Blender, rigging and retargeting animation, KTX2 textures, atlases, icons, licences in a manifest. Ours is procedural by rule (`DESIGN.md`), so this is for what procedure does badly: skinned animation for figures and suits | `ci/blender.py`, `ci/bl/`, `ci/rig_beast.py`, `ci/retarget_anim.py`, `ci/ktx_pack.py`, `assets/*/MANIFEST.md` | copy the scripts | 0.3 (animation) |
+| A measured look bar: statistics of reference frames, scored in CI; the renderer's slices (sky and atmosphere, terrain, water, clouds, quality tiers, shader prewarm) | `docs/ART.md`, `ci/native_bar.py`, `docs/RENDER.md`, `crates/client/src/render/` | idea; port the prewarm and quality tiers | 0.2 on |
+| Proximity voice, Opus, outside Bevy | `crates/voice` | vendor | 0.3 (crews) |
+| Sound in an AudioWorklet, outside Bevy | `crates/sound-worklet` | idea, beside `bc-sound` | 0.2 |
+| Player reports: a key that writes what happened, a screenshot and a fingerprint, the player's words fenced as untrusted; reports ranked by fingerprint; bots that file their own; crash reports (oneshot's `client/src/crash.rs`) | `crates/client/src/report.rs`, `ci/reports.py`, `crates/server/src/bugs.rs` | port | 0.2 (playtesters), 0.5 (everyone) |
+| Running it: systemd units, certificates, a firewall rule; releases that warn the world before a restart; admin commands for allowlisted wallets; an anomaly log with a verdict script; trailers from replays | `ops/`, `ci/release.sh`, `crates/server/src/admin.rs`, `anomaly.rs`, `ci/anomaly_verdict.py`, `ci/film.sh` | copy | 0.4 |
+| Cheat evidence (snap hits, hit rates, tracking through walls) logged, never acted on alone, and cheats bred to test it | `crates/server/src/cheat.rs`, `sim-core/src/genome.rs` | port | 0.4 |
+| A cap table: each limit, what's used, what happens when it's full, what raising it takes | `docs/SCALE.md` | copy the shape into ours | 0.4 |
+| Content as validated tables with a layout golden, and the rule to copy the reference game's numbers unless there's a stated reason not to | `content/*.toml`, `crates/content`, `docs/CONTENT.md` | port into `bc-econ` | 0.3 |
+| Agents as players: their verbs a subset of a person's, personas, a population of resident bots | `docs/PLAYERS.md`, `crates/server/src/mind.rs`, `population.rs`, `ops/personas/` | idea, for `bc-bot` | 0.3 |
+| Boards that remember (four standings and a hall), achievements in Steam's shape | `crates/server/src/standings.rs`, `achievements.rs` | port | 0.3, 0.5 |
+| NPC minds and paths: a state machine, A* on a grid, all deterministic | `sim-core/src/brain.rs`, `nav.rs` | idea (ours run on roads and closed forms) | as needed |
+| The process: a backlog by lane with stable labels and done work deleted; a mirror of what's built, re-derived by commands; the gate before strangers ("20 strangers, one wipe cycle, p99 tick under budget, zero silent failures") | `docs/NOW.md`, `HAVE.md`, `ALPHA.md` | idea | now |
+
+Not taken: Gates' persistence (player and world files, like ours: no database to borrow), its wipes
+(our clock never resets: `STORY.md`; its halls that remember across seasons carry over better), and
+its terrain (an island from a seed: the idea's ours already).
+
+The two games share a timeline (Gates' `docs/WORLD.md` §11, never said in either game: `STORY.md`'s
+"Under everything"), and Gates' held items already borrow `bc-model`'s rules.
 
 ## Open questions for the owner
 
 - **The reference machine:** which laptop or desktop "runs well" is measured on, and the low one.
-- **Platforms:** the browser first and Steam at 0.5, or Steam sooner?
+- **Platforms:** the browser first and Steam at 0.5, or Steam sooner? And on Steam, how the wallet
+  sign-in and anything token-shaped are kept out (Valve's rule above).
 - **The business:** free to play with paint and a pass, paid early access, the Elo Pros store; and
   whether wallets stay a way in or become a way to own things.
 - **PvP in space:** where it lives (`PEERS.md` 10).

@@ -60,6 +60,7 @@ The e2e suites run nightly (`.github/workflows/e2e.yml`).
 
   | area | doc |
   |---|---|
+  | what comes next: the phases to 1.0, and what to take from Gates and oneshot | `PHASES.md` |
   | a binding | `CONTROLS.md` |
   | the wire, replication, how sectors meet | `NETCODE.md`, `SCALE.md` |
   | a system players will compare with another game's | `PEERS.md`, `ROADMAP.md` |
