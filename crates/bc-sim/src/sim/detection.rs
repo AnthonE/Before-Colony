@@ -89,12 +89,13 @@ impl Sim {
             && !self.detects(viewer, j)
     }
 
-    /// The suit `i` designates (its lock target), if that's a live hostile on `i`'s sensors.
+    /// The suit `i` designates (its lock target), if that's a live hostile on `i`'s sensors: of
+    /// another side, or a pilot out in open space with it under `Law::OpenSpace`
+    /// (`colony::reach::hostile`; an ally is never designated, friendly fire or not).
     pub fn designation(&self, i: usize) -> Option<usize> {
         let s = &self.suits;
         let t = usize::from(s.input[i].lock_target);
-        (t < s.cap && t != i && s.alive.get(t) && s.faction[t] != s.faction[i] && self.detects(i, t))
-            .then_some(t)
+        (t < s.cap && t != i && s.alive.get(t) && self.hostile_to(i, t) && self.detects(i, t)).then_some(t)
     }
 
     /// Firing, striking or a special shows through suit `i`'s jammer for a while.

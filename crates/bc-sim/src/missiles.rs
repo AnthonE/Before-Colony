@@ -2,9 +2,10 @@
 //! carries its target and what's left of its motor's Δv.
 
 use alloc::boxed::Box;
-use bc_proto::{Faction, NO_SLOT, WeaponKind};
+use bc_proto::{NO_SLOT, WeaponKind};
 use glam::Vec3;
 
+use crate::colony::reach::Party;
 use crate::storage::{BitSet, FreeList, boxed};
 
 /// Missiles in flight at once, sector-wide (their wire ids are 10 bits).
@@ -16,7 +17,8 @@ pub struct Missiles {
     pub generation: Box<[u8]>,
     pub kind: Box<[WeaponKind]>,
     pub owner: Box<[u16]>,
-    pub owner_faction: Box<[Faction]>,
+    /// Who launched it, to the law, as it launched (`colony::reach`).
+    pub by: Box<[Party]>,
     /// The suit it's guided onto and that suit's generation, or `NO_SLOT` (flying blind).
     pub target: Box<[u16]>,
     pub target_gen: Box<[u16]>,
@@ -43,7 +45,7 @@ impl Missiles {
             generation: boxed(cap, 0u8),
             kind: boxed(cap, WeaponKind::HomingMissile),
             owner: boxed(cap, 0u16),
-            owner_faction: boxed(cap, Faction::Almagest),
+            by: boxed(cap, Party::drone(bc_proto::Faction::Almagest)),
             target: boxed(cap, NO_SLOT),
             target_gen: boxed(cap, 0u16),
             pos: boxed(cap, Vec3::ZERO),
@@ -61,7 +63,7 @@ impl Missiles {
         &mut self,
         kind: WeaponKind,
         owner: u16,
-        owner_faction: Faction,
+        by: Party,
         target: (u16, u16),
         pos: Vec3,
         vel: Vec3,
@@ -73,7 +75,7 @@ impl Missiles {
         self.generation[k] = self.generation[k].wrapping_add(1);
         self.kind[k] = kind;
         self.owner[k] = owner;
-        self.owner_faction[k] = owner_faction;
+        self.by[k] = by;
         (self.target[k], self.target_gen[k]) = target;
         self.pos[k] = pos;
         self.vel[k] = vel;

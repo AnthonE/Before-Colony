@@ -10,6 +10,7 @@ use crate::arms::Pull;
 use crate::bodies::{Body, landmark_pose, sweep_landmarks};
 use crate::chunks::Motion;
 use crate::collide::{segment_near_point, sweep_capsules};
+use crate::colony::reach::{Party, harms};
 use crate::config::{DT, MAX_REWIND_TICKS, secs};
 use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, bounty, mass_without, part_mass_kg, wreck_ttl};
 use crate::content::systems::{self, FAILED, System};
@@ -286,7 +287,8 @@ impl Sim {
             s.fired_secondary[i] = t;
         }
         self.break_jammer(i, t);
-        let faction = self.suits.faction[i];
+        // Who fired it, to the law: where it was fired from decides (`colony::reach`).
+        let by = self.party(i);
         // Rocks, landmarks and the colony stop it too, the landmarks where they were then.
         let mut p = muzzle;
         let mut hit = None;
@@ -299,11 +301,9 @@ impl Sim {
             let when = spawn_tick + k;
             let blocker = self.first_blocker(p, b, w.radius, when, frac);
             // (Inside the colony, rounds pass suits by.)
-            let suit =
-                if interior { None } else { self.sweep_history(p, b, w.radius, i, faction, when, frac) };
+            let suit = if interior { None } else { self.sweep_history(p, b, w.radius, i, by, when, frac) };
             // A hostile ward stops a beam where it crosses in, before what's inside it.
-            let ward =
-                if beam && !interior { self.ward_sweep(p, b, faction, Some((when, frac))) } else { None };
+            let ward = if beam && !interior { self.ward_sweep(p, b, by, Some((when, frac))) } else { None };
             if let Some((s, owner)) = ward
                 && suit.is_none_or(|(at, ..)| s < at)
                 && blocker.is_none_or(|(at, _)| s < at)
@@ -348,7 +348,7 @@ impl Sim {
             (None, None) => {
                 let ttl = w.ttl_ticks().saturating_sub(rewind);
                 if ttl > 0 {
-                    self.projectiles.spawn(w.kind, i as u16, faction, p, vel, t + ttl, w.damage, w.radius);
+                    self.projectiles.spawn(w.kind, i as u16, by, p, vel, t + ttl, w.damage, w.radius);
                 }
             }
         }
@@ -428,17 +428,19 @@ impl Sim {
         b: Vec3,
         r: f32,
         shooter: usize,
-        faction: bc_proto::Faction,
+        by: Party,
         when: u32,
         frac: f32,
     ) -> Option<(f32, usize, Part)> {
-        let (spatial, suits, history, ff) =
-            (&mut self.spatial, &self.suits, &self.history, self.cfg.friendly_fire);
+        let (spatial, suits, history, ff, law) =
+            (&mut self.spatial, &self.suits, &self.history, self.cfg.friendly_fire, self.cfg.law);
         // Suits move ≲ 150 m within the rewind window; widen the broad phase by that.
         let pad = Vec3::splat(r + 170.0);
         let mut best: Option<(f32, usize, usize)> = None;
         spatial.query_box(a.min(b) - pad, a.max(b) + pad, |j| {
-            if j == shooter || (!ff && suits.faction[j] == faction) {
+            // (Whether it's out in open space is this tick's, not as it was then: within the
+            // rewind's 267 ms of the line, and the same on every machine.)
+            if j == shooter || !harms(law, ff, by, suits.party(j)) {
                 return;
             }
             let Some((pos, rot)) = history.pose_lerp(when, frac, j) else { return };
@@ -467,8 +469,9 @@ impl Sim {
             let b = a + self.projectiles.vel[k] * DT;
             let r = self.projectiles.radius[k];
             let owner = self.projectiles.owner[k] as usize;
-            let of = self.projectiles.owner_faction[k];
-            let (spatial, suits, ff) = (&mut self.spatial, &self.suits, self.cfg.friendly_fire);
+            let by = self.projectiles.by[k];
+            let (spatial, suits, ff, law) =
+                (&mut self.spatial, &self.suits, self.cfg.friendly_fire, self.cfg.law);
             let pad = Vec3::splat(r + 14.0);
             let mut best: Option<(f32, usize, usize)> = None;
             // (Inside the colony, rounds pass suits by.)
@@ -477,7 +480,7 @@ impl Sim {
                 if interior {
                     return;
                 }
-                if j == owner || (!ff && suits.faction[j] == of) {
+                if j == owner || !harms(law, ff, by, suits.party(j)) {
                     return;
                 }
                 let fl = &suits.flight[j];
@@ -498,7 +501,7 @@ impl Sim {
             let spec = weapon(self.projectiles.kind[k]);
             // A hostile ward stops a beam where it crosses in (`ward`).
             let ward = if !interior && spec.class == WeaponClass::Beam {
-                self.ward_sweep(a, b, of, None)
+                self.ward_sweep(a, b, by, None)
             } else {
                 None
             };
@@ -506,7 +509,7 @@ impl Sim {
             // bursts there (point defence, `sim::missile`).
             if !interior && spec.shoots_down {
                 let suit_at = best.map(|(s, ..)| s);
-                if let Some((s, m)) = self.round_meets_missile(a, b, r, owner, of)
+                if let Some((s, m)) = self.round_meets_missile(a, b, r, owner, by)
                     && suit_at.is_none_or(|f| s < f)
                     && blocker.is_none_or(|(f, _)| s <= f)
                     && ward.is_none_or(|(f, _)| s < f)

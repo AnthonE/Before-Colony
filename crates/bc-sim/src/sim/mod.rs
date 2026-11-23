@@ -369,6 +369,41 @@ impl Sim {
         self.suits.used.iter().any(|i| self.in_bay(i) && self.suits.anchor[i].body == Body::Bay(n))
     }
 
+    /// Who's out in open space this tick, past the colony's reach (`colony::reach`), from where the
+    /// tick's flight left them: every hit and lock after it asks [`party`](Self::party). (Inside
+    /// the colony nobody is: nothing there strikes a suit anyway.)
+    fn reach_step(&mut self) {
+        if self.interior() {
+            return;
+        }
+        let s = &mut self.suits;
+        for i in s.used.iter() {
+            let open = s.alive.get(i) && !crate::colony::reach::in_reach(s.flight[i].pos);
+            s.open.set(i, open);
+        }
+    }
+
+    /// Suit `i` to the law (`colony::reach`): its side, whether a drone flies it, and whether it's
+    /// out in open space this tick.
+    #[inline]
+    pub fn party(&self, i: usize) -> crate::colony::reach::Party {
+        self.suits.party(i)
+    }
+
+    /// Whether `by` may set its sights on `on` (lock it, count it a threat, have a ward stop its
+    /// beams) under the sector's law (`colony::reach::hostile`).
+    #[inline]
+    pub fn hostile_to(&self, by: usize, on: usize) -> bool {
+        crate::colony::reach::hostile(self.cfg.law, self.party(by), self.party(on))
+    }
+
+    /// Whether a blow `by` strikes lands on `on` under the sector's law and its friendly fire
+    /// (`colony::reach::harms`).
+    #[inline]
+    pub fn harms(&self, by: usize, on: usize) -> bool {
+        crate::colony::reach::harms(self.cfg.law, self.cfg.friendly_fire, self.party(by), self.party(on))
+    }
+
     /// This sector is the colony's inside (`colony::interior`).
     #[inline]
     pub fn interior(&self) -> bool {
@@ -421,6 +456,7 @@ impl Sim {
         self.wrecks_follow_hulks();
         self.spatial_rebuild();
         self.record_history(t);
+        self.reach_step();
         self.cover_step(t);
         self.lock_step();
         self.weapons_step(t);
@@ -611,6 +647,7 @@ impl Sim {
             aiming_at_me: s.aim[j].dot(to_me) > COS_3_DEG,
             locked_on_me: s.input[j].lock_target == i as u16,
             hostile: s.faction[j] != s.faction[i],
+            threat: self.hostile_to(j, i),
             surface_n: self.surface_n(j),
         }
     }

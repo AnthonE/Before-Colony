@@ -149,20 +149,20 @@ impl Sim {
         Some(Ejected::Out { hulk, generation, torso: doom.left == 0 })
     }
 
-    /// Suit `i`'s reactor blows: every hostile suit within the blast's reach takes its damage to the
-    /// torso, falling off to nothing at the edge (measured from the blast to the suit's own bounds).
+    /// Suit `i`'s reactor blows: every suit within the blast's reach that it may harm
+    /// (`colony::reach::harms`) takes its damage to the torso, falling off to nothing at the edge
+    /// (measured from the blast to the suit's own bounds).
     fn blast(&mut self, i: usize, t: u32) {
         let at = self.suits.flight[i].pos;
         self.events.push(Event::Blast { id: 0, tick: t, suit: i as u16, pos: at });
         let w = weapon(WeaponKind::Reactor);
-        let faction = self.suits.faction[i];
         let mut near = core::mem::take(&mut self.query_bits);
         near.clear();
         // (Suits' bounds are well under 20 m.)
         self.spatial.query_sphere(at, w.range + 20.0, |j| near.set(j, true));
         for j in near.iter() {
             let s = &self.suits;
-            if j == i || !s.alive.get(j) || (!self.cfg.friendly_fire && s.faction[j] == faction) {
+            if j == i || !s.alive.get(j) || !self.harms(i, j) {
                 continue;
             }
             let to = s.flight[j].pos - at;

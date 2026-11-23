@@ -20,6 +20,7 @@ use super::Sim;
 use crate::arms::{next_phase, strike_slot};
 use crate::bodies::Body;
 use crate::collide::{capsule_world, segment_segment};
+use crate::colony::reach::harms;
 use crate::config::MAX_REWIND_TICKS;
 use crate::content::salvage::SABER_DIG;
 use crate::content::{ArmSlot, MeleeSpec, Mount, SpecialKind, Stroke, WeaponClass, frame, weapon};
@@ -185,7 +186,8 @@ impl Sim {
             Body::Rock(r) if self.suits.footing[i] != Footing::Free && !st.dig_own => Some(usize::from(r)),
             _ => None,
         };
-        let faction = self.suits.faction[i];
+        // Who strikes, to the law (`colony::reach`).
+        let by = self.party(i);
         // Suits are found where they are now, but met where they were: widen the search by how far
         // one can have moved since.
         let search = w.range + 16.0 + if rewind > 0 { REWIND_PAD } else { 0.0 };
@@ -248,11 +250,11 @@ impl Sim {
                 }
                 let key_bit = if second { SECOND_BLADE } else { 0 };
                 let mut found: Option<(usize, usize, f32)> = None;
-                let (spatial, suits, history, ff) =
-                    (&mut self.spatial, &self.suits, &self.history, self.cfg.friendly_fire);
+                let (spatial, suits, history, ff, law) =
+                    (&mut self.spatial, &self.suits, &self.history, self.cfg.friendly_fire, self.cfg.law);
                 let hits = &suits.melee[i];
                 spatial.query_sphere(hand, search, |j| {
-                    if j == i || (!ff && suits.faction[j] == faction) {
+                    if j == i || !harms(law, ff, by, suits.party(j)) {
                         return;
                     }
                     if hits.hits[..hits.n_hits as usize].contains(&(j as u16 | key_bit)) {

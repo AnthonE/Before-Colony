@@ -2,9 +2,10 @@
 //! fly straight at constant velocity until they hit something or time out.
 
 use alloc::boxed::Box;
-use bc_proto::{Faction, WeaponKind};
+use bc_proto::WeaponKind;
 use glam::Vec3;
 
+use crate::colony::reach::Party;
 use crate::storage::{BitSet, FreeList, boxed};
 
 pub struct Projectiles {
@@ -12,7 +13,8 @@ pub struct Projectiles {
     pub alive: BitSet,
     pub kind: Box<[WeaponKind]>,
     pub owner: Box<[u16]>,
-    pub owner_faction: Box<[Faction]>,
+    /// Who fired it, to the law, as it was fired (`colony::reach`): a reused slot never decides.
+    pub by: Box<[Party]>,
     pub pos: Box<[Vec3]>,
     pub vel: Box<[Vec3]>,
     pub expire: Box<[u32]>,
@@ -29,7 +31,7 @@ impl Projectiles {
             alive: BitSet::new(cap),
             kind: boxed(cap, WeaponKind::BeamRifle),
             owner: boxed(cap, 0u16),
-            owner_faction: boxed(cap, Faction::Almagest),
+            by: boxed(cap, Party::drone(bc_proto::Faction::Almagest)),
             pos: boxed(cap, Vec3::ZERO),
             vel: boxed(cap, Vec3::ZERO),
             expire: boxed(cap, 0u32),
@@ -46,7 +48,7 @@ impl Projectiles {
         &mut self,
         kind: WeaponKind,
         owner: u16,
-        owner_faction: Faction,
+        by: Party,
         pos: Vec3,
         vel: Vec3,
         expire: u32,
@@ -58,7 +60,7 @@ impl Projectiles {
         self.alive.set(i, true);
         self.kind[i] = kind;
         self.owner[i] = owner;
-        self.owner_faction[i] = owner_faction;
+        self.by[i] = by;
         self.pos[i] = pos;
         self.vel[i] = vel;
         self.expire[i] = expire;

@@ -1028,6 +1028,7 @@ impl World {
                 aiming_at_me: pose.aim.dot(to_me) > 0.9986,
                 locked_on_me: e.flags & ent_flags::LOCKED_ON_YOU != 0,
                 hostile: e.faction != self.faction,
+                threat: e.faction != self.faction,
                 // Standing on a body (not in the air over one): which way is up off it.
                 surface_n: pose.ground.filter(|g| !g.aloft).map_or(Vec3::ZERO, |g| g.up),
             });

@@ -65,6 +65,9 @@ pub struct SimConfig {
     pub world: crate::colony::interior::WorldKind,
     /// Ticks between the Almagest's aces (`content::aces`), one out at a time among the drones; 0: none.
     pub ace_every: u32,
+    /// Who harms whom (`colony::reach`): by side, or pilots against pilots in open space past the
+    /// colony's reach. Clients are told in their Welcome.
+    pub law: crate::colony::reach::Law,
 }
 
 impl SimConfig {
@@ -97,6 +100,7 @@ impl Default for SimConfig {
             flight: crate::tuning::FlightRules::Real,
             world: crate::colony::interior::WorldKind::Space,
             ace_every: crate::content::aces::ACE_EVERY,
+            law: crate::colony::reach::Law::Sides,
         }
     }
 }

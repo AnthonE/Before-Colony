@@ -28,7 +28,11 @@ pub struct Contact {
     /// Its weapon is pointed within a few degrees of us.
     pub aiming_at_me: bool,
     pub locked_on_me: bool,
+    /// Of another side: what a brain targets (drones, agents, the seized suit's autopilot).
     pub hostile: bool,
+    /// It can harm us under the sector's law (`colony::reach`): of another side, or a pilot out
+    /// in open space with us. What the Orrery weighs as a threat.
+    pub threat: bool,
     /// The ground's normal under it while it stands on a body (`Vec3::ZERO` otherwise): where it
     /// can go is along the ground, and off it.
     pub surface_n: Vec3,
@@ -52,6 +56,7 @@ impl Default for Contact {
             aiming_at_me: false,
             locked_on_me: false,
             hostile: false,
+            threat: false,
             surface_n: Vec3::ZERO,
         }
     }
