@@ -1,0 +1,219 @@
+# Phases: from the slice to a game people pay for
+
+> The owner's ask (November 2026): "let's really lay out some sort of phases of how we can build
+> this game ... AI really has a chance at making a really AAA quality game. And we have a good,
+> decent setup when it comes to the other repos around": Gates and oneshot, to take from.
+
+This is the plan of record for the whole game: the order the big pieces come in, the bar each phase
+has to clear before the next starts, and what we take from the sibling games instead of building
+it again. The area plans stay the plans of their areas and are cited, not repeated: `FREE_ROAM.md`
+(the town), `RING.md` (the ring and the base), `OPEN_CITY.md` (homes, the street, the Watch),
+`LIFE.md` (jobs and meals), `TRAINING.md`, `SCALE.md` (what stops the world growing), and
+`ROADMAP.md` with `PEERS.md` (the ranked list of what the nearest games teach). Where this document
+orders things differently from one of them, this one wins.
+
+## What "AAA" means for us
+
+Not a 300-person studio's hours of hand-made content: we can't out-make them, and we don't have to.
+It means five things a player can feel, each of which is a bar we can check:
+
+1. **It feels finished.** Every place has something to do, every verb answers at once, every
+   transition is staged, nothing says "TODO", nothing a player meets is a placeholder.
+2. **It runs well.** 60 fps at High on the reference machine (to be named: Open questions), a
+   cold start to playing in under 30 s, no hitches when the town streams in.
+3. **It stays up and stays fair.** Hundreds of pilots in one world, nobody loses what they earned,
+   nobody wins by cheating.
+4. **It lasts.** Reasons to come back for months: things to build, people to build them with, a
+   world that moves (`STORY.md`'s eras).
+5. **It looks and sounds like one thing.** One art direction (the station language, painted like the
+   anime: `RING.md`, "The look"), animation that sells weight, effects that read, a mix that tells
+   you what's happening.
+
+What makes it possible with agents, and is already in the repo:
+
+- **No asset bottleneck.** Every suit, building, person and car is procedural (`bc-model`,
+  `town_mesh`, `life_mesh`); a new frame is a row, a model and a kit.
+- **A cheap world.** The colony, the town, its traffic and its crowd are closed forms of the tick
+  (`CLAUDE.md`, rule 5): nothing to store, stream or keep in step until something's done to it
+  (`FREE_ROAM.md`, P2).
+- **Agents as population.** Pilots, traffic and the Watch's units play by the same rules over the
+  same wire (`bc-bot`).
+- **Checks a machine can run.** Goldens and `no_alloc` proofs on every push; the browser suites
+  nightly; `scripts/pt` and the playtester agent for how it plays; the fx stage, its strips and the
+  reference board for how an effect looks.
+
+The pace so far, for sizing: the game began on 24 September 2026; everything above was built in two
+months (478 commits, 76 pull requests). The sizes below are in that currency.
+
+## Where we are (November 2026)
+
+| Pillar | Built | Missing for AAA |
+|---|---|---|
+| Flight and combat | Newtonian 6DOF, two flight rules, free aim, lock-on, beams, missiles, melee, stagger, doom and ejecting, specials, aces, a debrief (`DESIGN.md`; `ROADMAP.md` 15–27) | Crews (28); suits drawn with animation, not mesh swaps; a second faction's prototypes |
+| Survival and the economy | The bay on foot, fabricating, the Exchange, wear, the Charter Board, contracts begun (`DESIGN.md`, Milestones 3–4) | Contracts beyond supply and patrols; liveries; sinks and faucets measured |
+| The ring and its town | The ring at 3 km, the town's plan, the painted look, traffic, a crowd that reacts, the Watch, fares, a start on foot (`FREE_ROAM.md`) | The floating origin; the base's buildings (`RING.md` R4); homes on the ring; the Watch's patrols; the crowd in the tick |
+| Space | One sector at L1: the field, rocks, landmarks, salvage, mining, the Almagest's drones | Traffic in the lanes; drone offensives; more sectors (`SCALE.md` D) |
+| People together | The colony's radio | Crews and guilds, friends, a crew's hangar, voice; where PvP lives in space (`PEERS.md` 10) |
+| Accounts and persistence | Guests, wallets (SIWE, Solana), Elo Pros passes; pilots and stores in files (`pilots::FileStore`) | A database; backups; account recovery; a never-lose-progress guarantee |
+| Platform | The browser: WebGL2 and WebGPU builds | A desktop build, Steam |
+| Scale | One sector holds about 300 pilots in one fight (`SCALE.md`) | Sessions without flight slots, many sectors, a gateway, handoff |
+| Presentation | Procedural suits and town, the anime look, the fx stage; a sound bank synthesised at boot for the cockpit and the fight, and music that follows it (`bc-sound`) | Animation; an art-direction lock with a reference board per place; any sound at all on foot (the town and the bay are silent); voice |
+| Trust | Server authority, limits under abuse (`ARCHITECTURE.md`, "Under abuse") | A threat model, cheat detection, a bounty for breaking it |
+| Running it | One process, published by the operator; logs; `/status` | Metrics and dashboards, alerts, deploys without downtime, player reports, moderation |
+
+## The phases
+
+Each phase ends in a **release**: a version, a name, notes posted, and a build the operator puts in
+front of people. A phase isn't done until its exit bar is met. Everything not in the current
+phase waits; the area plans keep their own order inside a phase.
+
+### 0.2 · The First Hour
+
+**A new pilot's first hour is as good as anything in the genre.** They wake on the street, take a
+car, carry a fare, ride the spoke up to their bay, put a rifle on the Argo, launch out of their own
+door, kill their first drone, come home and get paid, and every step of it is staged, readable and
+quick.
+
+- **Built from:** `FREE_ROAM.md`'s V1 rest (the floating origin) and O1 (the street's objectives);
+  `RING.md` R4's first buildings on the Muster's deck; `PEERS.md`'s still-open P0 item (a marker on
+  the door in the view itself); the hints and the boot that says when it's stuck; `UI.md`'s rules on
+  every screen the first hour shows.
+- **Exit bar:**
+  - five people who've never played, and a playtester agent per step, get from waking to home and
+    paid in under an hour with no help; every place one of them got stuck is fixed and replayed;
+  - 60 fps at High on the reference machine, on the town's crowded camera (`perf`) and the launch;
+    cold start to the street in under 30 s;
+  - the gallery's every screen and the showcase's every camera on the first hour's path looked at
+    and signed off by the owner (as `RING.md`'s L1 was);
+  - the nightly suites green seven nights running.
+- **Size:** a few weeks.
+
+### 0.3 · Reasons to Stay
+
+**There's always a next thing, and people to do it with.** `PEERS.md`'s lesson: "reasons to cross
+the chain again and again, and people to cross it with".
+
+- **Built from:** contracts (`PEERS.md` 6: haul, clear a claim, escort a hauler, recover a wreck;
+  some shady); liveries (7); drone offensives and a carrier (8); crews (28), with a crew's hangar
+  and shared stores; cars you own and homes on the ring (`OPEN_CITY.md` C1, H0–H3 moved onto the
+  ring's buildings); businesses (B1); the Watch's patrols and heat that means something (`OPEN_CITY.md`
+  X1–X2); where PvP lives in space (`PEERS.md` 10); agents as population (9): flaneurs, and the
+  server's tugs, haulers and miners in the lanes.
+- **Exit bar:**
+  - a week of play with something new each day and no repeat that feels like one (playtesters and
+    the owner);
+  - the economy's faucets and sinks counted (`/status` and a dashboard) and within a band the owner
+    sets;
+  - a crew of four can do everything together that one pilot can, and more;
+  - people who played 0.2 come back for 0.3: retention measured, not guessed.
+- **Size:** about as much again as everything built so far.
+
+### 0.4 · Hundreds
+
+**The world holds a crowd, keeps what everyone earns and can't be cheated.**
+
+- **Built from:** `SCALE.md`'s B (sessions without a flight slot), C (the crowd as a sector with
+  interest tiers: `FREE_ROAM.md`'s P2 into the tick, `OPEN_CITY.md`'s S1), D (many sectors, a
+  gateway, handoff; the town split by district, `FREE_ROAM.md` D1) and E (a client that streams);
+  pilots, stores and the world in a database, with backups and restores; a threat model and what
+  it asks for; metrics, alerts and deploys without dropping anyone.
+- **Exit bar:**
+  - 500 pilots (people and `bc-bot` agents) in one world for an hour: the tick's p99 under budget,
+    `hot_path_allocations` 0, every client's bandwidth under its budget;
+  - the server killed mid-fight and back with nothing lost that was acknowledged;
+  - every threat in the model closed or knowingly accepted, and a standing bounty for breaking it;
+  - a deploy with pilots on, none of them dropped.
+- **Size:** months; it can start alongside 0.3, since it's mostly another lane's work.
+
+### 0.5 · Early Access
+
+**People can find it, install it, pay for it and tell us what's wrong.**
+
+- **Built from:** a desktop build (the client native as well as wasm) on Steam beside the browser;
+  the store page, the trailer (`scripts/trailer`), the notes; player reports from inside the game;
+  moderation for the radio and names; account recovery; settings and accessibility (rebinding is
+  `CONTROLS.md`'s; subtitles, colour-blind palettes, text size); the business the owner picks.
+- **Exit bar:**
+  - installs and runs on the reference machine and a low one from the store;
+  - a report filed in the game reaches a person and an agent within the hour;
+  - the first-hour bar of 0.2 still met with strangers from the store, not friends.
+- **Size:** a few weeks of building, then as long as the store takes.
+
+### 1.0 · The Charter
+
+**The world moves because of what its players did.** `STORY.md`'s Era I: the Charter Board's great
+works finished by deliveries, the charter vote, the colony's militia on contract, more rings begun.
+The calendar starts.
+
+- **Built from:** colony projects that change the world when done (a service, a price, a sector);
+  the militia; the era's announcement to everyone; a content cadence (`PEERS.md`: "new suits are the
+  cadence") of a frame or a place each release.
+- **Exit bar:** the first era turned by players, not by hand; a release a month for three months
+  running without a regression the nightly suites missed.
+
+### After 1.0
+
+`STORY.md`'s eras in order: II, the Cluster (more colonies, hauling between their exchanges); III,
+the Spheres (L2 to L5, the Moon: `DESIGN.md`'s "Moons and planets"); IV, the Equinox Wars. Each era
+is a phase of its own, planned when the one before it is under way.
+
+## The tracks: how good, in every phase
+
+The phases say what the game has. These say how good it is, and their bar rises with each release.
+Every phase's exit includes its row of each.
+
+| Track | 0.2 | 0.3 | 0.4 | 0.5 and on |
+|---|---|---|---|---|
+| **Look:** one art direction, animation, effects, light | The first hour's places on the reference board, signed off; the painted look everywhere it shows | Figures and suits animated, not swapped (`life_mesh`'s bank, `bc-model`); every effect judged on the fx stage | Streaming without pops; the far tiers indistinguishable at speed | A look per era; marketing shots straight from the showcase |
+| **Sound:** the mix, music, voice | Every action in the first hour has its sound: the town's streets, traffic and crowd, the bay, a car, a lift | A positional mix for crowds and traffic; music for the town and the bay as `bc-sound`'s follows the fight | Holds up with hundreds near | Voice for the Board, the Watch and the Orrery, if the owner wants it |
+| **Feel:** frame time, input, load | 60 fps High on the reference machine; cold start under 30 s | No frame over 33 ms on the crowded camera | Same, with 500 in the world | The low machine at Low |
+| **Trust:** fairness, uptime, data | Nothing the client says is believed that can't be checked (as now) | Exploits found by agents fixed before release | The threat model, the bounty, backups | Uptime measured and published |
+| **Agents:** population and builders | Playtester agents walk the first hour every night | Agents fill the lanes and the streets when people are few | 500-pilot load tests from `bc-bot` | Outside agents building on a paid board, if the owner opens one |
+
+## How we build it
+
+- **One lane per area, one doc per lane.** An agent picks up an item from the current phase in its
+  area's doc, builds it thin and joined end to end (`PEERS.md`: "connect before deepening"), and
+  leaves the doc's status true.
+- **Every item has a machine check and a look check.** The machine check is a test, a golden or a
+  suite; the look check is `scripts/pt`, a playtester agent's report, an fx strip or the board. An
+  item is done when both pass.
+- **The owner signs off looks and feel**, once a phase at least, on a real GPU: SwiftShader lies
+  about the look (`CLAUDE.md`'s traps).
+- **Releases are named and noted.** A version in `Cargo.toml`, a name, and notes a player would read.
+
+## What we take from Gates and oneshot
+
+Gates (`AnthonE/Gates`) is a survival game in the same family, shipped and on its tenth release, on
+the desktop and in the browser; oneshot (`AnthonE/oneshot`) is a ranked shooter built from Gates'
+parts, and its `docs/RIP.md` says what it took, file by file. We already take Gates' `fx` crate
+(`scripts/fx-sync.sh`) and its building pieces (`bc_sim::pieces`). How each lifts: **copy** the
+files and trim them, **port** them (rewrite here, to our rules), or take **the idea** only. Files
+are copied, never depended on, as oneshot does: their crates are tied to their own simulations.
+
+| What | From | How | For |
+|---|---|---|---|
+| A RIP doc: every lift with its source, lines, destination, how, and what was left behind | oneshot `docs/RIP.md` | idea | now: this table grows into it |
+| The desktop build: one client crate as `cdylib` and a `[[bin]]`, a native transport beside the wasm one, Linux, Windows and macOS built on a tag | oneshot `crates/client/DESKTOP.md`, `client-net/src/native.rs`, `.github/workflows/desktop.yml` | port (they're on Bevy 0.18, we're on 0.19) | 0.5 |
+| Bug and crash reports from inside the game | oneshot `server/src/bugs.rs`, `client/src/crash.rs` | port | 0.2 (playtesters), 0.5 (everyone) |
+| The rewind's depth chosen by the server from the link it measures, capped (160 ms there); ours believes the client's claim up to 8 ticks, 267 ms (`sim/combat.rs`, `MAX_REWIND_TICKS`) | oneshot `room/src/lib.rs` (`favour_for`), Gates `stats.rs` | port | 0.4 |
+| Cheat flags, decoys and an aim model trained on players; a `SECURITY.md` of promises and a bounty by severity; anticheat staged by how many play | oneshot `room/src/watch.rs`, `decoy.rs`, `tools/aim`, `SECURITY.md`, `docs/ANTICHEAT.md` | idea, then port: our lock-on changes what an aimbot is | 0.4 |
+| A leak gate (a test that no client is sent what it mustn't know) and an impaired-network gate | oneshot `room/tests/leaks.rs`, `client-net/tests/loopback.rs` | idea | 0.4 |
+| The `wtransport` pin both siblings use (crates.io 0.7.1 has a remote panic; we're on 0.7.2, to be checked against it) | oneshot `docs/RIP.md` §1 | check | 0.2 |
+| Ranked queues, playlists that open by who's online, cups, parties; ratings and signed results through Elo Pros | oneshot `server/src/queue.rs`, `playlist.rs`, `party.rs`, `eloqueue.rs`, `elo.rs` | port, for the Proving Ground's board and arena fights | 0.3 |
+| Content as data compiled to checked-in Rust with a `--check`, and a design template a place is written in | oneshot `tools/maps/compile.mjs`, `docs/maps/cloudbreak.md` | idea | 0.3: the base's buildings, places |
+| A load tool of bot clients | oneshot `tools/load` | port beside `bc-bot` | 0.4 |
+| Reports that audit how it feels against the game it's measured by, with ranked causes | oneshot `reports/`, `research_notes/` | idea | every phase's look check |
+| Paid contributions: a price for a merged PR, more for content that ships, paid to a `Wallet:` line | oneshot `CONTRIBUTING.md`, `AGENTS.md`; Gates' board | idea, the owner's call | 0.5 on |
+
+*(Gates' own column is being filled in from its survey.)*
+
+## Open questions for the owner
+
+- **The reference machine:** which laptop or desktop "runs well" is measured on, and the low one.
+- **Platforms:** the browser first and Steam at 0.5, or Steam sooner?
+- **The business:** free to play with paint and a pass, paid early access, the Elo Pros store; and
+  whether wallets stay a way in or become a way to own things.
+- **PvP in space:** where it lives (`PEERS.md` 10).
+- **A paid board for outside agents,** as Gates and oneshot run.
+- **Voice:** in the game's characters, and between players.
