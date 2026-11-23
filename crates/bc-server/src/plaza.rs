@@ -570,6 +570,38 @@ impl Plaza {
         nearest(&all, None, strip, now, tick, SUIT_NEAR, d, &|id| self.heat(id), w, shown);
     }
 
+    /// Who hears `id` talk through the air (`crate::voice`): the people on their floor within
+    /// `range` m of them (up and down too), heard from lately, nearest first, into `out`. Never
+    /// `id`, nor the store's traders (no session hears for them). Someone who hasn't sent a pose
+    /// yet is where they came in.
+    pub fn near(&self, id: u16, range: f32, now: Instant, tick: u32, out: &mut Vec<u16>) {
+        out.clear();
+        let Ok(all) = self.people.lock() else { return };
+        let Some(me) = all.get(&id) else { return };
+        let at = |p: &Person| match p.pose {
+            Some(q) => {
+                let (s, x) = place(&q, tick);
+                (s, x, q.h.max(0.0))
+            }
+            None => (p.arrival.0, p.arrival.1, 0.0),
+        };
+        let (s, x, h) = at(me);
+        let ring = me.strip == RING_DECK;
+        let mut near: Vec<(f32, u16)> = all
+            .iter()
+            .filter(|(k, p)| **k != id && p.strip == me.strip && !p.visitor)
+            .filter(|(_, p)| now.saturating_duration_since(p.heard).as_secs_f32() < HIDE)
+            .filter_map(|(k, p)| {
+                let (ps, px, ph) = at(p);
+                let ds = if ring { deck::round_from(RING, s, ps) } else { ps - s };
+                let d = (px - x).hypot(ds).hypot(ph - h);
+                (d <= range).then_some((d, *k))
+            })
+            .collect();
+        near.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        out.extend(near.into_iter().map(|(_, k)| k));
+    }
+
     /// Where `id` was last seen to be (their last pose taken), if they're in the city.
     pub fn pose_of(&self, id: u16) -> Option<PersonPose> {
         self.people.lock().ok()?.get(&id)?.pose
@@ -1422,5 +1454,44 @@ mod tests {
         assert!((back.walker() - front).length() < 0.05, "{back:?}");
         let (city, by_strip, _, base) = plaza.counts();
         assert_eq!((city, by_strip, base), (1, [1, 0, 0], 2));
+    }
+
+    #[test]
+    fn a_voice_carries_to_the_people_on_its_floor_within_its_reach_and_across_the_rings_seam() {
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let in_town = |x: f32, s: f32| PersonPose { strip: RING_DECK, ..at(0, s, x) };
+        let (x, t) = town::out_of_the_lift(0);
+        let gate = town::deck_s(t);
+        for (id, name) in [(1, "Maren"), (2, "Pagan"), (3, "Ines"), (4, "Viktor")] {
+            plaza.enter_town(id, name);
+        }
+        plaza.enter_base(5, "Bo", 1);
+        assert_eq!(plaza.accept(1, 1, in_town(x, gate), t0, 0), Verdict::Taken);
+        assert_eq!(plaza.accept(2, 1, in_town(x - 6.0, gate + 8.0), t0, 0), Verdict::Taken);
+        assert_eq!(plaza.accept(3, 1, in_town(x, gate + 40.0), t0, 0), Verdict::Taken);
+        // Viktor hasn't sent a pose: he's where he came down, by the lift.
+        let mut out = Vec::new();
+        plaza.near(1, 30.0, t0, 0, &mut out);
+        assert_eq!(out, vec![4, 2], "nearest first; never Maren, nor Ines 40 m off, nor Bay Row");
+        plaza.near(3, 30.0, t0, 0, &mut out);
+        assert!(out.is_empty(), "{out:?}");
+        plaza.near(5, 30.0, t0, 0, &mut out);
+        assert!(out.is_empty(), "Bay Row hears only Bay Row");
+        // Someone not heard from in a while hears nothing more.
+        let late = t0 + Duration::from_secs_f32(HIDE + 0.5);
+        assert_eq!(plaza.accept(1, 2, in_town(x, gate + 0.5), late, 0), Verdict::Taken);
+        plaza.near(1, 30.0, late, 0, &mut out);
+        assert!(out.is_empty(), "{out:?}");
+        // Across the ring's seam, the short way round.
+        let round = deck::DECKS[RING as usize].round();
+        let seam = Plaza::default();
+        seam.enter_at(1, "Maren", RING_DECK, (1.0, x));
+        seam.enter_at(2, "Pagan", RING_DECK, (round - 2.0, x));
+        seam.near(1, 30.0, t0, 0, &mut out);
+        assert_eq!(out, vec![2]);
+        assert!(seam.where_is(9, 0).is_none());
+        seam.near(9, 30.0, t0, 0, &mut out);
+        assert!(out.is_empty(), "nobody: not on foot");
     }
 }

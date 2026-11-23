@@ -172,6 +172,7 @@ pub(super) async fn run(
         news_seen: game.charter.with(|b| b.news_seq()),
         radio_heard: 0,
         mouth: Mouth::default(),
+        voice: game.voice.join(id, conn.clone(), who.pilot, Instant::now()),
         lost: false,
         towing: false,
         inside: None,
@@ -276,6 +277,8 @@ struct Session<'a> {
     /// The last line of the colony's radio passed on, and how fast the pilot may talk on it.
     radio_heard: u64,
     mouth: Mouth,
+    /// Proximity voice: the session's ear on the relay, and how its pilot is heard (`crate::voice`).
+    voice: crate::voice::Mouth,
     /// The suit was destroyed; its wreck is still out there.
     lost: bool,
     /// The pilot ejected, and the colony's tugs have yet to say what they brought home of the wreck
@@ -804,6 +807,12 @@ impl Session<'_> {
                             }
                             continue;
                         }
+                        // Someone talking: relayed to whoever's near (its own bucket, apart from
+                        // input's and the pose's).
+                        Some(PacketKind::Voice) => {
+                            self.talk(&d);
+                            continue;
+                        }
                         _ => {
                             NetStats::add(&self.stats.malformed, 1);
                             continue;
@@ -881,6 +890,12 @@ impl Session<'_> {
                     if self.suit.is_none() {
                         heard = tokio::time::Instant::now();
                     }
+                    // On the radio while at the controls of a live suit out in space.
+                    let radio = match self.speaker() {
+                        crate::voice::Speaker::Radio { flight } => Some(flight),
+                        _ => None,
+                    };
+                    self.voice.on_the_radio(radio);
                     self.hear().await?;
                     if self.survival() {
                         self.send_plaza().await?;
@@ -899,6 +914,68 @@ impl Session<'_> {
                 }
             }
         }
+    }
+
+    /// Where the pilot's voice carries from (`crate::voice`): on foot, where they stand; at the
+    /// controls of a suit out in space (under arcade rules, always), its radio, while it's alive
+    /// (the sector's word: not from a wreck, nor once ejected; [`crate::voice::live_suit`]); flying
+    /// inside the colony, and in the bay, nowhere.
+    fn speaker(&self) -> crate::voice::Speaker {
+        use crate::voice::Speaker;
+        let flying = self.place == Place::Space || !self.survival();
+        match (self.place, self.suit, self.slot()) {
+            (Place::City | Place::Base | Place::Town, _, _) if self.survival() => Speaker::Foot(self.id),
+            (_, Some((suit, _)), Some(flight))
+                if flying
+                    && !self.lost
+                    && self.inside.is_none()
+                    && crate::voice::live_suit(&self.game.sector.metrics, flight) == Some(suit) =>
+            {
+                Speaker::Radio { flight }
+            }
+            _ => Speaker::Nowhere,
+        }
+    }
+
+    /// A frame of the pilot's voice: to whoever hears them now (worked out again at the plaza's
+    /// cadence while they talk). Never decoded, kept or logged.
+    fn talk(&mut self, bytes: &[u8]) {
+        use crate::voice::{FOOT_M, Speaker};
+        let now = Instant::now();
+        let Some(frame) = self.voice.take(bytes, now) else { return };
+        let speaker = self.speaker();
+        let game = self.game;
+        if self.voice.stale(speaker, now) {
+            let tick = game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            let v = &mut self.voice;
+            v.candidates.clear();
+            match speaker {
+                Speaker::Foot(id) => {
+                    game.plaza.near(id, FOOT_M, now, tick, &mut v.ids);
+                    v.candidates.extend(v.ids.iter().map(|&id| (id, None)));
+                }
+                Speaker::Radio { flight } => {
+                    if let Ok(roster) = game.roster.read() {
+                        crate::voice::radio_listeners(
+                            &game.sector.metrics,
+                            &roster,
+                            flight,
+                            &mut v.candidates,
+                        );
+                    }
+                }
+                Speaker::Nowhere => {}
+            }
+            v.listen(speaker, now);
+        }
+        // Named as the people near know them (on foot), or as the roster does (on the radio, the
+        // suit's entity slot: `speaker` checked the sector has it in that flight slot, alive).
+        let (talker, via) = match (speaker, self.suit) {
+            (Speaker::Foot(id), _) => (id, bc_proto::voice::Via::Air),
+            (Speaker::Radio { .. }, Some((suit, _))) => (suit, bc_proto::voice::Via::Radio),
+            _ => return self.voice.nowhere(),
+        };
+        self.voice.relay(&frame, talker, via, now, self.stats);
     }
 
     // ---------------------------------------------------------------------------------------------

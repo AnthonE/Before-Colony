@@ -709,6 +709,7 @@ impl Sector {
             Metrics::set(&ps.missiles, u64::from(st.missiles));
             Metrics::set(&ps.frame, self.sim.suits.frame[client.suit.idx()] as u64);
             Metrics::set(&ps.credits, u64::from(self.sim.suits.credits[client.suit.idx()]));
+            Metrics::set(&ps.alive, u64::from(self.sim.is_alive(client.suit.idx())));
             ps.set_pos(self.sim.suits.flight[client.suit.idx()].pos);
         }
     }

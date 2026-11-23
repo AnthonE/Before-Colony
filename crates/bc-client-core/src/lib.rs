@@ -73,6 +73,7 @@ pub mod traffic;
 pub mod tram;
 pub mod upright;
 pub mod vehicle;
+pub mod voice;
 pub mod walker;
 pub mod watch;
 #[cfg(test)]
@@ -286,6 +287,9 @@ pub struct ClientCore {
     pose: Option<PersonPose>,
     pose_seq: u16,
     pose_sent: f64,
+    /// Voices relayed to the pilot (`voice`): waiting to be heard. The browser splits them off at
+    /// arrival and never feeds them here; the bots do.
+    pub voice: voice::VoiceRing,
 }
 
 impl ClientCore {
@@ -321,7 +325,16 @@ impl ClientCore {
             pose: None,
             pose_seq: 0,
             pose_sent: f64::NEG_INFINITY,
+            voice: voice::VoiceRing::default(),
         }
+    }
+
+    /// A frame of the pilot's own voice for the server: `None` if the payload is empty or too long.
+    pub fn voice_up(seq: u16, end: bool, payload: &[u8]) -> Option<Vec<u8>> {
+        let f = bc_proto::voice::VoiceFrame::new(seq, end, payload)?;
+        let mut buf = [0u8; bc_proto::voice::VOICE_UP_MAX];
+        let n = f.encode_up(&mut buf)?;
+        Some(buf[..n].to_vec())
     }
 
     /// On foot in the colony: where the pilot is now (`None`: not in the city, so nothing to send).
@@ -619,6 +632,13 @@ impl ClientCore {
 
     /// Feeds a datagram received at local time `now` (seconds).
     pub fn on_datagram(&mut self, bytes: &[u8], now: f64) {
+        if packet_kind(bytes) == Some(PacketKind::Voice) {
+            match bc_proto::voice::VoiceFrame::decode_down(bytes) {
+                Ok(f) => self.voice.push(f),
+                Err(_) => self.stats.decode_errors += 1,
+            }
+            return;
+        }
         if packet_kind(bytes) == Some(PacketKind::Plaza) {
             match PlazaReader::new(bytes) {
                 Ok(r) => {
