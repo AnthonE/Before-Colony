@@ -19,8 +19,9 @@ It means five things a player can feel, each of which is a bar we can check:
 
 1. **It feels finished.** Every place has something to do, every verb answers at once, every
    transition is staged, nothing says "TODO", nothing a player meets is a placeholder.
-2. **It runs well.** 60 fps at High on the reference machine (to be named: Open questions), a
-   cold start to playing in under 30 s, no hitches when the town streams in.
+2. **It runs well.** 60 fps at High on the reference machine (`DECISIONS.md`'s default till the
+   owner names one: a 2021 laptop on Iris Xe graphics, in Chrome), a cold start to playing in under
+   30 s, no hitches when the town streams in.
 3. **It stays up and stays fair.** Hundreds of pilots in one world, nobody loses what they earned,
    nobody wins by cheating.
 4. **It lasts.** Reasons to come back for months: things to build, people to build them with, a
@@ -100,8 +101,10 @@ the chain again and again, and people to cross it with".
   some shady); liveries (7); drone offensives and a carrier (8); crews (28), with a crew's hangar
   and shared stores; cars you own and homes on the ring (`OPEN_CITY.md` C1, H0–H3 moved onto the
   ring's buildings); businesses (B1); the Watch's patrols and heat that means something (`OPEN_CITY.md`
-  X1–X2); where PvP lives in space (`PEERS.md` 10); agents as population (9): flaneurs, and the
-  server's tugs, haulers and miners in the lanes.
+  X1–X2); pilots fighting pilots, as the owner decided (`DECISIONS.md`, 2026-11-23): in suits only
+  outside a range round the colony, which itself never takes fire, and on foot anywhere, the Watch
+  answering it; proximity voice, on foot and over a suit's radio; agents as population (9):
+  flaneurs, and the server's tugs, haulers and miners in the lanes.
 - **Exit bar:**
   - a week of play with something new each day and no repeat that feels like one (playtesters and
     the owner);
@@ -130,7 +133,9 @@ the chain again and again, and people to cross it with".
 
 ### 0.5 · Early Access
 
-**People can find it, install it, pay for it and tell us what's wrong.**
+**People can find it, install it, pay for it and tell us what's wrong.** The browser first
+(`DECISIONS.md`, 2026-11-23): Early Access is the browser build on Elo Pros, the business Elo Pros'
+(below); the desktop build and Steam follow it.
 
 - **Built from:** a desktop build (the client native as well as wasm) on Steam beside the browser;
   the store page, the trailer (`scripts/trailer`), the notes; player reports from inside the game;
@@ -178,7 +183,7 @@ Every phase's exit includes its row of each.
 | **Sound:** the mix, music, voice | Every action in the first hour has its sound: the town's streets, traffic and crowd, the bay, a car, a lift | A positional mix for crowds and traffic; music for the town and the bay as `bc-sound`'s follows the fight | Holds up with hundreds near | Voice for the Board, the Watch and the Orrery, if the owner wants it |
 | **Feel:** frame time, input, load | 60 fps High on the reference machine; cold start under 30 s | No frame over 33 ms on the crowded camera | Same, with 500 in the world | The low machine at Low |
 | **Trust:** fairness, uptime, data | Nothing the client says is believed that can't be checked, but what's listed (the rewind's depth: below) | Exploits found by agents fixed before release | The threat model, the bounty, backups | Uptime measured and published |
-| **Agents:** population and builders | Playtester agents walk the first hour every night | Agents fill the lanes and the streets when people are few | 500-pilot load tests from `bc-bot` | Outside agents building on a paid board, if the owner opens one |
+| **Agents:** population and builders | Playtester agents walk the first hour every night; outside agents building on the paid board (`AGENTS.md`) | Agents fill the lanes and the streets when people are few | 500-pilot load tests from `bc-bot` | The board's lanes cover every track |
 
 ## How we build it
 
@@ -250,13 +255,9 @@ its terrain (an island from a seed: the idea's ours already).
 The two games share a timeline (Gates' `docs/WORLD.md` §11, never said in either game: `STORY.md`'s
 "Under everything"), and Gates' held items already borrow `bc-model`'s rules.
 
-## Open questions for the owner
+## The owner's answers
 
-- **The reference machine:** which laptop or desktop "runs well" is measured on, and the low one.
-- **Platforms:** the browser first and Steam at 0.5, or Steam sooner? And on Steam, how the wallet
-  sign-in and anything token-shaped are kept out (Valve's rule above).
-- **The business:** free to play with paint and a pass, paid early access, the Elo Pros store; and
-  whether wallets stay a way in or become a way to own things.
-- **PvP in space:** where it lives (`PEERS.md` 10).
-- **A paid board for outside agents,** as Gates and oneshot run.
-- **Voice:** in the game's characters, and between players.
+Asked in this document and answered on 2026-11-23 (`DECISIONS.md` has the words, and the knobs
+still open with the defaults that ship meanwhile): the browser first; the business is Elo Pros'
+(below); suits fight pilots away from the colony, and on foot it's open season anywhere; a paid
+board, now; proximity voice. The reference machine is still open, and its default stands.
