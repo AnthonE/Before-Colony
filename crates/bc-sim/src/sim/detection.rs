@@ -60,7 +60,7 @@ impl Sim {
     /// [`Sim::sight`] found already.
     pub fn detects_by(&self, viewer: usize, reach: f32, j: usize, sight: &Sight) -> bool {
         let s = &self.suits;
-        let (sig, visual) = if s.faction[j] != s.faction[viewer] {
+        let (sig, visual) = if self.unfriendly(viewer, j) {
             (sight.enemy, sight.enemy_visual)
         } else {
             (sight.ally, VISUAL_RANGE)
@@ -84,9 +84,14 @@ impl Sim {
 
     /// Whether `viewer` has lost suit `j` to its jammer.
     pub fn jammed_from(&self, viewer: usize, j: usize) -> bool {
-        self.jamming(j).is_some()
-            && self.suits.faction[j] != self.suits.faction[viewer]
-            && !self.detects(viewer, j)
+        self.jamming(j).is_some() && self.unfriendly(viewer, j) && !self.detects(viewer, j)
+    }
+
+    /// Whether what suit `j` hides it hides from `viewer` (its jammer, and parked, hidden or
+    /// running cold): `viewer` is of another side, or a pilot out in open space with it under
+    /// `Law::OpenSpace`, who could hunt it (`colony::reach::unfriendly`). Its allies see it all.
+    pub fn unfriendly(&self, viewer: usize, j: usize) -> bool {
+        crate::colony::reach::unfriendly(self.cfg.law, self.party(viewer), self.party(j))
     }
 
     /// The suit `i` designates (its lock target), if that's a live hostile on `i`'s sensors: of

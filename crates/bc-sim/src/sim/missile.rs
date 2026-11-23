@@ -191,7 +191,8 @@ impl Sim {
             self.tick().saturating_sub(s.last_fired[j]) < 30,
             false,
         );
-        if s.faction[j] != m.by[k].faction {
+        // (What it hides, it hides from whoever launched at it, by the law: `colony::reach`.)
+        if crate::colony::reach::unfriendly(self.cfg.law, m.by[k], s.party(j)) {
             if let Some((jam, _)) = self.jamming(j) {
                 sig *= jam;
             }

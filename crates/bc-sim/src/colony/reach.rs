@@ -52,6 +52,23 @@ pub fn past_line(p: Vec3) -> f32 {
     clearance(p) - REACH_M
 }
 
+/// The reach's outer edge round the colony's axis at `x` along it from the ring's middle (the
+/// colony's frame, −X toward the hub): its radius from the axis, m, or `None` past its ends. The
+/// edge of whichever reaches further there, the ring's or the hub's (the chart draws it).
+pub fn outline(x: f32) -> Option<f32> {
+    use crate::world::{COLONY_HALF_WIDTH, COLONY_RADIUS};
+    let round = |off: f32, r: f32| {
+        let a = off.max(0.0);
+        (a <= REACH_M).then(|| r + sqrt(REACH_M * REACH_M - a * a))
+    };
+    let ring = round(x.abs() - COLONY_HALF_WIDTH, COLONY_RADIUS);
+    let hub = round((DRUM_X.0 - x).max(x - DRUM_X.1), DRUM_RADIUS);
+    match (ring, hub) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, b) => a.or(b),
+    }
+}
+
 /// The law a sector keeps between pilots (`SimConfig::law`). Clients are told in their Welcome.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Law {
@@ -102,6 +119,14 @@ pub fn hostile(law: Law, by: Party, on: Party) -> bool {
         Law::Sides => sides,
         Law::OpenSpace => by.open && on.open,
     }
+}
+
+/// Whether `on` hides from `by` what it hides from its enemies (a jammer, being parked, hidden or
+/// cold) under `law`: `by` is of another side, or could hunt it (`hostile`: a pilot out in open
+/// space with it). Sensors, seekers and the jammer's shimmer go by it, so a hide spot protects a
+/// sleeper from a same-side hunter out in open space as it does from another side's.
+pub fn unfriendly(law: Law, by: Party, on: Party) -> bool {
+    by.faction != on.faction || hostile(law, by, on)
 }
 
 /// Whether a blow `by` strikes lands on `on` under `law`, friendly fire `ff` on or off: every hit
@@ -194,6 +219,29 @@ mod tests {
         for p in [Vec3::new(-4_200.0, 700.0, -3_200.0), Vec3::new(4_200.0, 700.0, -3_200.0)] {
             assert!(!in_reach(p), "{p}");
         }
+    }
+
+    /// The outline the chart draws is the reach's edge: every point round it is [`REACH_M`] from
+    /// the colony, and it ends where the reach does.
+    #[test]
+    fn the_outline_is_the_edge() {
+        use crate::math::{cos, sin};
+        let mut x = -7_000.0;
+        while x <= 7_000.0 {
+            match outline(x) {
+                Some(r) => {
+                    for k in 0..8 {
+                        let a = k as f32 * 0.785;
+                        let p = COLONY_CENTER + Vec3::new(x, r * cos(a), r * sin(a));
+                        assert!((clearance(p) - REACH_M).abs() < 1.0, "x {x}: {}", clearance(p));
+                    }
+                }
+                None => assert!(!in_reach(COLONY_CENTER + Vec3::X * x), "x {x}"),
+            }
+            x += 125.0;
+        }
+        assert_eq!(outline(0.0), Some(COLONY_RADIUS + REACH_M));
+        assert!(outline(MOUTH_X - REACH_M + 1.0).is_some() && outline(MOUTH_X - REACH_M - 1.0).is_none());
     }
 
     /// No landmark straddles the line: each is wholly in the reach or wholly out of it wherever its

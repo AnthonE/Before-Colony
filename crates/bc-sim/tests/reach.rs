@@ -6,6 +6,8 @@
 //! the lock follows the law; and under `Law::Sides` a same-side pilot is never hit.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
+mod common;
+
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE, MODE};
 use bc_proto::events::{BurstCause, Event};
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, WeaponKind};
@@ -400,4 +402,59 @@ fn point_defence_goes_by_the_law() {
     assert!(!sides.is_empty() && !sides.contains(&BurstCause::ShotDown), "sides: its own side's: {sides:?}");
     let open = point_defence(Law::OpenSpace);
     assert!(open.contains(&BurstCause::ShotDown), "open space: anyone's: {open:?}");
+}
+
+/// A Colonies sleeper crouched in Hermit's THE DEEP (open space), asleep and dark, with Colonies
+/// hunters 400 m and 100 m off it designating it, under `law`: whether each detects it, and
+/// whether the far one's designation holds.
+fn hunted_in_the_deep(law: Law) -> (bool, bool, bool) {
+    use bc_proto::buttons::GRIP;
+    use bc_sim::bodies::{Bodies, Body};
+    use bc_sim::ground::{CROUCH_STANCE, place};
+    use bc_sim::sim::{LURK_SETTLE_TICKS, POWER_DOWN_TICKS};
+
+    let mut sim = sector(law);
+    let id = common::standing_on(&mut sim, FrameId::Argo, Faction::Colonies, Body::Landmark(1), Vec3::Y);
+    let i = id.idx();
+    let hold = |sim: &mut Sim, thrust: [i8; 3]| {
+        let t = sim.next_tick();
+        let aim = sim.suits.flight[i].rot * Vec3::Z;
+        let cmd =
+            InputCmd { tick: t, view_tick_q4: t << 4, aim, thrust, buttons: GRIP, ..InputCmd::default() };
+        sim.set_input(id, cmd);
+        sim.step();
+    };
+    for _ in 0..40 {
+        hold(&mut sim, [0, -127, 0]);
+        if sim.suits.anchor[i].stance == CROUCH_STANCE {
+            break;
+        }
+    }
+    for _ in 0..=LURK_SETTLE_TICKS {
+        hold(&mut sim, [0; 3]);
+    }
+    assert!(!in_reach(sim.suits.flight[i].pos), "THE DEEP is out in open space");
+    let a = sim.suits.anchor[i];
+    let b = Bodies::at(&sim.field, sim.landmarks(), sim.tick());
+    let n = b.pose(a.body).unwrap().rot * place(&b.shape(a.body).unwrap(), a.local, a.stance).1;
+    let at = sim.suits.flight[i].pos;
+    let far = pilot(&mut sim, FrameId::Argo, Faction::Colonies, at + n * 400.0, -n);
+    let near = pilot(&mut sim, FrameId::Argo, Faction::Colonies, at + n * 100.0, -n);
+    assert!(sim.sleep(id));
+    for _ in 0..=POWER_DOWN_TICKS {
+        for h in [far, near] {
+            sim.suits.flight[h.idx()].vel = Vec3::ZERO;
+            press(&mut sim, h, 0, at, 0, i as u16);
+        }
+        sim.step();
+    }
+    (sim.detects(far.idx(), i), sim.detects(near.idx(), i), sim.designation(far.idx()) == Some(i))
+}
+
+#[test]
+fn a_hide_spot_hides_a_sleeper_from_its_own_side_in_open_space() {
+    // Open space: its own side could hunt it, so it hides from them as from anyone.
+    assert_eq!(hunted_in_the_deep(Law::OpenSpace), (false, true, false));
+    // Sides: an ally sees it all along, and never designates it.
+    assert_eq!(hunted_in_the_deep(Law::Sides), (true, true, false));
 }
