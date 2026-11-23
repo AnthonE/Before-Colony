@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -18,6 +21,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --all -- --check
+      - name: Doc references (the contributor docs name real files)
+        run: sh scripts/refs.sh
       - name: Clippy (hot-path bans are errors)
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Tests, including the zero-allocation and determinism proofs (release for speed)

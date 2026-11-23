@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 step() { echo; echo "==> $*"; }
 
 step "format";               cargo fmt --all -- --check
+step "doc references";       sh scripts/refs.sh
 step "clippy (native)";      cargo clippy --workspace --all-targets -- -D warnings
 step "clippy (wasm client)"; cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings
 step "clippy (wasm, webgpu)"; cargo clippy -p bc-client --target wasm32-unknown-unknown --features webgpu -- -D warnings
