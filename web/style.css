@@ -720,6 +720,25 @@ html.front-up #boot { display: none; }
 }
 .chat.open .chat-input { display: block; }
 
+/* --- Proximity voice: you on the air, and who's talking, over the radio's lines. --- */
+.voice {
+  position: fixed;
+  left: 16px;
+  bottom: calc(34% + 140px);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+.voice-me, .voice-talking > div {
+  background: linear-gradient(90deg, rgba(4, 10, 18, 0.72), rgba(4, 10, 18, 0.2));
+  padding: 3px var(--s3);
+  margin-top: 1px;
+}
+.voice-me { color: var(--amber); }
+.voice-me.live { color: var(--cyan); box-shadow: inset 2px 0 0 var(--cyan); }
+.voice-talking > div { color: var(--white); box-shadow: inset 2px 0 0 var(--amber); }
+.voice-talking > div::before { content: "◖ "; color: var(--amber); }
+
 /* --- On foot in the hangar bay or the city (survival rules). --- */
 .bay-line {
   position: fixed;

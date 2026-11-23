@@ -266,6 +266,11 @@ pub const BINDINGS: &[Binding] = &[
         "/ (or Enter)",
         "Talk on the colony's radio (Enter opens it on foot, and in a suit wherever there's nothing to dock): Enter says it, Esc closes",
     ),
+    b(
+        Group::System,
+        "` / Mouse back button",
+        "Talk, held (or a press on, a press off: SETTINGS > SOUND): to the people near you on foot, over your suit's radio in space. /mute NAME silences someone, /unmute everyone",
+    ),
     b(Group::System, "Esc", "Menu"),
     b(Group::System, "F1 / ?", "This list"),
     b(Group::System, "F10 / O", "Graphics quality"),

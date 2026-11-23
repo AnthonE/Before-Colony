@@ -226,6 +226,12 @@
     <input id="chat-input" class="chat-input" maxlength="160" autocomplete="off" spellcheck="false"
       placeholder="Say it on the colony's radio · Enter sends · Esc closes">
   </div>
+  <!-- Proximity voice (crates/bc-client/src/voice.rs, web/voice.js): you on the air, the
+       microphone's state, who's talking. -->
+  <div id="voice" class="voice hidden">
+    <div id="voice-me" class="voice-me"></div>
+    <div id="voice-talking" class="voice-talking"></div>
+  </div>
   <div id="banner" class="banner hidden">
     <div id="banner-text"></div>
     <div class="row"><button data-cmd="retry" class="primary">RECONNECT NOW</button><button data-cmd="cancel">TITLE</button></div>
@@ -244,6 +250,8 @@
   </dialog>
 
   <script src="ui.js"></script>
+  <!-- Proximity voice: the browser's own Opus, its microphone tap in voice-worklet.js. -->
+  <script src="voice.js"></script>
   <script type="module" src="loader.js"></script>
 </body>
 </html>

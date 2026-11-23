@@ -163,9 +163,13 @@ pub fn run() {
                 (crate::launch_shot::open_bay_doors, crate::launch_shot::publish_launch_shot)
                     .after(crate::launch_shot::begin_launch_shot),
             )
-            .add_plugins(crate::audio::AudioPlugin)
+            .add_plugins((crate::audio::AudioPlugin, crate::voice::VoicePlugin))
             .add_systems(First, crate::audio::build_bank)
-            .add_systems(Update, crate::audio::play_sound.in_set(Vis::Audio))
+            // Proximity voice before the frame's sounds start (its radio's squelch is one of them).
+            .add_systems(
+                Update,
+                (crate::voice::drive_voice, crate::audio::play_sound).chain().in_set(Vis::Audio),
+            )
             .add_systems(
                 Update,
                 (

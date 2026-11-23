@@ -800,10 +800,38 @@
     el.replaceChildren(key, "  " + m[2]);
   }
 
+  // Proximity voice's corner: you on the air (or why you can't be), and who's talking near you
+  // (`bc_client_core::page::VoiceView`). Nothing when there's nothing to say.
+  function renderVoice(vc) {
+    const box = $("voice");
+    box.classList.toggle("hidden", !vc);
+    if (!vc) return;
+    const why = {
+      asking: "MICROPHONE: ALLOW IT IN YOUR BROWSER",
+      denied: "MICROPHONE BLOCKED: ALLOW IT IN YOUR BROWSER'S SITE SETTINGS",
+      none: "NO MICROPHONE: YOU HEAR THE PEOPLE NEAR YOU, BUT CAN'T TALK",
+      busy: "THE MICROPHONE IS BUSY IN ANOTHER APP",
+      unsupported: "THIS BROWSER CAN'T DO VOICE",
+      failed: "THE MICROPHONE DIDN'T OPEN",
+    };
+    const me = vc.onAir ? (vc.radio ? "TRANSMITTING" : "TALKING") : (why[vc.mic] || "");
+    const line = $("voice-me");
+    line.textContent = me;
+    line.classList.toggle("hidden", !me);
+    line.classList.toggle("live", !!vc.onAir);
+    line.classList.toggle("radio", !!vc.radio);
+    $("voice-talking").replaceChildren(...(vc.talking || []).map((name) => {
+      const row = document.createElement("div");
+      row.textContent = name;
+      return row;
+    }));
+  }
+
   // --- The game's view. ---
   function update(v) {
     view = v;
     renderRadio(v);
+    renderVoice(v.voice);
     const s = v.screen;
     const onTitle = s === "title" || s === "connecting" || s === "failed";
     show($("title"), onTitle);

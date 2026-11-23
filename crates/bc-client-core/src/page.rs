@@ -128,6 +128,25 @@ pub struct View {
     /// The radio's latest lines, who and what, and how many have been heard.
     pub radio_seq: u32,
     pub radio: Vec<(String, String)>,
+    /// Proximity voice's corner (`crate::voice`), while voice is on and there's something to say:
+    /// the pilot on the air, the microphone asked for or refused, who's talking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<VoiceView>,
+}
+
+/// Proximity voice's corner of the page.
+#[derive(Clone, Debug, PartialEq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceView {
+    /// The pilot is talking now.
+    pub on_air: bool,
+    /// Over a suit's radio (in space), not through the air (on foot).
+    pub radio: bool,
+    /// The microphone: `off` (not asked for yet), `asking`, `on`, `denied`, `none` (no microphone),
+    /// `busy`, `unsupported` (this browser can't encode voice) or `failed`.
+    pub mic: &'static str,
+    /// Who's talking now, by callsign (the muted aren't heard, nor shown).
+    pub talking: Vec<String>,
 }
 
 /// A frame to launch in, on the title screen.

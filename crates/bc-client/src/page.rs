@@ -146,6 +146,8 @@ pub struct Ui {
     /// The radio's latest lines, who and what, and how many have been heard (`chat.rs`).
     pub radio: Vec<(String, String)>,
     pub radio_seq: u32,
+    /// Proximity voice's corner (`voice.rs`): none while there's nothing to show.
+    pub voice: Option<bc_client_core::page::VoiceView>,
 }
 
 impl Ui {
@@ -365,6 +367,7 @@ fn view_of(ui: &Ui) -> View {
         chat: ui.chat,
         radio_seq: ui.radio_seq,
         radio: ui.radio.clone(),
+        voice: ui.voice.clone(),
     }
 }
 

@@ -3,9 +3,11 @@
 //! one-shots to start, the cockpit model (`bc_sound::cockpit`) sets the engine loops and alarms,
 //! and the music director (`bc_sound::music`) crossfades the score.
 //!
-//! The AudioContext is made here and left on the page as `window.bcAudio`, where `web/ui.js`
-//! resumes it on the first click or key (browsers won't start audio without a gesture) and
-//! suspends it while the tab is hidden. Web Audio renders on its own thread: a slow frame delays a
+//! The AudioContext is made here, at the bank's 48 kHz (what the browser's Opus decodes to, for
+//! proximity voice), and left on the page as `window.bcAudio`, where `web/ui.js` resumes it on the
+//! first click or key (browsers won't start audio without a gesture) and suspends it while the tab
+//! is hidden. Voices (`web/voice.js`, `voice.rs`) play into `window.bcVoiceBus`, a gain of their
+//! own ahead of the mix's low-pass, so a blackout muffles them too. Web Audio renders on its own thread: a slow frame delays a
 //! sound's start by a frame, and never glitches one that's playing.
 
 use std::collections::HashMap;
@@ -21,8 +23,8 @@ use bc_sound::{CUE_COUNT, Cue, Mix};
 use bevy::prelude::*;
 use wasm_bindgen::JsValue;
 use web_sys::{
-    AudioBuffer, AudioBufferSourceNode, AudioContext, AudioContextState, BiquadFilterNode, BiquadFilterType,
-    DynamicsCompressorNode, GainNode, StereoPannerNode,
+    AudioBuffer, AudioBufferSourceNode, AudioContext, AudioContextOptions, AudioContextState,
+    BiquadFilterNode, BiquadFilterType, DynamicsCompressorNode, GainNode, StereoPannerNode,
 };
 
 use crate::camera::MainCamera;
@@ -64,6 +66,9 @@ struct LoopVoice {
 pub struct WebAudio {
     ctx: AudioContext,
     input: GainNode,
+    /// Proximity voice's bus (`window.bcVoiceBus`), and its gain as last set.
+    voice: GainNode,
+    voice_at: f32,
     lowpass: BiquadFilterNode,
     lowpass_at: f32,
     buffers: Vec<Option<AudioBuffer>>,
@@ -75,7 +80,10 @@ pub struct WebAudio {
 
 impl WebAudio {
     fn new() -> Result<Self, JsValue> {
-        let ctx = AudioContext::new()?;
+        let opts = AudioContextOptions::new();
+        opts.set_sample_rate(bc_sound::SAMPLE_RATE as f32);
+        opts.set_latency_hint(&JsValue::from_str("interactive"));
+        let ctx = AudioContext::new_with_context_options(&opts).or_else(|_| AudioContext::new())?;
         let input = ctx.create_gain()?;
         let lowpass = ctx.create_biquad_filter()?;
         lowpass.set_type(BiquadFilterType::Lowpass);
@@ -97,12 +105,18 @@ impl WebAudio {
             pan.connect_with_audio_node(&input)?;
             strips.push(Strip { gain, pan, busy_until: 0.0 });
         }
+        let voice = ctx.create_gain()?;
+        voice.gain().set_value(0.0);
+        voice.connect_with_audio_node(&input)?;
         if let Some(w) = web_sys::window() {
             let _ = js_sys::Reflect::set(&w, &JsValue::from_str("bcAudio"), &ctx);
+            let _ = js_sys::Reflect::set(&w, &JsValue::from_str("bcVoiceBus"), &voice);
         }
         Ok(Self {
             ctx,
             input,
+            voice,
+            voice_at: 0.0,
             lowpass,
             lowpass_at: 20_000.0,
             buffers: vec![None; CUE_COUNT],
@@ -170,6 +184,14 @@ impl WebAudio {
         }
     }
 
+    /// How loud voices are (the master volume times the voices', 0 with voice off).
+    pub fn set_voice(&mut self, gain: f32) {
+        if (self.voice_at - gain).abs() > 0.005 {
+            let _ = self.voice.gain().set_target_at_time(gain, self.ctx.current_time(), 0.05);
+            self.voice_at = gain;
+        }
+    }
+
     fn set_lowpass(&mut self, hz: f32) {
         if (self.lowpass_at - hz).abs() > 50.0 {
             let _ = self.lowpass.frequency().set_target_at_time(hz, self.ctx.current_time(), 0.15);
@@ -195,7 +217,7 @@ impl WebAudio {
 /// The sound model: the mixer, the cockpit and the music director.
 #[derive(Resource, Default)]
 pub struct Sound {
-    mixer: Mixer,
+    pub(crate) mixer: Mixer,
     cockpit: Cockpit,
     music: Director,
     /// Each suit's saber flag last frame (a blade lighting up is a swing).
@@ -501,6 +523,8 @@ pub fn play_sound(
         audio.set_loop(l.cue, l.gain * l.cue.def().gain * bus, l.rate);
     }
     audio.set_lowpass(out.lowpass_hz);
+    // Voices: the master volume times the voices' (`voice.rs` plays them into this bus).
+    audio.set_voice(if s.voice_chat { s.vol_master * s.vol_voice } else { 0.0 });
 
     // Music.
     let m = sound.music.frame(
