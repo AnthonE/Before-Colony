@@ -95,6 +95,7 @@ use bc_proto::{
 };
 use bc_sim::DT;
 use bc_sim::bodies::Body;
+use bc_sim::colony::reach::Law;
 use bc_sim::config::{G0, MAX_REWIND_TICKS};
 use bc_sim::content::{Mount, Replication, frame, weapon};
 use bc_sim::math::{clamp_to_cone, integrate_rotation, normalize_or};
@@ -187,6 +188,9 @@ pub struct Welcome {
     pub landmarks: u8,
     /// The sector is the colony's inside (the pilot flew in through the inner gate).
     pub interior: bool,
+    /// Open space (`bc_sim::colony::reach::Law::OpenSpace`): past the colony's reach pilots harm
+    /// pilots of any side, inside it none.
+    pub open_space: bool,
 }
 
 /// The server's sign-in challenge.
@@ -556,6 +560,8 @@ impl ClientCore {
                 self.predict.set_interior(flags & welcome_flags::INTERIOR != 0);
                 self.predict.set_landmarks(landmarks);
                 let anime = flags & welcome_flags::ANIME != 0;
+                let open_space = flags & welcome_flags::OPEN_SPACE != 0;
+                self.world.law = if open_space { Law::OpenSpace } else { Law::Sides };
                 self.predict.set_rules(if anime { FlightRules::Anime } else { FlightRules::Real });
                 self.welcome = Some(Welcome {
                     client_slot,
@@ -570,6 +576,7 @@ impl ClientCore {
                     anime,
                     colony: flags & welcome_flags::COLONY != 0,
                     interior: flags & welcome_flags::INTERIOR != 0,
+                    open_space,
                     landmarks: self.predict.landmarks().len() as u8,
                 });
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));

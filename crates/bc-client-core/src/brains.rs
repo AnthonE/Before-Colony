@@ -3,7 +3,7 @@
 use crate::InputContext;
 use crate::salvage::route;
 use crate::world::World;
-use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, STOW};
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, STOW};
 use bc_proto::{ChunkKind, FrameId, InputCmd, Part};
 use bc_sim::TICK_HZ;
 use bc_sim::ai::{self, AiState, DroneProfile, PILOT};
@@ -17,6 +17,11 @@ use glam::Vec3;
 
 /// Where the fighting is (the drone patrol ring around the colony).
 pub const COMBAT_ZONE: Vec3 = Vec3::new(0.0, 900.0, 0.0);
+
+/// How far off its aim a pilot of its own side must be for an agent to fire in open space, rad
+/// (about 4°); and the triggers it lets go of.
+const CHECK_FIRE: f32 = 0.07;
+const TRIGGERS: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE;
 
 /// The drone brain from `bc-sim`, running on the agent's own sensor view, flying the frame's
 /// whole kit (`bc_sim::ai::kit`): it picks targets and maneuvers by utility, leads them linearly,
@@ -48,7 +53,16 @@ impl DroneBrain {
             self.ai.think_at = ctx.tick + 3;
         }
         let target = p.get(self.ai.target).copied();
-        ai::drive(&p.me, target.as_ref(), &mut self.ai, ctx.tick, &profile, spec)
+        let mut cmd = ai::drive(&p.me, target.as_ref(), &mut self.ai, ctx.tick, &profile, spec);
+        // Brains go by side (`Contact::hostile`): in open space a pilot of its own side is fair
+        // game, but never its aim, so it holds its fire while one is in the line of it.
+        let reach = target.map_or(range, |t| t.dist + 150.0);
+        if cmd.buttons & TRIGGERS != 0
+            && ctx.world.friend_in_line(p.me.pos, cmd.aim, reach, CHECK_FIRE, ctx.resolve_tick)
+        {
+            cmd.buttons &= !TRIGGERS;
+        }
+        cmd
     }
 
     /// Current target slot, if any.

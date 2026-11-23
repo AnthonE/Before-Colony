@@ -797,6 +797,16 @@ fn special_row(spec: &FrameSpec, o: &OwnState, asked: bool) -> Option<Row> {
     )
 }
 
+/// What the HUD last explained, and when, so it says each once a while: a trigger pulled where
+/// weapons are safe, a shot at a pilot the colony's reach shelters; and which side of the reach's
+/// line the pilot was on (`None`: not flying in space under open space), to say when they cross.
+#[derive(Default)]
+pub struct Said {
+    safe: f64,
+    sheltered: f64,
+    open: Option<bool>,
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn update_hud(
     game: NonSend<GameClient>,
@@ -848,7 +858,7 @@ pub fn update_hud(
     mut ui: ResMut<crate::page::Ui>,
     settings: Res<crate::settings::SettingsRes>,
     mut readings: ResMut<Readings>,
-    mut safe_said: Local<f64>,
+    mut said: Local<Said>,
 ) {
     let game = game.borrow();
     let core = &game.core;
@@ -1088,8 +1098,9 @@ pub fn update_hud(
             && !core.own_view().is_some_and(|v| bc_sim::colony::hall::weapons_free(v.pos));
         // A trigger pulled where nothing fires: why, there and then, not only the heading's word (a
         // dead trigger with no reason reads as a bug, or as the game saying no).
-        if safe && controls.buttons & (FIRE_PRIMARY | FIRE_SECONDARY) != 0 && now - *safe_said > 6.0 {
-            *safe_said = now;
+        let trigger = controls.buttons & (FIRE_PRIMARY | FIRE_SECONDARY) != 0;
+        if safe && trigger && now - said.safe > 6.0 {
+            said.safe = now;
             ui.toast(
                 "WEAPONS SAFE · A SHOT IN A PRESSURE HULL STOPS A STRIP · THE BLAST HALL IS WEAPONS FREE",
             );
@@ -1101,6 +1112,30 @@ pub fn update_hud(
                 let hits = core.world.my_target_hits;
                 (format!("WEAPONS FREE · TRAINING ROUNDS · TARGETS {hits}"), Tone::Amber)
             };
+        }
+        // In space under open space (`bc_sim::colony::reach`): which side of the colony's reach the
+        // pilot is on and how far its line is, said again as they cross it; and why a trigger
+        // pulled on a pilot it shelters harms nobody.
+        let flying = core.own_view().filter(|v| v.alive && !core.welcome.is_some_and(|wl| wl.interior));
+        match flying
+            .and_then(|v| bc_client_core::instruments::reach_heading(world.law, v.pos).map(|h| (v, h)))
+        {
+            Some((v, heading)) => {
+                (r.arms.title, r.arms.title_tone) = heading;
+                let open = !bc_sim::colony::reach::in_reach(v.pos);
+                if said.open.is_some_and(|was| was != open) {
+                    ui.toast(bc_client_core::instruments::reach_crossed(open));
+                }
+                said.open = Some(open);
+                if trigger
+                    && now - said.sheltered > 6.0
+                    && world.sheltered_under(v.pos, core.last_cmd.aim, t).is_some()
+                {
+                    said.sheltered = now;
+                    ui.toast(bc_client_core::instruments::SHELTERED);
+                }
+            }
+            None => said.open = None,
         }
         // A gun in hand takes the secondary's trigger (`bc_sim::content::salvage::held_gun`).
         let in_hand = world.gun_in_hand();
@@ -2123,7 +2158,10 @@ pub fn update_marks(
         let Some(track) = world.entity(slot) else { continue };
         let e = &track.latest;
         let pos = track.sample(t, &world.bodies).pos;
-        let hostile = e.faction != core.cfg.faction;
+        // Fair game by the sector's law (`World::foe`): another side's, or a pilot of the pilot's own
+        // out in open space with them, which shows amber and says so.
+        let hostile = world.foe(slot, own_pos, t);
+        let open_foe = hostile && e.faction == world.faction;
         let wreck = e.flags & ent_flags::WRECK != 0;
         let locked_on_you = e.flags & ent_flags::LOCKED_ON_YOU != 0;
         // The pilot's own lock-on: where it is always shows, on screen or off it.
@@ -2165,9 +2203,10 @@ pub fn update_marks(
             format!("\nLOCK-ON {} m/s", signed(-(track.sample(t, &world.bodies).vel - own_vel).dot(to)))
         });
         let full = format!(
-            "{}{}{}\n{}{}{}{}{}{}",
+            "{}{}{}{}\n{}{}{}{}{}{}",
             world.name_of(slot),
             pilot_tag(e.pilot),
+            if open_foe && !wreck { " OPEN" } else { "" },
             warn,
             km(dist),
             if e.pilot == PilotKind::Agent { " agent" } else { "" },
@@ -2187,6 +2226,8 @@ pub fn update_marks(
             ORRERY_PINK
         } else if asleep {
             Color::srgb(0.55, 0.66, 0.8)
+        } else if open_foe {
+            AMBER
         } else if hostile {
             RED
         } else {

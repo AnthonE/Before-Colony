@@ -58,6 +58,9 @@ pub mod welcome_flags {
     /// This server will walk the pilot in the tick (they said [`hello_flags::STREET`](super::hello_flags::STREET),
     /// and it walks people there): on foot their snapshots say `ON_FOOT`.
     pub const STREET: u8 = 1 << 6;
+    /// Open space (`bc_sim::colony::reach::Law::OpenSpace`): past the colony's reach pilots harm
+    /// pilots of any side, and inside it none. Otherwise, sides: a suit harms another side's.
+    pub const OPEN_SPACE: u8 = 1 << 7;
 }
 
 /// [`ControlMsg::Roster`] flags.
@@ -617,6 +620,7 @@ mod tests {
             | welcome_flags::COLONY
             | welcome_flags::INTERIOR;
         assert_eq!(welcome_flags::STREET & others, 0);
+        assert_eq!(welcome_flags::OPEN_SPACE & (others | welcome_flags::STREET), 0);
     }
 
     #[test]

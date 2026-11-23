@@ -1496,6 +1496,27 @@ pub fn chart_draw(
         bold.circle(Isometry3d::new(DOCK_CENTER, Quat::from_rotation_y(FRAC_PI_2)), DOCK_RADIUS, dock_col)
             .resolution(48);
         label(COLONY_CENTER + Vec3::new(0.0, COLONY_RADIUS * 1.35, 0.0), "THE FIRST COLONY".into(), CYAN, 50);
+        // Under open space, the colony's reach (`bc_sim::colony::reach`): rings round its axis where
+        // it ends, past which pilots are fair game.
+        if world.law == bc_sim::colony::reach::Law::OpenSpace {
+            use bc_sim::colony::reach::{REACH_M, outline};
+            let reach_col = glow(AMBER, 0.8, 0.35 * sector);
+            for x in [-6_300.0, -5_800.0, -4_800.0, -3_000.0, -1_000.0, 1_000.0, 3_000.0, 4_800.0, 5_800.0] {
+                if let Some(r) = outline(x) {
+                    dashes.circle(
+                        Isometry3d::new(COLONY_CENTER + Vec3::X * x, Quat::from_rotation_y(FRAC_PI_2)),
+                        r,
+                        reach_col,
+                    );
+                }
+            }
+            label(
+                COLONY_CENTER + Vec3::new(0.0, COLONY_RADIUS + REACH_M + 300.0, 0.0),
+                "THE COLONY'S REACH · OPEN SPACE PAST IT".into(),
+                AMBER,
+                45,
+            );
+        }
         label(DOCK_CENTER + Vec3::new(0.0, DOCK_RADIUS * 1.4, 0.0), "DOCK".into(), AMBER, 55);
         // The colony is picked anywhere on its ring.
         pickable(Place::Colony, COLONY_CENTER, COLONY_RADIUS / px(COLONY_CENTER), 0);
@@ -1557,15 +1578,20 @@ pub fn chart_draw(
             .filter(|tr| Some(tr.latest.slot) != world.own.map(|o| o.slot))
             .map(|tr| {
                 let s = tr.sample(t, &world.bodies);
-                (tr.latest, s.pos, s.vel)
+                // Fair game by the sector's law (`World::foe`): one of the pilot's own side out in
+                // open space with them shows amber.
+                let foe = world.foe(tr.latest.slot, from, t);
+                (tr.latest, s.pos, s.vel, foe)
             })
             .collect();
         seen.sort_by(|a, b| a.1.distance_squared(from).total_cmp(&b.1.distance_squared(from)));
-        for (n, (e, p, vel)) in seen.into_iter().take(SUITS).enumerate() {
+        for (n, (e, p, vel, foe)) in seen.into_iter().take(SUITS).enumerate() {
             let wreck = e.flags & ent_flags::WRECK != 0;
             let color = if wreck {
                 GREY
-            } else if e.faction != world.faction {
+            } else if foe && e.faction == world.faction {
+                AMBER
+            } else if foe {
                 RED
             } else {
                 GREEN
@@ -1941,7 +1967,7 @@ pub fn chart_panels(
             .entities
             .iter()
             .flatten()
-            .filter(|tr| tr.latest.faction != world.faction && tr.latest.flags & ent_flags::WRECK == 0)
+            .filter(|tr| world.foe(tr.latest.slot, m.pos, t) && tr.latest.flags & ent_flags::WRECK == 0)
             .filter(|tr| tr.sample(t, &world.bodies).pos.distance(m.pos) < 3_000.0)
             .count()
     });

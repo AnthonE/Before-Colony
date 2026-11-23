@@ -230,9 +230,55 @@ pub fn cause_and_cure(words: &str) -> (&str, Option<&str>) {
     }
 }
 
+/// The arms heading in space under the sector's law (`bc_sim::colony::reach`), for a pilot at
+/// `pos`: which side of the colony's reach they're on, and how far the line is, with its tone.
+/// Nothing under sides, where nowhere is different.
+pub fn reach_heading(law: bc_sim::colony::reach::Law, pos: glam::Vec3) -> Option<(String, Tone)> {
+    use bc_sim::colony::reach::{Law, past_line};
+    if law != Law::OpenSpace {
+        return None;
+    }
+    let past = past_line(pos);
+    let km = past.abs() / 1_000.0;
+    Some(if past > 0.0 {
+        (format!("OPEN SPACE · PILOTS FAIR GAME · REACH {km:.1} KM"), Tone::Amber)
+    } else {
+        (format!("COLONY'S REACH · PILOTS SAFE · OPEN SPACE {km:.1} KM"), Tone::Dim)
+    })
+}
+
+/// What the pilot is told crossing the colony's reach's line (`open`: out into open space).
+pub fn reach_crossed(open: bool) -> &'static str {
+    if open {
+        "OPEN SPACE · PAST THE COLONY'S REACH ANY PILOT CAN FIRE ON YOU, AND YOU ON THEM"
+    } else {
+        "THE COLONY'S REACH · NO PILOT'S FIRE LANDS HERE, NOR YOURS ON THEM · DRONES STILL DO"
+    }
+}
+
+/// What the pilot is told when they fire on a pilot the colony's reach shelters (they're in it,
+/// or the pilot under the reticle is): why the rounds will pass them by.
+pub const SHELTERED: &str = "NO HARM · THE COLONY'S REACH SHELTERS PILOTS · FIGHT THEM IN OPEN SPACE";
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_reach_heading_says_which_side_of_the_line_and_how_far() {
+        use bc_sim::colony::reach::{Law, REACH_M};
+        use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS};
+        let off_hull = |m: f32| COLONY_CENTER - glam::Vec3::Z * (COLONY_RADIUS + m);
+        assert_eq!(reach_heading(Law::Sides, off_hull(9_000.0)), None, "sides: nothing to say");
+        let (out, tone) = reach_heading(Law::OpenSpace, off_hull(REACH_M + 1_200.0)).unwrap();
+        assert_eq!(out, "OPEN SPACE · PILOTS FAIR GAME · REACH 1.2 KM");
+        assert_eq!(tone, Tone::Amber);
+        let (inside, tone) = reach_heading(Law::OpenSpace, off_hull(REACH_M - 800.0)).unwrap();
+        assert_eq!(inside, "COLONY'S REACH · PILOTS SAFE · OPEN SPACE 0.8 KM");
+        assert_eq!(tone, Tone::Dim);
+        assert!(reach_crossed(true).starts_with("OPEN SPACE"));
+        assert!(reach_crossed(false).starts_with("THE COLONY'S REACH"));
+    }
 
     #[test]
     fn the_condition_says_what_it_does_to_the_g() {

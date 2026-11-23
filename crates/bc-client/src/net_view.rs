@@ -12,6 +12,7 @@ use bc_proto::events::BurstCause;
 use bc_proto::snapshot::{ent_flags, orrery_mode, own_flags};
 use bc_sim::TICK_HZ;
 use bc_sim::bodies::sweep_landmarks;
+use bc_sim::colony::reach::{Party, hostile};
 use bc_sim::content::{SPECIAL_MOUNT, SpecialKind, frame, weapon};
 use bc_sim::flight::{Thrusters, thrusters};
 use bc_sim::ground::{GRIP_ACCEL, LAND_SPEED_MAX};
@@ -253,6 +254,7 @@ pub fn sync_view(
             doomed: own.alive && own.doom > 0,
             // As flown: the prediction runs the stagger down tick by tick.
             staggered: own.alive && core.predict.stagger > 0,
+            foe: false,
         });
     }
     // A whole suit's thrusters under the sector's rules, a pilot's or a drone's (always the real
@@ -292,6 +294,10 @@ pub fn sync_view(
             pill: bc_client_core::has_pill(world, slot as u16),
             doomed: state.flags & ent_flags::WRECK == 0 && world.doomed.contains_key(&(slot as u16)),
             staggered: state.flags & ent_flags::WRECK == 0 && world.is_staggered(slot as u16, t_render),
+            foe: match core.own_view() {
+                Some(v) => world.foe(slot as u16, v.pos, t_render),
+                None => e.faction != world.faction,
+            },
         });
     }
     seen.thrust.retain(|slot, _| world.entities.get(*slot as usize).is_some_and(Option::is_some));
@@ -340,7 +346,8 @@ pub fn sync_view(
     beams.0.clear();
     // The wards standing, where they're drawn, and whose: a hostile beam stops where it
     // crosses into one, as the server's do (`bc_sim::sim::ward`).
-    let fields: Vec<(Vec3, bc_proto::Faction)> = world
+    // Each field up and who holds it, to the law where it stands (`bc_sim::colony::reach`).
+    let fields: Vec<(Vec3, Party)> = world
         .entities
         .iter()
         .flatten()
@@ -349,7 +356,10 @@ pub fn sync_view(
             let f = t.state_at(t_render).flags;
             f & ent_flags::SPECIAL != 0 && f & ent_flags::WRECK == 0
         })
-        .map(|t| (t.sample(t_render, &world.bodies).pos, t.latest.faction))
+        .map(|t| {
+            let at = t.sample(t_render, &world.bodies).pos;
+            (at, Party::at(t.latest.faction, t.latest.pilot, at))
+        })
         .collect();
     // Where the own suit's gun is as drawn, for its own shots heard of without being predicted.
     let own_muzzle = |w: bc_proto::WeaponKind| -> Option<Vec3> {
@@ -440,11 +450,16 @@ pub fn sync_view(
             sweep_landmarks(bodies.set.landmarks(), origin, head, radius, k as u32, (bodies.t - k) as f32)
                 .map(|(s, id)| (s * travelled, id))
                 .filter(|_| !inside);
-        let faction =
-            if own { Some(world.faction) } else { world.entity(b.shooter).map(|t| t.latest.faction) };
+        // A field stops the beams of whoever may set its sights on its suit, as the server's do
+        // (`bc_sim::colony::reach::hostile`): the shooter where the beam left it.
+        let by = if own {
+            Some(world.my_party(origin))
+        } else {
+            world.entity(b.shooter).map(|t| Party::at(t.latest.faction, t.latest.pilot, origin))
+        };
         let ward = fields
             .iter()
-            .filter(|(_, f)| Some(*f) != faction && !inside)
+            .filter(|(_, f)| by.is_some_and(|by| hostile(world.law, by, *f)) && !inside)
             .filter_map(|&(c, _)| {
                 bc_sim::collide::sphere_entry(origin, head, c, bc_sim::content::WARD_RADIUS)
                     .map(|s| (s * travelled, c))

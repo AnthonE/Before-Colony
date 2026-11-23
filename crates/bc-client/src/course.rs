@@ -100,6 +100,7 @@ fn park_trainer(
                 pill: false,
                 doomed: false,
                 staggered: false,
+                foe: false,
             };
             let tf = Transform::from_translation(drive.pos).with_rotation(drive.rot);
             *parked = Some((commands.spawn((drive, tf, Visibility::default())).id(), f));

@@ -1060,6 +1060,7 @@ fn spawn_showcase(
                 pill: cfg.0.showcase_pill,
                 doomed: false,
                 staggered: false,
+                foe: false,
             };
             commands.spawn((d, Transform::from_translation(LINEUP), Visibility::default())).id()
         })

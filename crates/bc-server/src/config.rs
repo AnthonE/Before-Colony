@@ -174,6 +174,12 @@ pub struct Config {
     /// The dev HTTP's hooks for tests (`--dev-hooks`): `/dev/incident` raises one of the Watch's
     /// incidents by hand. Off by default, and in every deployment: the route isn't there at all.
     pub dev_hooks: bool,
+    /// Suits fight pilots away from the colony (`--pvp`): the space sector keeps
+    /// `bc_sim::colony::reach::Law::OpenSpace`, past the colony's reach pilots harm pilots of any
+    /// side and inside it none, and the Welcome says so. Off: sides (a suit harms another
+    /// side's). This default is off, so a test that doesn't ask gets the sides it always had; the
+    /// server's own is the ruleset's (`main.rs`).
+    pub pvp: bool,
 }
 
 impl Default for Config {
@@ -210,6 +216,7 @@ impl Default for Config {
             limits: crate::net::admit::Limits::default(),
             floor_visitors: None,
             dev_hooks: false,
+            pvp: false,
         }
     }
 }

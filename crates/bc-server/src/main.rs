@@ -112,6 +112,27 @@ struct Args {
     /// The dev HTTP's hooks for tests and playtests (`/dev/incident`). Never in a deployment.
     #[arg(long, hide = true)]
     dev_hooks: bool,
+    /// Suits fight pilots away from the colony: past its reach (5 km from the ring's hull and the
+    /// hub) pilots harm pilots of any side, inside it none (`on`, or the flag alone); `off`: by
+    /// side. Default: on under survival rules, off under arcade's (which spawn every side's pilots
+    /// together in open space, for the combat suites and load tests).
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "on")]
+    pvp: Option<Switch>,
+}
+
+/// A knob's word on the command line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum Switch {
+    On,
+    Off,
+}
+
+/// Whether the space sector keeps open space (`--pvp`): as asked, else the ruleset's default.
+fn pvp(flag: Option<Switch>, rules: Ruleset) -> bool {
+    match flag {
+        Some(switch) => switch == Switch::On,
+        None => rules == Ruleset::Survival,
+    }
 }
 
 /// The store's list of traders to stand on the Exchange floor: `--floor-visitors` as given (`none`:
@@ -177,8 +198,12 @@ fn main() -> anyhow::Result<()> {
             ..bc_server::net::admit::Limits::default()
         },
         dev_hooks: args.dev_hooks,
+        pvp: pvp(args.pvp, args.rules),
         ..Config::default()
     };
+    if cfg.pvp {
+        tracing::info!("open space (--pvp): past the colony's reach pilots harm pilots of any side");
+    }
     if cfg.dev_hooks {
         tracing::warn!(
             "--dev-hooks: the dev HTTP takes /dev/incident and /dev/scare (never in a deployment)"
@@ -245,6 +270,19 @@ mod tests {
     fn the_dev_hooks_are_off_unless_asked_for() {
         assert!(!Args::parse_from(["bc-server"]).dev_hooks);
         assert!(Args::parse_from(["bc-server", "--dev-hooks"]).dev_hooks);
+    }
+
+    #[test]
+    fn open_space_is_survivals_and_asked_for_under_arcade() {
+        let law = |argv: &[&str]| {
+            let a = Args::parse_from(argv);
+            pvp(a.pvp, a.rules)
+        };
+        assert!(law(&["bc-server"]), "survival: on");
+        assert!(!law(&["bc-server", "--rules", "arcade"]), "arcade: off");
+        assert!(law(&["bc-server", "--rules", "arcade", "--pvp"]), "the flag alone: on");
+        assert!(law(&["bc-server", "--rules", "arcade", "--pvp", "on"]));
+        assert!(!law(&["bc-server", "--pvp", "off"]), "survival, turned off");
     }
 
     #[test]

@@ -53,6 +53,9 @@ pub struct SuitDrive {
     pub doomed: bool,
     /// Staggered (`bc_sim::sim::stagger`): its attitude jets fire every which way, and it sparks.
     pub staggered: bool,
+    /// Fair game to the pilot by the sector's law (`World::foe`): another side's, or a pilot out
+    /// in open space with them. The cockpit's radar shows it as a foe.
+    pub foe: bool,
 }
 
 impl SuitDrive {
