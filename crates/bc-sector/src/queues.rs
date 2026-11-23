@@ -300,6 +300,18 @@ pub struct SlotLease {
     pub slot: u16,
     pub input: rtrb::Producer<InputMsg>,
     pub reports: rtrb::Consumer<Report>,
+    /// The link's round trip as the transport measures it (µs; 0: not measured), for the sector's
+    /// rewind floor: set before each input is pushed ([`SlotLease::set_link_rtt`]), read by the
+    /// sector as it takes the input (the ring's push and pop order the two).
+    link_rtt_us: Arc<AtomicU32>,
+}
+
+impl SlotLease {
+    /// The link's round trip now (quinn's smoothed RTT): the inputs pushed after this are judged by it.
+    pub fn set_link_rtt(&self, rtt: std::time::Duration) {
+        let us = u32::try_from(rtt.as_micros()).unwrap_or(u32::MAX);
+        self.link_rtt_us.store(us, Ordering::Relaxed);
+    }
 }
 
 /// Shared between the sector thread and the network side.
@@ -366,6 +378,8 @@ pub struct OracleEnds {
 /// Sector-side ends (moved into the sector thread).
 pub(crate) struct SectorEnds {
     pub inputs: Vec<rtrb::Consumer<InputMsg>>,
+    /// Each slot's [`SlotLease::set_link_rtt`].
+    pub link_rtt_us: Vec<Arc<AtomicU32>>,
     pub reports: Vec<rtrb::Producer<Report>>,
     pub outputs: Vec<rtrb::Producer<u8>>,
     pub pictures: rtrb::Producer<TacticalPicture>,
@@ -391,6 +405,7 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
     let control = ArrayQueue::new(n * 4 + 16);
     let leases = ArrayQueue::new(n);
     let mut inputs = Vec::new();
+    let mut link_rtt_us = Vec::new();
     let mut reports = Vec::new();
     let mut outputs = Vec::new();
     let mut egress = Vec::new();
@@ -399,7 +414,9 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
         inputs.push(c);
         let (rp, rc) = rtrb::RingBuffer::<Report>::new(REPORTS);
         reports.push(rp);
-        let _ = leases.push(SlotLease { slot: slot as u16, input: p, reports: rc });
+        let link = Arc::new(AtomicU32::new(0));
+        link_rtt_us.push(link.clone());
+        let _ = leases.push(SlotLease { slot: slot as u16, input: p, reports: rc, link_rtt_us: link });
         let (op, oc) = rtrb::RingBuffer::<u8>::new(OUT_RING_BYTES);
         outputs.push(op);
         egress.push(oc);
@@ -424,7 +441,7 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
         ace: AtomicU32::new(0),
         started: std::time::Instant::now(),
     });
-    let ends = SectorEnds { inputs, reports, outputs, pictures: pic_p, advice: adv_c };
+    let ends = SectorEnds { inputs, link_rtt_us, reports, outputs, pictures: pic_p, advice: adv_c };
     let sector = crate::Sector::new(cfg, shared.clone(), ends);
     (sector, shared, EgressEnds { rings: egress }, OracleEnds { pictures: pic_c, advice: adv_p })
 }

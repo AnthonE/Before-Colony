@@ -104,10 +104,19 @@ In order. Each step is measured with `cargo bench -p bc-sector --bench sector` b
 - **The sensor model is the anti-maphack.** A client learns only what its suit detects
   (`Sim::detects`), so nothing it isn't told can be read out of it. Any field we replicate is
   public (Gates): what must stay hidden is never sent.
-- **The server decides how far back a shot looks.** Today the shot carries its view time, clamped
-  to 8 ticks. Gates' `favour_for` mints the depth from the client's ack evidence and caps it by
-  QUIC's measured RTT, so a client that acks late gets less help, never more. Overwatch stops
-  rewinding past about 220 ms.
+- **The server decides how far back a shot looks.** The shot carries its view time, clamped to 8
+  ticks (`MAX_REWIND_TICKS`), and the sector puts a floor under it from the link QUIC measures
+  (`bc_sim::config::rewind_floor_q4`): counted from the tick the command first arrived, no further
+  back than half the round trip, the client's interpolation delay at that round trip (its own
+  formula, `interp_delay_ticks`) and a slack of 5¾ ticks sized from the client clock's bounds (a
+  tick waiting to be taken, the eased view's 4, a stalled page's ¾; `clock.rs` checks them
+  against it). A claim past it is put on it and counted (`/status`: `rewind_cut`). At the 8-tick
+  cap the floor rarely binds; what it buys is room to raise the cap for pilots 150–250 ms away
+  without handing near ones a deeper look back (20 ms away, a pilot claiming more than it saw is
+  held to about 8 ticks back from its command's arrival, 13 from its tick, against the wire's 16
+  and an honest client's 7). Gates' `favour_for` mints the depth from the client's ack
+  evidence and caps it by QUIC's measured RTT, so a client that acks late gets less help, never
+  more. Overwatch stops rewinding past about 220 ms.
 - **Closed forms checked in the field.** The Hello carries a build hash, and clients can report a
   sliced hash of the bodies' poses and the chunks' segments at a tick (Quake Golf's referee), so a
   client that drifted is caught and sent the seed again, not left wrong.
@@ -144,6 +153,12 @@ In order. Each step is measured with `cargo bench -p bc-sector --bench sector` b
   sending 57 suits a pilot-tick.
 - Over a link losing 10% and reordering, every record the client rebuilds is the server's to the
   bit (`bc-sector/tests/deltas_net.rs`), and the tick still never allocates (`no_alloc`).
+- The rewind floor, with no change on the wire: over a simulated link at 20, 100 and 200 ms, with
+  jitter, loss and a sudden drop in delay, an honest client running the real clock is never cut
+  (at worst 2.4 ticks past `rtt/2 + interp`, of the 5¾ allowed), and one claiming 12 ticks more
+  than it saw is cut to what its link explains (`bc-sector/tests/rewind_net.rs`). An honest
+  client 200 ms away looks back up to 12 ticks, so the 8-tick cap still clips it; raising the cap
+  is the owner's call.
 
 ## What we watch
 
@@ -152,7 +167,9 @@ In order. Each step is measured with `cargo bench -p bc-sector --bench sector` b
   fight.
 - `/status`: `hot_path_allocations` at 0, the tick's histogram under budget, and the split
   (`tick_us`: `sim_p99`, `replicate_p99`); `replication`: records, their bits, the deltas, the
-  datagrams past a tick's first, and the pace (`pace_pct`, under 100 while ticks run hot).
+  datagrams past a tick's first, and the pace (`pace_pct`, under 100 while ticks run hot);
+  `rewind_cut`, the views put on their link's floor (honest clients stay off it); and the
+  connections QUIC holds (`net.open_connections`, `net.refused_open`).
 - The swarm (`bc-bot`) at 256 and 512 pilots.
 
 ## Sources

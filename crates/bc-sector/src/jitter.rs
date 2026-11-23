@@ -8,6 +8,9 @@ const SLOTS: usize = 64;
 #[derive(Clone, Copy)]
 pub struct JitterBuffer {
     cmds: [InputCmd; SLOTS],
+    /// The tick that was next when each command first arrived (its later copies don't move it):
+    /// how far back its view may honestly be (`bc_sim::config::rewind_floor_q4`).
+    arrived: [u32; SLOTS],
     valid: u64,
     /// Newest command tick received.
     pub newest: u32,
@@ -15,7 +18,7 @@ pub struct JitterBuffer {
 
 impl Default for JitterBuffer {
     fn default() -> Self {
-        Self { cmds: [InputCmd::default(); SLOTS], valid: 0, newest: 0 }
+        Self { cmds: [InputCmd::default(); SLOTS], arrived: [0; SLOTS], valid: 0, newest: 0 }
     }
 }
 
@@ -33,21 +36,49 @@ impl JitterBuffer {
             return false;
         }
         let k = cmd.tick as usize % SLOTS;
+        if self.valid & (1 << k) == 0 || self.cmds[k].tick != cmd.tick {
+            self.arrived[k] = next;
+        }
         self.cmds[k] = cmd;
         self.valid |= 1 << k;
         self.newest = self.newest.max(cmd.tick);
         true
     }
 
-    /// Removes and returns the command for `tick`, if it arrived.
+    /// Removes and returns the command for `tick`, if it arrived, with the tick that was next when
+    /// it first did.
     #[inline]
-    pub fn take(&mut self, tick: u32) -> Option<InputCmd> {
+    pub fn take(&mut self, tick: u32) -> Option<(InputCmd, u32)> {
         let k = tick as usize % SLOTS;
         if self.valid & (1 << k) != 0 && self.cmds[k].tick == tick {
             self.valid &= !(1 << k);
-            Some(self.cmds[k])
+            Some((self.cmds[k], self.arrived[k]))
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_command_keeps_the_tick_it_first_arrived_in() {
+        let mut j = JitterBuffer::default();
+        let cmd = |tick| InputCmd { tick, ..InputCmd::default() };
+        assert!(j.insert(cmd(105), 100));
+        // Its copies, in the packets after, don't make it any later.
+        assert!(j.insert(cmd(105), 101));
+        assert!(j.insert(cmd(105), 103));
+        assert_eq!(j.take(105).map(|(c, at)| (c.tick, at)), Some((105, 100)));
+        assert!(j.take(105).is_none());
+        // The next command in its slot is its own, taken or not before it.
+        let lap = SLOTS as u32;
+        assert!(j.insert(cmd(105 + lap), 110));
+        assert!(j.insert(cmd(120), 110));
+        assert!(j.insert(cmd(120 + lap), 125));
+        assert_eq!(j.take(105 + lap).map(|(_, at)| at), Some(110));
+        assert_eq!(j.take(120 + lap).map(|(_, at)| at), Some(125));
     }
 }

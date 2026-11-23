@@ -90,6 +90,9 @@ pub(crate) struct ClientState {
     pub ack_floor: u32,
     pub time_echo_ms: u16,
     pub time_echo_recv_us: u64,
+    /// The link's round trip as the transport measures it (µs; 0: not measured), as of its last
+    /// input: how far back its commands' views may honestly be (`bc_sim::config::rewind_floor_q4`).
+    pub rtt_us: u32,
     /// Events with a lower sequence number are delivered.
     pub event_acked: u32,
     pub sent: [SentRecord; SENT_RING],
@@ -146,6 +149,7 @@ impl ClientState {
             ack_floor: 0,
             time_echo_ms: 0,
             time_echo_recv_us: 0,
+            rtt_us: 0,
             event_acked: 0,
             sent: [SentRecord::default(); SENT_RING],
             leaves: [(0, 0); LEAVE_QUEUE],
@@ -188,6 +192,7 @@ impl ClientState {
         self.ack_floor = 0;
         self.time_echo_ms = 0;
         self.time_echo_recv_us = 0;
+        self.rtt_us = 0;
         self.event_acked = event_seq;
         self.sent = [SentRecord::default(); SENT_RING];
         self.n_leaves = 0;

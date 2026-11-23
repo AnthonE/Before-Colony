@@ -190,8 +190,8 @@ impl Clock {
         // Bursty senders can need a long lead; the minimum keeps it short on steady ones.
         let base = self.rtt * 0.5 * HZ;
         self.lead = self.lead.clamp(base + 0.5, base + 45.0);
-        // More jitter → more interpolation delay (2–6 ticks).
-        self.interp_delay = (2.0 + self.rtt * HZ * 0.25).clamp(2.0, 6.0);
+        // More jitter → more interpolation delay (2–6 ticks): the sector's rewind floor expects it.
+        self.interp_delay = bc_sim::config::interp_delay_ticks(self.rtt);
         let offset = self.offset.unwrap_or(0.0);
         self.own.aim(recv_now, offset + self.lead);
         self.view.aim(recv_now, offset - self.interp_delay);
@@ -261,6 +261,14 @@ mod tests {
         assert!((c.server_now(t) - want).abs() < 1.0, "estimate {:.1}, want {want:.1}", c.server_now(t));
         // Too far to ease: the drawn clocks jump with it (then ease the last little way).
         assert!((c.view_tick(t) - (c.server_now(t) - c.interp_delay)).abs() < 0.1, "drawn clocks jump too");
+    }
+
+    #[test]
+    fn the_sectors_rewind_slack_covers_the_clocks_bounds() {
+        // A tick waiting for the tick it arrived in, the eased view's lag before it jumps, and
+        // what a stalled page's late burst drags the estimate back (`bc_sim::config`).
+        let bound = 1.0 + EASE_SNAP + LATE_STEP * f64::from(LATE_RUN);
+        assert!(bound * 16.0 <= f64::from(bc_sim::config::REWIND_SLACK_Q4), "the slack is {bound:.2} ticks");
     }
 
     #[test]
