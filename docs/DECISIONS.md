@@ -30,3 +30,8 @@ The owner's decisions made before this page are in the area docs that asked for 
 | What a pilot who kills a pilot outside the range owes | Nothing; inside it they can't | `PHASES.md`, 0.3 |
 | The board's price | Gates' and oneshot's: a flat price for a merged pull request, more for content that ships, set and funded on elopros.com | `CONTRIBUTING.md` |
 | Voice in space | A suit's radio, out to the sensors' range; on foot, the voice carries 30 m | `PHASES.md`, 0.3 |
+| The copy at listing | Free, one per wallet, as Gates' | `PHASES.md`, "The business" |
+| Where the store's items live | Solana, one collection for the title, priced in the store's coin (the listing's `pass_solana`) | `PHASES.md`, "The business" |
+| A coin of Before Colony's own | None: credits in the game, the store's coin for its items | `PHASES.md`, "The business" |
+| What's sold and what's only earned | Paint, palettes and decals sold; a suit's frame, parts, credits and anything with stats only earned | `PHASES.md`, "The business" |
+| Paying players from play | Reviewed season prizes from the boards (no wipes but the one at listing) | `PHASES.md`, "The business" |

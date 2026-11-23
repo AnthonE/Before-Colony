@@ -172,6 +172,39 @@ The calendar starts.
 the Spheres (L2 to L5, the Moon: `DESIGN.md`'s "Moons and planets"); IV, the Equinox Wars. Each era
 is a phase of its own, planned when the one before it is under way.
 
+## The business: Elo Pros'
+
+The owner's call (`DECISIONS.md`, 2026-11-23): whatever Elo Pros needs; it's our home. The store is
+`AnthonE/scry-forge` (elopros.com), and its frame of record is its `docs/GATES.md`. What follows is
+what it asks of a game it lists, read from that repository and the live store in November 2026.
+
+- **Where we stand.** Before Colony is a house title in alpha, on the store's coming-soon shelf. An
+  alpha plays free on its own servers: no copy sold, no coin of its own, its progress wiped once, at
+  listing (`GATES.md`, the alpha rule). The live server was still on protocol 44 when main was on 48.
+- **What the store reads from us, built:** sign-in (a wallet's text on chain 4663 and its Solana form,
+  and the Elo Pros pass: `bc-auth`), `/status.json` (who's on), `/online.json` (whose playtime: it
+  drives card drops, the Pill's ten minutes and free trials), `/floor.json`, the Pill decal on the
+  shoulder for a wallet that holds it.
+- **What it makes money from:** the copy at listing (a ticket on Robinhood Chain); cosmetic items
+  (for us, Solana items, one collection for the title, bought on the store or earned in play, and
+  unlocked in the game for the wallet that holds them); hosting; and the platform's own coin. Players
+  are paid from play through its cashier: for us, reviewed prizes from a season's boards, since our
+  clock never resets.
+- **The rule that binds us:** the store sells appearance only. Anything with stats enters the game
+  through play, never through a purchase (`GATES.md`, no pay to win). Liveries, palettes and decals
+  are ours to sell; frames, parts and credits are not.
+- **What we build, by phase:** 0.2, `/status.json` counting agents as the store does, a coarse status
+  line in `/online.json`, a server key and the signed calls, `elo.json` with our declared stats, and
+  stats and boards reported (never pilot kills: alts would farm them); 0.3, liveries painted for
+  credits and premium palettes and decals unlocked by owned items, the shop declared, cosmetics earned
+  in play granted to the wallet; 0.5, at listing, the copy door (built disarmed first), bans and
+  reports through the store, the launch wipe, and season prizes.
+- **The operator's alone:** generating and registering the server key; letting our `elo.json` land
+  (`repo_commits` on the listing, or a signed manifest); creating the title's Solana item collection;
+  prices; the ticket at listing; deploying the server and the page; funding the board.
+- **Steam, later:** a Steam build leaves the wallet and the store's items out (Valve's rule, in 0.5
+  above).
+
 ## The tracks: how good, in every phase
 
 The phases say what the game has. These say how good it is, and their bar rises with each release.
