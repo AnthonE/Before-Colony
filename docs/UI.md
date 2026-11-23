@@ -71,7 +71,11 @@ Sources: [Steam store pages](https://store.steampowered.com) of each; [The Gemsb
     key, a label, a bar, its number, its state; what's broken and what to do about it in notes under
     it. What a panel shows is its readings (`instruments::Readings`), apart from how they're drawn
     (`instruments::update_instruments`): the game reads them off the suit, the showcase makes them
-    up, and a new readout is a row, not a new layout.
+    up, and a new readout is a row, not a new layout. In space under open space (`--pvp`) the arms
+    heading says which side of the colony's reach the pilot is on and how far its line is
+    (`instruments::reach_heading`: amber out in open space, dim inside it), a toast says so as they
+    cross it, and another why a trigger pulled on a pilot the reach shelters harms nobody; a pilot
+    of their own side who is fair game out there has an amber bracket tagged OPEN.
 
 ## The front screen
 
