@@ -284,7 +284,7 @@ on (survival's default; arcade's is off) and the Welcome says so (`OPEN_SPACE`);
 which side of the line the pilot is on and how far it is, says so as they cross, explains a shot
 that harms nobody, marks a same-side pilot who is fair game amber and lets Y lock them; the chart
 draws the line. Agents' brains still pick targets by side, and hold fire while a pilot of their
-own side is in the line. *Not built:* an engaged timer (a pilot who dives into the reach mid-fight
+own side is in the line or within 100 m (the miner's too). *Not built:* an engaged timer (a pilot who dives into the reach mid-fight
 is safe at once), any cost for killing a pilot, ejected capsules as targets, crews who don't harm
 each other. Before it, every human pilot flew for the Colonies (the server decides, whatever the
 client asks, and the Welcome says so: protocol v29) and friendly fire is off, so people couldn't

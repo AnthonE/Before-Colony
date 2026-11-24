@@ -4,6 +4,11 @@ Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagra
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
 
+v49 (from v48): open space (`bc_sim::colony::reach`, the server's `--pvp`). The Welcome's flags
+gain OPEN_SPACE (`1 << 7`, the space sector only): past the colony's reach, 5 km from the ring's
+hull and the hub's drum, pilots of any side harm each other, and inside it none; without it, sides.
+Nothing changes shape; both ends judge who is fair game by the same closed form.
+
 v47 (from v46): the Watch's heat is the server's (`docs/OPEN_CITY.md`, "Heat and the Watch";
 `bc_sim::colony::watch`'s tables, the server's `watch`). A person in a plaza datagram takes 3 bits
 more after their pose, their heat (0 to 5), which the server writes from the heat it holds: 15.25
@@ -585,7 +590,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME, 4 STREET), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR, 64 STREET), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR, 64 STREET, 128 OPEN_SPACE), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7)} | server → client |
 | 5 | Respawn {frame} | client → server |

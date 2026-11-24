@@ -1388,7 +1388,13 @@ mod tests {
         assert!(!world.foe(1, out, t), "sides: a friend");
         assert!(world.foe(3, inside, t) && world.foe(4, inside, t), "sides: another side, anywhere");
         assert_eq!(world.sheltered_under(inside, Vec3::Z, t), None, "sides: nothing sheltered");
+        assert!(!world.friend_in_line(out, Vec3::Z, 1_000.0, 0.07, t), "sides: a friend's never hit");
         world.law = Law::OpenSpace;
+        // An agent holds its fire with a friend in the line out in open space, not past its rounds'
+        // carry, nor off the line.
+        assert!(world.friend_in_line(out, Vec3::Z, 1_000.0, 0.07, t));
+        assert!(!world.friend_in_line(out, Vec3::Z, 400.0, 0.07, t));
+        assert!(!world.friend_in_line(out, Vec3::X, 1_000.0, 0.07, t));
         assert!(world.foe(1, out, t) && world.open_foe(1, out, t), "out in open space together");
         assert!(!world.foe(1, inside, t), "from the reach, nobody");
         assert!(!world.foe(2, inside, t) && !world.foe(4, inside, t), "in it, no pilot of any side");

@@ -19,9 +19,25 @@ use glam::Vec3;
 pub const COMBAT_ZONE: Vec3 = Vec3::new(0.0, 900.0, 0.0);
 
 /// How far off its aim a pilot of its own side must be for an agent to fire in open space, rad
-/// (about 4°); and the triggers it lets go of.
+/// (about 4°); how near one may come in any direction before it fires at nothing (a blade's sweep,
+/// a flame's cone, m); and the triggers it lets go of.
 const CHECK_FIRE: f32 = 0.07;
+const CLOSE: f32 = 100.0;
 const TRIGGERS: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE;
+
+/// An agent's command with its triggers let go of while a pilot of its own side out in open space
+/// with it, whom its blows would harm (`Law::OpenSpace`), is in the line of its aim nearer than
+/// `reach`, or anywhere within [`CLOSE`]. Brains pick targets by side (`Contact::hostile`), never a
+/// person; this keeps them from hitting one by accident.
+fn hold_fire(world: &World, from: Vec3, mut cmd: InputCmd, reach: f32, t: f64) -> InputCmd {
+    if cmd.buttons & TRIGGERS != 0
+        && (world.friend_in_line(from, cmd.aim, reach, CHECK_FIRE, t)
+            || world.friend_in_line(from, cmd.aim, CLOSE, core::f32::consts::PI, t))
+    {
+        cmd.buttons &= !TRIGGERS;
+    }
+    cmd
+}
 
 /// The drone brain from `bc-sim`, running on the agent's own sensor view, flying the frame's
 /// whole kit (`bc_sim::ai::kit`): it picks targets and maneuvers by utility, leads them linearly,
@@ -53,16 +69,12 @@ impl DroneBrain {
             self.ai.think_at = ctx.tick + 3;
         }
         let target = p.get(self.ai.target).copied();
-        let mut cmd = ai::drive(&p.me, target.as_ref(), &mut self.ai, ctx.tick, &profile, spec);
+        let cmd = ai::drive(&p.me, target.as_ref(), &mut self.ai, ctx.tick, &profile, spec);
         // Brains go by side (`Contact::hostile`): in open space a pilot of its own side is fair
-        // game, but never its aim, so it holds its fire while one is in the line of it.
-        let reach = target.map_or(range, |t| t.dist + 150.0);
-        if cmd.buttons & TRIGGERS != 0
-            && ctx.world.friend_in_line(p.me.pos, cmd.aim, reach, CHECK_FIRE, ctx.resolve_tick)
-        {
-            cmd.buttons &= !TRIGGERS;
-        }
-        cmd
+        // game, but never its aim, so it holds its fire while one is in the line of it, as far as
+        // its rounds carry.
+        let reach = target.map_or(range, |t| (t.dist + 150.0).max(range));
+        hold_fire(ctx.world, p.me.pos, cmd, reach, ctx.resolve_tick)
     }
 
     /// Current target slot, if any.
@@ -126,6 +138,16 @@ impl MinerBrain {
     }
 
     pub fn decide(&mut self, ctx: &InputContext) -> InputCmd {
+        let cmd = self.work(ctx);
+        // Its saber and its rifle are for rock: never a pilot out in open space beside it.
+        let range = ctx
+            .world
+            .own
+            .map_or(3_000.0, |o| frame(o.frame).loadout[0].map_or(3_000.0, |m| weapon(m.weapon).range));
+        hold_fire(ctx.world, ctx.predict.state.pos, cmd, range, ctx.resolve_tick)
+    }
+
+    fn work(&mut self, ctx: &InputContext) -> InputCmd {
         let world = ctx.world;
         let idle = InputCmd { buttons: FLIGHT_ASSIST, ..InputCmd::default() };
         let (Some(own), Some(view)) = (world.own, world.salvage_view()) else { return idle };
@@ -568,5 +590,38 @@ mod tests {
         });
         assert!(grounded.is_some() && hidden.is_some(), "grounded {grounded:?}, hidden {hidden:?}");
         assert!(closest > 12.0, "brushed the station at {closest} m");
+    }
+
+    /// Under open space an agent lets go of its triggers with a pilot of its own side in its line
+    /// or close by it (never a drone, nor anyone under sides); what it aims at is still by side.
+    #[test]
+    fn an_agent_holds_its_fire_near_a_pilot_of_its_own_side_in_open_space() {
+        use crate::interp::EntityTrack;
+        use bc_proto::EntityState;
+        use bc_sim::colony::reach::Law;
+        let mut world = World::new(Faction::Colonies);
+        let me = Vec3::new(0.0, 1_000.0, 0.0);
+        let mut put = |slot: u16, faction, pilot, pos| {
+            let e = EntityState { slot, faction, pilot, pos, ..EntityState::default() };
+            world.entities[usize::from(slot)] = Some(EntityTrack::new(10, e));
+        };
+        put(1, Faction::Colonies, PilotKind::Human, me + Vec3::Z * 800.0);
+        put(2, Faction::Colonies, PilotKind::Human, me + Vec3::X * 60.0);
+        put(3, Faction::Colonies, PilotKind::Drone, me - Vec3::Z * 500.0);
+        let shot = |aim: Vec3, buttons: u16| InputCmd {
+            aim,
+            buttons: buttons | FLIGHT_ASSIST,
+            ..InputCmd::default()
+        };
+        let held = |w: &World, cmd: InputCmd| hold_fire(w, me, cmd, 2_000.0, 10.0).buttons;
+        // Sides: a friend is never hit, so nothing to hold.
+        assert_eq!(held(&world, shot(Vec3::Z, FIRE_PRIMARY)), FIRE_PRIMARY | FLIGHT_ASSIST);
+        world.law = Law::OpenSpace;
+        assert_eq!(held(&world, shot(Vec3::Z, FIRE_PRIMARY)), FLIGHT_ASSIST, "one in the line");
+        assert_eq!(held(&world, shot(Vec3::Y, MELEE)), FLIGHT_ASSIST, "one close by, off the line");
+        // Moved off: a drone in the line is fair game, and with nobody near, it fires.
+        world.entities[2] = None;
+        assert_eq!(held(&world, shot(-Vec3::Z, FIRE_SECONDARY)), FIRE_SECONDARY | FLIGHT_ASSIST);
+        assert_eq!(held(&world, shot(Vec3::Y, FIRE_PRIMARY)), FIRE_PRIMARY | FLIGHT_ASSIST);
     }
 }
