@@ -230,14 +230,15 @@ test("a pilot boards a trainer at the Blast Hall's gantry, starts the drill, and
 
   // The drill: the aim on its lit target, the trigger held.
   await page.locator("canvas").first().click();
-  // (Two struck can stand for a frame before the drill's clock runs out on a page drawing one
-  // every few seconds: it's found among all the page has published since.)
+  // (Two struck can stand for a frame, or none, before the drill's clock runs out on a page drawing
+  // one every few seconds: it's found among all the page has published since, as the most struck in
+  // one drill, which the client counts from the strikes themselves, `drill_most`.)
   const mark = await statusMark(page);
   await push(page, { cmd: "aim_hostile", on: true });
   await page.mouse.down({ button: "right" });
-  s = await seen(page, "the drill under way", (s) => s.drill_struck >= 2, 300_000, mark);
+  s = await seen(page, "the drill under way", (s) => s.drill_most >= 2, 300_000, mark);
   await page.mouse.up({ button: "right" });
-  console.log(`the drill: ${s.drill_struck} struck, ${Number(s.drill_left).toFixed(1)} s on the clock`);
+  console.log(`the drill: ${s.drill_most} struck at most, ${s.drill_struck} now, ${Number(s.drill_left).toFixed(1)} s on the clock`);
   await page.screenshot({ path: "artifacts/inside-drill.png" });
   // The beam rifle, tapped (LMB) with the crosshair on the lit target: every shot is seen leaving
   // the gun and its line flashes where it ended, and the targets it strikes flash.
