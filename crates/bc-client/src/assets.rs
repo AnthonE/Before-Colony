@@ -21,6 +21,16 @@ pub struct Palette {
     pub contact: Handle<StandardMaterial>,
     /// The Pill, on a suit's shoulder (`suits_vis`).
     pub pill: Handle<StandardMaterial>,
+    /// The decals a suit can wear on its right shoulder, by id less one
+    /// (`bc_sim::content::cosmetics::DECALS`, drawn by `bc_model::decal`).
+    pub decals: Vec<Handle<StandardMaterial>>,
+}
+
+impl Palette {
+    /// Decal `id`'s material (0, or one there isn't: none).
+    pub fn decal(&self, id: u8) -> Option<&Handle<StandardMaterial>> {
+        self.decals.get(usize::from(id).wrapping_sub(1))
+    }
 }
 
 #[derive(Resource)]
@@ -80,6 +90,27 @@ pub fn setup_assets(
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::RENDER_WORLD,
     ));
+    // The worn decals, drawn once (`bc_model::decal`), masked like the Pill.
+    let side = bc_model::decal::SIZE as u32;
+    let decals = bc_sim::content::cosmetics::DECALS
+        .iter()
+        .map(|d| {
+            let rgba = bc_model::decal::image(d.id).unwrap_or_else(|| vec![0; (side * side * 4) as usize]);
+            let image = images.add(Image::new(
+                Extent3d { width: side, height: side, depth_or_array_layers: 1 },
+                TextureDimension::D2,
+                rgba,
+                TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::RENDER_WORLD,
+            ));
+            standard.add(StandardMaterial {
+                base_color_texture: Some(image),
+                alpha_mode: AlphaMode::Mask(0.5),
+                perceptual_roughness: 0.55,
+                ..default()
+            })
+        })
+        .collect();
     commands.insert_resource(Palette {
         orrery_aura: shells.add(ShockMaterial::new(Vec3::new(2.4, 0.25, 0.45), 2.5)),
         jammer: shells.add(ShockMaterial::new(Vec3::new(0.12, 0.34, 0.75), 7.0)),
@@ -96,6 +127,7 @@ pub fn setup_assets(
             perceptual_roughness: 0.55,
             ..default()
         }),
+        decals,
     });
     commands.insert_resource(MeshLib {
         quad: meshes.add(Rectangle::new(1.0, 1.0).mesh()),

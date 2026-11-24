@@ -29,6 +29,7 @@ use glam::Vec3;
 use super::Sim;
 use super::combat::Blocker;
 use crate::collide::{segment_near_point, segment_segment, sweep_capsules};
+use crate::colony::reach::{Party, harms};
 use crate::config::DT;
 use crate::content::{MissileSpec, Mount, SpecialKind, WeaponSpec, frame, weapon};
 use crate::math::clamp_to_cone;
@@ -146,7 +147,7 @@ impl Sim {
         let launched = self.missiles.spawn(
             w.kind,
             i as u16,
-            s.faction[i],
+            s.party(i),
             target,
             f.pos + f.rot * mount.arm.muzzle(),
             f.vel + dir * spec.launch_speed,
@@ -190,7 +191,8 @@ impl Sim {
             self.tick().saturating_sub(s.last_fired[j]) < 30,
             false,
         );
-        if s.faction[j] != m.owner_faction[k] {
+        // (What it hides, it hides from whoever launched at it, by the law: `colony::reach`.)
+        if crate::colony::reach::unfriendly(self.cfg.law, m.by[k], s.party(j)) {
             if let Some((jam, _)) = self.jamming(j) {
                 sig *= jam;
             }
@@ -254,16 +256,17 @@ impl Sim {
             let next = pos + vel * DT;
             self.missiles.vel[k] = vel;
             let owner = usize::from(self.missiles.owner[k]);
-            let of = self.missiles.owner_faction[k];
-            // The first thing along this tick's path: an enemy suit within the fuse, or a rock, a
-            // landmark or the colony (it bursts where it meets them).
-            let (spatial, suits, ff) = (&mut self.spatial, &self.suits, self.cfg.friendly_fire);
+            let by = self.missiles.by[k];
+            // The first thing along this tick's path: a suit it may harm within the fuse, or a
+            // rock, a landmark or the colony (it bursts where it meets them).
+            let (spatial, suits, ff, law) =
+                (&mut self.spatial, &self.suits, self.cfg.friendly_fire, self.cfg.law);
             let pad = Vec3::splat(spec.fuse + 14.0);
             let mut best: Option<(f32, usize, usize)> = None;
             // (Inside the colony, the Blast Hall's missiles pass suits by.)
             let interior = self.cfg.world == crate::colony::interior::WorldKind::Interior;
             spatial.query_box(pos.min(next) - pad, pos.max(next) + pad, |j| {
-                if interior || j == owner || (!ff && suits.faction[j] == of) {
+                if interior || j == owner || !harms(law, ff, by, suits.party(j)) {
                     return;
                 }
                 let fl = &suits.flight[j];
@@ -304,8 +307,9 @@ impl Sim {
     }
 
     /// The first hostile missile a round of radius `r` passes within [`INTERCEPT_REACH`] of, flying
-    /// from `a` to `b` this tick (fired by `owner`, of `faction`): how far along its path (0..1),
-    /// and which. Both move over the tick (the missiles haven't flown yet: `missile_step`
+    /// from `a` to `b` this tick (fired by `owner`, `by` to the law): how far along its path
+    /// (0..1), and which. A missile is hostile to the round when the round could harm the suit
+    /// that launched it, as both were when they fired (`colony::reach::harms`). Both move over the tick (the missiles haven't flown yet: `missile_step`
     /// follows), so the round's path is taken relative to each missile's.
     pub(super) fn round_meets_missile(
         &self,
@@ -313,7 +317,7 @@ impl Sim {
         b: Vec3,
         r: f32,
         owner: usize,
-        faction: bc_proto::Faction,
+        by: Party,
     ) -> Option<(f32, usize)> {
         let m = &self.missiles;
         if m.count() == 0 {
@@ -325,7 +329,7 @@ impl Sim {
         let mut first: Option<(f32, usize)> = None;
         for k in m.alive.iter() {
             if usize::from(m.owner[k]) == owner
-                || (!self.cfg.friendly_fire && m.owner_faction[k] == faction)
+                || !harms(self.cfg.law, self.cfg.friendly_fire, by, m.by[k])
                 || (m.pos[k] - a).length_squared() > near * near
             {
                 continue;
@@ -359,7 +363,7 @@ impl Sim {
             kind: m.kind[k],
             guided: m.guided(k),
             targets_you: m.target[k] == viewer as u16,
-            friendly: m.owner_faction[k] == self.suits.faction[viewer],
+            friendly: m.by[k].faction == self.suits.faction[viewer],
             pos: m.pos[k],
             vel: m.vel[k],
         }

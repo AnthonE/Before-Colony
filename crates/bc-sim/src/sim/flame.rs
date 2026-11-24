@@ -12,6 +12,7 @@ use glam::Vec3;
 
 use super::Sim;
 use crate::collide::{capsule_world, segment_segment};
+use crate::colony::reach::harms;
 use crate::content::{Mount, WeaponSpec, frame};
 use crate::math::clamp_to_cone;
 use crate::math::{cos, normalize_or, sin};
@@ -71,12 +72,13 @@ impl Sim {
         let tip = nozzle + dir * w.range;
         // The cone's radius per metre along it.
         let spread = sin(cone.half_angle) / cos(cone.half_angle);
-        let faction = s.faction[i];
+        let by = s.party(i);
         let mut burnt = [(0usize, Part::Torso, Vec3::ZERO); MAX_BURNT];
         let mut n = 0;
-        let (spatial, suits, ff) = (&mut self.spatial, &self.suits, self.cfg.friendly_fire);
+        let (spatial, suits, ff, law) =
+            (&mut self.spatial, &self.suits, self.cfg.friendly_fire, self.cfg.law);
         spatial.query_sphere(nozzle, w.range + 16.0, |j| {
-            if j == i || (!ff && suits.faction[j] == faction) || n == MAX_BURNT {
+            if j == i || !harms(law, ff, by, suits.party(j)) || n == MAX_BURNT {
                 return;
             }
             let fl = &suits.flight[j];

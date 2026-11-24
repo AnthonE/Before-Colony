@@ -41,6 +41,41 @@ fn busy_sector_ticks_without_allocating() {
 }
 
 #[test]
+fn open_space_duels_never_allocate() {
+    // The busy sector under `Law::OpenSpace`: its pilots, out past the colony's reach, hit one
+    // another as well as the drones (`colony::reach`).
+    use bc_proto::PilotKind;
+    use bc_proto::events::Event;
+    let (mut sim, players) = common::arena(64, 256, 31);
+    sim.cfg.law = bc_sim::colony::reach::Law::OpenSpace;
+    common::run(&mut sim, &players, 120);
+    let (mut total, mut pilot_hits) = (0, 0);
+    for _ in 0..600 {
+        let t = sim.next_tick();
+        let mut cmds = [bc_proto::InputCmd::default(); 64];
+        for (k, &id) in players.iter().enumerate() {
+            cmds[k] = common::scripted(&sim, id, t);
+        }
+        let from = sim.events.next_seq();
+        let ((), n) = bc_alloc::count(|| {
+            for (k, &id) in players.iter().enumerate() {
+                sim.set_input(id, cmds[k]);
+            }
+            sim.step();
+        });
+        total += n;
+        for s in from..sim.events.next_seq() {
+            if let Some(Event::Hit { shooter, target, .. }) = sim.events.get(s) {
+                let pilot = |i: u16| sim.suits.pilot[usize::from(i)] != PilotKind::Drone;
+                pilot_hits += usize::from(pilot(*shooter) && pilot(*target));
+            }
+        }
+    }
+    assert!(pilot_hits > 0, "pilots should hit pilots in open space");
+    assert_eq!(total, 0, "heap operations inside the tick: {total}");
+}
+
+#[test]
 fn anime_rules_tick_without_allocating() {
     // The same busy sector under anime flight rules: boost gauges drain and fill back up.
     let (mut sim, players) = common::arena(64, 256, 9);

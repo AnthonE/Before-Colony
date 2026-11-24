@@ -34,6 +34,8 @@ pub struct HangarState {
     pub wake: Option<bc_econ::wire::Wake>,
     /// The pilot's body (`bc_econ::body`): how fed they are, and for how long.
     pub body: Option<bc_econ::body::BodyView>,
+    /// Their fight on foot (`Update::Hurt`, `crate::brawl`): their health, and whether they're down.
+    pub hurt: Option<crate::brawl::Hurt>,
     /// The book (and price history) of the item the pilot is watching.
     pub book: Option<(Depth, Vec<u64>)>,
     /// What to tell the pilot (the text, and whether it was done or refused), oldest first. The
@@ -67,6 +69,11 @@ pub struct HangarState {
     /// been said (`crate::watch::Pursuit` eases them from one word to the next).
     pub units: Vec<bc_econ::wire::Unit>,
     pub units_heard: u64,
+    /// The town's people out of its crowd round the pilot (`Update::Crowd`: near, placed further
+    /// off, and how many more), and how many times they've been said (`crate::crowd::Loose` eases
+    /// them from one word to the next).
+    pub crowd: (Vec<bc_econ::wire::Promoted>, Vec<bc_econ::wire::Placed>, u32),
+    pub crowd_heard: u64,
     pub news: Vec<String>,
     /// In the city: the names of the people seen there, by the slot the plaza knows them by.
     pub people: std::collections::HashMap<u16, String>,
@@ -150,6 +157,14 @@ impl HangarState {
             Update::Units { units } => {
                 self.units = units;
                 self.units_heard += 1;
+            }
+            Update::Crowd { near, mid, far } => {
+                self.crowd = (near, mid, far);
+                self.crowd_heard += 1;
+            }
+            Update::Hurt { hp, down_s, by, helper } => {
+                let heard = self.hurt.as_ref().map_or(0, |h| h.heard) + 1;
+                self.hurt = Some(crate::brawl::Hurt { hp, down_s, by, helper, heard });
             }
         }
         false

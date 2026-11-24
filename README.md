@@ -18,8 +18,15 @@ A space mech MMO prototype.
   damaged suit coughs, leaks, scrams, jams and smokes. Fourteen equipment modules (a G-seat, an
   auxiliary tank, an ion drive, radiators, plating, damage control…) trade one stat for another,
   and three grades of propellant go further the purer they are.
-- **Survival:** you build your own suit. You start on foot in your hangar bay in the docking hub of
-  the First Colony, a ring a kilometre across (`docs/RING.md`), with a worn-out Argo. Walk the bay in
+- **The ring's town** (`docs/FREE_ROAM.md`): the First Colony is a ring 3 km in radius (`docs/RING.md`),
+  and a town at GTA's scale stands on its floor, painted like the anime, all the way round. A new pilot
+  wakes there on foot: its traffic and its people are closed forms every screen shares, anyone run down,
+  scared off or getting up is the server's till they're out of sight, any car can be taken (from its
+  kerb, its driver, wherever it was left), fares ride between the lifts' squares, and the Watch answers
+  what it sees: heat, units sent by road, chases, stops and fines. The bay and the suit are up a spoke's
+  lift.
+- **Survival:** you build your own suit, starting from a worn-out Argo in your hangar bay in the
+  docking hub (`--start bay` wakes a new pilot there instead of in the town). Walk the bay in
   first person, fabricate parts from what you mine and salvage, deliver to the Charter Board's
   contracts and trade on the **Colony Exchange** (order books, with the colony as a market maker
   whose prices follow its stock), both at the bay's terminals. A Lodestar takes tonnes of exotic
@@ -71,6 +78,28 @@ Salvage and mining, and agents via the Bot SDK, carry over from Milestone 1. The
 procedural, jointed models whose armour and limbs come off. The sky, colony and asteroid field are
 drawn with custom shaders, the colony's halls in one station language (light blue-grey panels,
 markings in yellow: `docs/RING.md`), and every sound is synthesised at boot (`bc-sound`).
+
+## Accepted pull requests are paid
+
+Before Colony is built in public, by agents and people alike. Every accepted pull request pays the
+board's posted price: <https://elopros.com/games/before-colony/board/>. The price is the board's
+and is never typed here.
+
+**The lane opens when it's posted there.** Once it is, there is nothing to claim and no queue: the
+bounty is standing, so any number of agents can work it at once and nobody can hold it. Build
+something, open a PR, and deliver its link on the board ([`AGENTS.md`](AGENTS.md), "The deal", has
+the one call). [`CONTRIBUTING.md`](CONTRIBUTING.md) has what's in scope, the checks and what gets a
+PR closed; [`SECURITY.md`](SECURITY.md) the promises and how to report a break of one privately.
+
+## Start here
+
+| read | for |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | the whole process, on one page. Start with it |
+| [`AGENTS.md`](AGENTS.md) | where an agent starts: the deal, the bar, working beside other agents |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | what pays, what's in scope, the check for what you touched |
+| [`docs/NOW.md`](docs/NOW.md) | the backlog by lane: what to pick up |
+| [`docs/PHASES.md`](docs/PHASES.md) | the plan of record: the phases to 1.0 and why that order |
 
 ## Quick start
 
@@ -181,7 +210,11 @@ wallets sign in to; defaults to `--http`), `--require-auth` (no human guests), `
 (default 127.0.0.1:8080), `--wt-port N` (WebTransport's UDP port, default 4433), `--web-dir DIR`
 (the built client, default `web/dist`), `--seed N` (the simulation's), `--max-connections N` and
 `--per-address N` (connections taken in all and from one address, loopback excepted; default 512
-and 8). Records go through a `PilotStore` trait a Redis or Mongo store can implement.
+and 8), `--elo-key FILE` and `--elo-key-id ID` (the server's Ed25519 key on Elo Pros, a PKCS#8 PEM
+kept on the game box and never in the repo, and the id it's named under, default `sector-1`: with
+it, what signed-in pilots do is reported to the game's stats, achievements and boards, signed;
+without it, nothing is. Its public half is in the log at start, for `elo.json`'s `server_keys`).
+Records go through a `PilotStore` trait a Redis or Mongo store can implement.
 
 `scripts/dev.sh` takes its settings from the environment: `BC_RULES`, `BC_FLIGHT` (`anime|real`),
 `BC_COLONY=1` (the server's `--colony`), `BC_DATA=DIR` (the server's `--data-dir`), `BC_DRONES` (24), `BC_AGENTS` and
@@ -259,7 +292,8 @@ crates/bc-sector       the hot loop: sector thread, lock-free queues, replicatio
 crates/bc-orrery         tactical oracles: TypeSafe Jev, worker
 crates/bc-client-core  client state machine shared by the browser and bots (and the bay's walker)
 crates/bc-econ         the economy: items, recipes, stores, suit builds, faults and overhauls, jobs, the Colony Exchange
-crates/bc-server       WebTransport server, HTTP (/cert-hash, /status, /status.json, /online.json, /floor.json)
+crates/bc-server       WebTransport server, HTTP (/cert-hash, /status, /status.json, /online.json, /floor.json), Elo Pros' stats
+elo.json               the game's manifest for Elo Pros: its stats, achievements and boards (no server keys until the operator's)
 crates/bc-bot          Bot SDK, drone and miner agents, bc-swarm
 crates/bc-client       Bevy browser client (wasm32)
 crates/bc-model        the suits' procedural designs and their sockets
@@ -291,3 +325,4 @@ a quick captioned cut of the ring overhaul, for seeing new work move.
 
 Before Colony is an original game: its world, its suits and its names are its own
 (`docs/STORY.md`, "Voice and naming"). All art is procedural. Code is MIT-licensed (see `LICENSE`).
+Contributions land under the same MIT terms: opening a PR is offering it on them.

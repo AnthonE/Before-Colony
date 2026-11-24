@@ -110,7 +110,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     } else if (slot == 2u) {
         index = (tag >> 26u) & 15u;
     } else if (slot == 3u) {
-        index = 15u;
+        // The sensor's glass (bc_model's paint::SENSOR_GLASS), glowing.
+        index = 22u;
         glow = EYES[(tag >> 30u) & 3u];
     } else if (slot >= 96u) {
         // A segment of the suit's stencilled unit number (its seed, 0..63; bc_model's

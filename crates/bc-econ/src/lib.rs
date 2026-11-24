@@ -39,6 +39,7 @@ pub mod food;
 pub mod hangar;
 pub mod homes;
 pub mod item;
+pub mod livery;
 pub mod proving;
 pub mod seats;
 pub mod stores;

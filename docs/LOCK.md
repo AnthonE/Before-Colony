@@ -21,7 +21,7 @@ where players learn to hit). This is the design, and what's built of it.
 
 | Key | Locked on, flight assist on |
 |---|---|
-| **Y**, or a middle-mouse click | lock the hostile nearest the crosshair (within 10°, else the nearest on screen, else the nearest within 4 km); again: the next one; hold for a third of a second: let go |
+| **Y**, or a middle-mouse click | lock the foe (another side's, or, under open space, a pilot out past the colony's reach with you: `bc_sim::colony::reach`) nearest the crosshair (within 10°, else the nearest on screen, else the nearest within 4 km); again: the next one; hold for a third of a second: let go |
 | W | close in, braking in time to stop just outside your blade's reach (15 m without one) |
 | S | back off |
 | A / D | circle it, at the range you're at |

@@ -173,6 +173,16 @@ where ours already agree, and our own flight's where they don't:
   view never rolls with a barrel roll (rolling views are what make people sick: the shooter
   controls' reason, above).
 
+**On foot, a fight: F strikes, E held helps someone up** (`OPEN_CITY.md`, "Heat and the Watch";
+`bc_client_core::brawl`). F is melee in a suit already (and V is Overwatch's, which ours is flight
+assist), and on foot it was read only at a wheel (the fares, the Markab's fan), so a pilot's hand
+knows it as the blow and nothing on foot loses it. The prompt names who it would land on (`F
+STRIKE <NAME>`), from the same function the server judges it with. Lifting a pilot who's down is
+E held beside them (Gates' assist, six seconds), and it wins over a car at the kerb or a lift's
+door in reach: someone on the ground comes first (`brawl::use_key`). The left mouse button stays
+the pointer's lock on foot: a sidearm, when there is one, has to swallow that click as a suit's
+guns do.
+
 **Ejecting: U** (`DESIGN.md`, "Doom and ejecting"). Titanfall ejects on its use key, which is our
 roll (E). Of the keys still free (I, K, O, U), U is the one the left hand reaches from W without
 leaving the keyboard's left half. Steel Battalion hid its eject button under a plastic flap so that
@@ -200,6 +210,12 @@ tap ejects at once and a hold blows the suit up instead.
      (`bc_client_core::dock`), so the dock's refusals come only where they teach something. One
      press goes one place, decided once a frame. On the chart Enter still sets a course.
    - **Still open:** T, the other usual chat key, stays throw.
+   - **Proximity voice talks on ` (Backquote) and the mouse's back button**, held (or a press on, a
+     press off: SETTINGS > SOUND), as push-to-talk does in the shooters our players come from.
+     Both were bound nowhere: V (Gates' talk key) is melee and flight assist, B stows, and T and
+     Enter are throw and the radio. Bevy's keys are physical positions, so ` stays the key left
+     of 1 on any layout. The page keeps the back button from taking the browser Back. Typed
+     into the radio's line, `/mute NAME` silences someone and `/unmute` everyone (never sent).
 4. **The lock moves you; it doesn't aim for you.** Most licensed anime-mech games lock on: the 2v2
    arena brawlers, the kit-building brawlers, even the cockpit-pod arcade game [A1]. Lock-on is
    also the most common complaint in mech games: too strong, unreliable, or grabbing the wrong target
@@ -232,6 +248,13 @@ tap ejects at once and a hold blows the suit up instead.
      habit to follow. Of the letters still free (I, K and O), O is for options, and it is out of
      reach of the left hand on W A S D, so a fight never presses it by mistake. While the radio's
      line is open it is a letter, not a key.
+   - **F7 reports a bug** (Gates' key for it). The page owns it, as it does F1: a one-line composer
+     opens over the world, and the game's keys and the pointer stand aside while it's up. Its second
+     way is a button, not a key: REPORT A BUG on the pause menu and on the controls sheet. I, the
+     one letter still free, stays free: a letter a fight can brush would throw the pointer lock away
+     mid-fight. F7 is also the browsers' caret-browsing key; the page takes it first
+     (`preventDefault` in the capture phase). Whether a headed Firefox or Chrome still asks about
+     caret browsing hasn't been checked by hand yet.
 7. **Ctrl is down, and Ctrl+W closes the tab.** Holding Ctrl with W is Ctrl+W, which closes the
    browser tab. Browsers reserve that shortcut outside fullscreen, and itch.io players report tabs
    closing on them exactly this way [C1]. Down was C alone for that; the owner put Ctrl back

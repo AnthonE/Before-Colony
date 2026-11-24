@@ -11,6 +11,11 @@ use bc_proto::control::RejectReason;
 pub const DIAL_TIMEOUT: f64 = 10.0;
 /// How long the server may take to answer Hello, s.
 pub const HANDSHAKE_TIMEOUT: f64 = 10.0;
+/// The fewest frames a dial or a handshake is given, however long they took, before either is
+/// given up. The network's answer is let in between two frames, and a page that draws a frame
+/// every few seconds (a weak machine, or a browser drawing in software as it builds the bay) would
+/// otherwise call time on the frame after the dial began, before its answer could come in.
+pub const MIN_WAIT_FRAMES: u32 = 4;
 /// How long the wallet may take to sign (people read what they sign), s.
 pub const SIGN_TIMEOUT: f64 = 60.0;
 /// Waits between automatic redials after a link that was in game drops, s. One entry per attempt.
@@ -146,11 +151,13 @@ pub struct Link {
     pub reconnects: u32,
     /// The last error, kept after a successful redial (for the dev hooks).
     pub last_error: Option<LinkError>,
+    /// The dial (0) or the handshake (1) under way, by when it began, and the frames it has had.
+    waited: Option<(u8, f64, u32)>,
 }
 
 impl Default for Link {
     fn default() -> Self {
-        Self { state: LinkState::Idle, reconnects: 0, last_error: None }
+        Self { state: LinkState::Idle, reconnects: 0, last_error: None, waited: None }
     }
 }
 
@@ -274,11 +281,21 @@ impl Link {
 
     /// Timeouts and scheduled redials; call every frame.
     pub fn tick(&mut self, now: f64) -> Option<LinkAction> {
+        let waiting = match self.state {
+            LinkState::Dialing { since, .. } => Some((0, since)),
+            LinkState::Handshake { since, .. } => Some((1, since)),
+            _ => None,
+        };
+        self.waited = waiting.map(|(what, since)| match self.waited {
+            Some((w, s, frames)) if (w, s) == (what, since) => (what, since, frames + 1),
+            _ => (what, since, 1),
+        });
+        let given = self.waited.is_some_and(|(_, _, frames)| frames >= MIN_WAIT_FRAMES);
         match self.state.clone() {
-            LinkState::Dialing { since, .. } if now - since > DIAL_TIMEOUT => {
+            LinkState::Dialing { since, .. } if now - since > DIAL_TIMEOUT && given => {
                 Some(self.down(now, LinkError::DialTimeout))
             }
-            LinkState::Handshake { since, .. } if now - since > HANDSHAKE_TIMEOUT => {
+            LinkState::Handshake { since, .. } if now - since > HANDSHAKE_TIMEOUT && given => {
                 Some(self.down(now, LinkError::HandshakeTimeout))
             }
             LinkState::Signing { since, .. } if now - since > SIGN_TIMEOUT => {
@@ -374,10 +391,20 @@ mod tests {
         assert_eq!(link.play(101.0), Some(LinkAction::Dial));
     }
 
+    /// A frame a second from `from` up to (not including) `to`, each ticked: nothing happens.
+    fn frames(link: &mut Link, from: f64, to: f64) {
+        let mut t = from;
+        while t < to {
+            assert_eq!(link.tick(t), None, "at {t}");
+            t += 1.0;
+        }
+    }
+
     #[test]
     fn a_dial_that_hangs_times_out() {
         let mut link = Link::default();
         link.play(0.0);
+        frames(&mut link, 0.0, DIAL_TIMEOUT - 0.5);
         assert_eq!(link.tick(DIAL_TIMEOUT - 0.1), None);
         assert_eq!(link.tick(DIAL_TIMEOUT + 0.1), Some(LinkAction::Close));
         assert_eq!(link.state, LinkState::Failed(LinkError::DialTimeout));
@@ -388,7 +415,44 @@ mod tests {
         let mut link = Link::default();
         link.play(0.0);
         link.dialed(1.0);
+        frames(&mut link, 1.0, 1.0 + HANDSHAKE_TIMEOUT);
         assert_eq!(link.tick(1.0 + HANDSHAKE_TIMEOUT + 0.1), Some(LinkAction::Close));
+        assert_eq!(link.state, LinkState::Failed(LinkError::HandshakeTimeout));
+    }
+
+    #[test]
+    fn a_page_drawing_a_frame_every_few_seconds_waits_a_few_frames() {
+        // Frames 12 s apart, as the bay is built on a page drawing in software: the dial's answer
+        // comes in between the second and the third, the server's Welcome a frame after.
+        let mut link = Link::default();
+        link.play(0.0);
+        assert_eq!(link.tick(0.0), None);
+        assert_eq!(link.tick(12.0), None);
+        link.dialed(24.0);
+        assert_eq!(link.tick(24.0), None);
+        assert_eq!(link.tick(36.0), None);
+        link.welcomed(48.0);
+        assert!(link.in_game());
+        // One that never answers is still given up, its few frames on.
+        let mut link = Link::default();
+        link.play(0.0);
+        let mut frame = 0;
+        let out = loop {
+            if let Some(out) = link.tick(12.0 * f64::from(frame)) {
+                break out;
+            }
+            frame += 1;
+        };
+        assert_eq!((out, frame + 1), (LinkAction::Close, MIN_WAIT_FRAMES));
+        assert_eq!(link.state, LinkState::Failed(LinkError::DialTimeout));
+        // As is a handshake.
+        let mut link = Link::default();
+        link.play(0.0);
+        link.dialed(1.0);
+        for k in 1..MIN_WAIT_FRAMES {
+            assert_eq!(link.tick(1.0 + 12.0 * f64::from(k)), None);
+        }
+        assert_eq!(link.tick(60.0), Some(LinkAction::Close));
         assert_eq!(link.state, LinkState::Failed(LinkError::HandshakeTimeout));
     }
 

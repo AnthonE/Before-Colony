@@ -2,7 +2,9 @@
 //!
 //! A `spawn_local` pump receives datagrams as they arrive and stamps each with its arrival time,
 //! so clock sync and RTT do not depend on the frame rate; the game loop drains them once per
-//! frame. The rare control-stream traffic runs in two more small tasks.
+//! frame. Voice (`bc_proto::voice`) is split off at arrival into a ring of its own
+//! (`bc_client_core::voice::VOICE_RING`, drop-oldest), so talkers never push a snapshot out of the
+//! inbox; `voice.rs` drains it. The rare control-stream traffic runs in two more small tasks.
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -14,6 +16,16 @@ use web_transport_wasm::{ClientBuilder, CongestionControl, Session};
 
 /// Received datagrams with their arrival times (s).
 type Inbox = Rc<RefCell<VecDeque<(Vec<u8>, f64)>>>;
+
+// Voice frames kept waiting at most.
+use bc_client_core::voice::VOICE_RING;
+
+/// Relayed voice frames, and how many were dropped for room.
+#[derive(Default)]
+struct VoiceInbox {
+    frames: VecDeque<Vec<u8>>,
+    dropped: u64,
+}
 
 /// What the control-stream writer does next.
 enum CtrlOut {
@@ -31,6 +43,8 @@ pub struct Transport {
     /// Datagrams stamped with their arrival time (s), filled by an async task so timing does not
     /// depend on the frame rate.
     inbox: Inbox,
+    /// Voice, split off at arrival.
+    voice: Rc<RefCell<VoiceInbox>>,
 }
 
 impl Transport {
@@ -83,17 +97,27 @@ impl Transport {
             }
         });
         let inbox = Rc::new(RefCell::new(VecDeque::new()));
-        Ok(Transport { session, ctrl_tx, ctrl_in, closed, inbox })
+        let voice = Rc::default();
+        Ok(Transport { session, ctrl_tx, ctrl_in, closed, inbox, voice })
     }
 
     /// Starts receiving datagrams in the background; each is stamped with `clock()` on arrival.
     pub fn start_pump(&self, clock: fn() -> f64) {
         let session = self.session.clone();
         let inbox = self.inbox.clone();
+        let voice = self.voice.clone();
         let closed = self.closed.clone();
         wasm_bindgen_futures::spawn_local(async move {
             loop {
                 match session.recv_datagram().await {
+                    Ok(bytes) if bc_proto::packet_kind(&bytes) == Some(bc_proto::PacketKind::Voice) => {
+                        let mut v = voice.borrow_mut();
+                        if v.frames.len() >= VOICE_RING {
+                            v.frames.pop_front();
+                            v.dropped += 1;
+                        }
+                        v.frames.push_back(bytes.to_vec());
+                    }
                     Ok(bytes) => {
                         let mut q = inbox.borrow_mut();
                         q.push_back((bytes.to_vec(), clock()));
@@ -114,6 +138,16 @@ impl Transport {
     /// Takes every datagram the pump has received, with its arrival time.
     pub fn drain(&self) -> Vec<(Vec<u8>, f64)> {
         self.inbox.borrow_mut().drain(..).collect()
+    }
+
+    /// Takes every voice frame the pump has received, oldest first.
+    pub fn drain_voice(&self) -> Vec<Vec<u8>> {
+        self.voice.borrow_mut().frames.drain(..).collect()
+    }
+
+    /// Voice frames dropped for room (a stalled tab).
+    pub fn voice_dropped(&self) -> u64 {
+        self.voice.borrow().dropped
     }
 
     /// Hands a datagram to the browser; `false` if it had no room (the datagram is dropped).

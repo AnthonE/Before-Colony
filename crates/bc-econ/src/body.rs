@@ -41,12 +41,21 @@ pub struct Body {
     /// How far the clock has run, unix seconds (0: not yet; it starts at the next [`Body::settle`]).
     #[serde(default)]
     pub at: u64,
+    /// How hurt they are on foot (`bc_sim::colony::brawl`): the health they're short of
+    /// `brawl::MAX_HP` (0: whole), as it was when they left. Kept so a reconnect doesn't heal; the
+    /// server heals it by the time away when they're back.
+    #[serde(default, skip_serializing_if = "is_whole")]
+    pub hurt: u8,
+}
+
+fn is_whole(hurt: &u8) -> bool {
+    *hurt == 0
 }
 
 impl Default for Body {
     /// An Arrival, fed and not yet woken.
     fn default() -> Self {
-        Self { food_s: ARRIVAL_FOOD_S, well_fed_s: 0, empty_s: 0, awake: false, at: 0 }
+        Self { food_s: ARRIVAL_FOOD_S, well_fed_s: 0, empty_s: 0, awake: false, at: 0, hurt: 0 }
     }
 }
 
@@ -73,6 +82,16 @@ impl Body {
         };
         self.food_s = self.food_s.saturating_sub(burn);
         self.well_fed_s = self.well_fed_s.saturating_sub(burn).min(self.food_s);
+    }
+
+    /// Their health on foot, as kept (`bc_sim::colony::brawl::MAX_HP` less how hurt they are).
+    pub fn hp(&self) -> u8 {
+        bc_sim::colony::brawl::MAX_HP.saturating_sub(self.hurt)
+    }
+
+    /// Keeps `hp` as their health on foot.
+    pub fn keep_hp(&mut self, hp: u8) {
+        self.hurt = bc_sim::colony::brawl::MAX_HP.saturating_sub(hp);
     }
 
     /// In the world from `now`.
@@ -369,5 +388,12 @@ mod tests {
         assert_eq!(serde_json::from_str::<Body>(&json).unwrap(), b);
         let old: Body = serde_json::from_str(r#"{"food_s": 7200}"#).unwrap();
         assert_eq!(old, Body { food_s: 7_200, ..Body::default() });
+        // Whole, it says nothing of being hurt; hurt, it keeps how much (an old record is whole).
+        assert_eq!(old.hp(), bc_sim::colony::brawl::MAX_HP);
+        assert!(!json.contains("hurt"), "{json}");
+        b.keep_hp(40);
+        let json = serde_json::to_string(&b).unwrap();
+        assert!(json.contains(r#""hurt":60"#), "{json}");
+        assert_eq!(serde_json::from_str::<Body>(&json).unwrap().hp(), 40);
     }
 }

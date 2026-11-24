@@ -11,7 +11,11 @@
 #   BC_HTTP_PORT (8080), BC_WT_PORT (UDP, 4433), PT_BUILD=0 (never build: run what's there),
 #   BC_COLONY=1 (open the retired cylinder's inside, closed while the ring is built: docs/RING.md),
 #   BC_START=bay (new pilots wake in their bay; by default they wake in the ring's town),
-#   PT_SERVER_ARGS (more of the server's flags, e.g. "--craft-speed 60").
+#   BC_DATA (the server's data dir, kept as it is; by default e2e/artifacts/playtest/world-<port>-data,
+#   emptied on each `up` but for its reports/, so players' and agents' reports (F7, `pt report`)
+#   pile up there: scripts/reports.py <it>/reports),
+#   PT_SERVER_ARGS (more of the server's flags, e.g. "--craft-speed 60"; one naming --data-dir or
+#   --reports-per-address is used instead of pt's own).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$(pwd)"
@@ -57,6 +61,23 @@ world_up() {
   # Where a new pilot wakes: the ring's town (the game's own), or BC_START=bay for their bay.
   [ -n "${BC_START:-}" ] && colony="$colony --start ${BC_START}"
   local log="$out/world-${port}.log"
+  # Whether PT_SERVER_ARGS names a flag (then it's theirs, not pt's).
+  names() { [[ " ${PT_SERVER_ARGS:-} " =~ [[:space:]]$1([[:space:]]|=) ]]; }
+  # A data dir, so the server takes reports (POST /bugs): a fresh world each time (pilots, the
+  # exchange), the reports kept.
+  local data="${BC_DATA:-}" flags=() reports
+  if names --data-dir; then
+    reports="the reports/ under PT_SERVER_ARGS' --data-dir"
+  else
+    if [ -z "$data" ]; then
+      data="$out/world-${port}-data"
+      mkdir -p "$data"
+      find "$data" -mindepth 1 -maxdepth 1 ! -name reports -exec rm -rf {} +
+    fi
+    flags+=(--data-dir "$data")
+    reports="reports in $data/reports"
+  fi
+  names --reports-per-address || flags+=(--reports-per-address 100)
   : >"$pids"
   # Detached (setsid), so the world outlives the shell that started it.
   start() {
@@ -65,7 +86,8 @@ world_up() {
   }
   # shellcheck disable=SC2086
   start "$bin/bc-server" --http "127.0.0.1:${port}" --wt-port "${BC_WT_PORT:-4433}" --web-dir web/dist \
-    --mode game --rules "$rules" --flight "${BC_FLIGHT:-anime}" --drones "${BC_DRONES:-12}" ${colony} ${PT_SERVER_ARGS:-}
+    --mode game --rules "$rules" --flight "${BC_FLIGHT:-anime}" --drones "${BC_DRONES:-12}" ${colony} \
+    ${flags[@]+"${flags[@]}"} ${PT_SERVER_ARGS:-}
   for _ in $(seq 1 100); do up && break; sleep 0.2; done
   up || { echo "the server didn't come up: see $log" >&2; tail -20 "$log" >&2; exit 1; }
   start "$bin/examples/drone" --server "$url" --name Agent-01
@@ -80,7 +102,7 @@ world_up() {
     done
   fi
   exec 9>&-
-  echo "the world is up at $url ($rules rules; log $log)"
+  echo "the world is up at $url ($rules rules; log $log; $reports)"
 }
 
 world_down() {

@@ -25,6 +25,7 @@
 
 use bc_client_core::base as deck_foot;
 use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, Lift, Refit, SPAWN, SUIT_AT, Spot};
+use bc_client_core::brawl::{self, Use};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
 use bc_client_core::dock;
@@ -1028,6 +1029,8 @@ pub struct TownFoot {
     /// units near them, the server's (`bc_client_core::watch`).
     pub heat: u8,
     pub pursuit: Pursuit,
+    /// The town's people out of its crowd round them, the server's (`bc_client_core::crowd`).
+    pub loose: bc_client_core::crowd::Loose,
     /// The highest level a word of the Watch's has already explained (`Update::Watched`), and
     /// the last offence said without a rise, and when (so a run of knocks isn't said each time).
     said_heat: u8,
@@ -1051,6 +1054,8 @@ pub struct TownFoot {
     mine: bc_client_core::taken::Mine,
     left_ids: Vec<u32>,
     held: Option<bc_econ::wire::LeftCar>,
+    /// The other pilots their car ran down lately, and when (the server's asked once each).
+    ran: Vec<(u16, f64)>,
 }
 
 /// The chase camera behind a car in the town: how far back and up it sits, m, and how fast its
@@ -1086,6 +1091,7 @@ impl TownFoot {
             cars: town_foot::Obstacles::default(),
             heat: 0,
             pursuit: Pursuit::default(),
+            loose: Default::default(),
             said_heat: 0,
             said_at: None,
             knock_wait: 0.0,
@@ -1096,6 +1102,7 @@ impl TownFoot {
             mine: Default::default(),
             left_ids: Vec::new(),
             held: None,
+            ran: Vec::new(),
         }
     }
 
@@ -1220,7 +1227,44 @@ pub struct OnFoot {
     pub deck: Option<DeckFoot>,
     /// In the ring's town, down a spoke's lift.
     pub town: Option<TownFoot>,
+    /// The town's lifts ridden so far: down a spoke from the bay, across the hub, back up (a wake
+    /// where they left the town is no ride). The sound of each (`audio.rs`).
+    rides: u32,
+    /// A fight on foot, anywhere on foot (`bc_client_core::brawl`).
+    pub brawl: Brawling,
 }
+
+/// A fight on foot as this screen keeps it (the server judges, `Request::Strike`, `RunDown`, `Help`):
+/// the next blow's time, who a blow or E would reach, helping somebody up, and being down.
+#[derive(Default)]
+pub struct Brawling {
+    /// When the next blow may be thrown, and till when this one's swing plays (the page's clock, s).
+    ready: f64,
+    swing: f64,
+    /// Who a blow now would land on (`brawl::target`), and who's down that E would help up
+    /// (`brawl::down_near`): each by the plaza's id.
+    pub target: Option<u16>,
+    pub help: Option<u16>,
+    /// Lifting that pilot up since then, and whether the dev hook's use began it (it holds till
+    /// they're up; E is held).
+    helping: Option<(u16, f64, bool)>,
+    /// Since when the pilot's been down, as this screen saw it fall (the view eases down to the
+    /// ground), and when the server's word of the time left was heard.
+    pub down_since: Option<f64>,
+    down_heard: (u64, f64),
+}
+
+/// A blow is thrown at most once in this, s: the server's `bc_sim::colony::brawl::COOL_TICKS` and a
+/// tenth (it counts whole ticks between blows as each is heard, and the wire's jitter shortens
+/// one gap as often as it lengthens another: a blow mashed on its very edge would be refused, its
+/// swing played for nothing). Its swing plays this long.
+const BLOW_COOL: f64 = bc_sim::colony::brawl::COOL_TICKS as f64 / bc_sim::TICK_HZ as f64 + 0.1;
+const SWING: f64 = 0.3;
+/// Lying down: the eye this near the ground, m, rolled this far, rad, easing down over this long, s
+/// (Gates' wounded view).
+const DOWN_EYE: f32 = 0.45;
+const DOWN_ROLL: f32 = 0.22;
+const DOWN_DROP: f32 = 0.45;
 
 impl Default for OnFoot {
     fn default() -> Self {
@@ -1242,6 +1286,8 @@ impl Default for OnFoot {
             city: None,
             deck: None,
             town: None,
+            rides: 0,
+            brawl: Brawling::default(),
         }
     }
 }
@@ -1279,6 +1325,34 @@ impl OnFoot {
     /// Until when the airlock's door stands open (it opens when the pilot comes in or leaves).
     pub fn airlock_until(&self) -> f64 {
         self.airlock_until
+    }
+
+    /// The town's lifts ridden so far (each ride one more).
+    pub fn rides(&self) -> u32 {
+        self.rides
+    }
+
+    /// The pilot's feet, if they're walking on them (not in a sequence, at a wheel, in a seat, on
+    /// a tram or in a home's lift): where they are, in the frame the walker walks in (the bay's,
+    /// the deck's or the city's: continuous while they walk), and whether they're on the ground.
+    pub fn feet_down(&self) -> Option<(Vec3, bool)> {
+        if self.seq != Seq::Walking {
+            return None;
+        }
+        let w = match self.place {
+            Some(Place::Hangar) if self.city.is_none() => &self.walker,
+            Some(Place::Base) => &self.deck.as_ref()?.walker,
+            Some(Place::Town) => &self.town.as_ref().filter(|t| t.drive.is_none())?.walker,
+            Some(Place::City) => {
+                let c = self.city.as_ref()?;
+                if c.ride.is_some() || c.drive.is_some() || c.seat.is_some() || c.lift.is_some() {
+                    return None;
+                }
+                &c.walker
+            }
+            _ => return None,
+        };
+        Some((w.feet, w.grounded))
     }
 
     fn t(&self, now: f64) -> f32 {
@@ -1542,6 +1616,10 @@ pub fn drive_onfoot(
                 me.deck = None;
                 me.town = None;
                 me.enter(now);
+                // Up a spoke's lift from the town.
+                if before == Some(Place::Town) {
+                    me.rides += 1;
+                }
             }
             // Down a spoke's lift to the ring's town: a cut, the screen fading back in at Hub
             // Gate's lift's door.
@@ -1553,9 +1631,11 @@ pub fn drive_onfoot(
                     *town_cars = TownCars::default();
                 }
                 me.done(now);
-                // (Woken there, the Charter Board's word comes with the place.)
+                // (Woken there, the Charter Board's word comes with the place, and no lift was
+                // ridden.)
                 if before == Some(Place::Hangar) {
                     ui.news("DOWN THE SPOKE · HUB GATE · CHARTER SQUARE", false);
+                    me.rides += 1;
                 }
             }
             // Out of the airlock onto Bay Row: a cut, the screen fading back in there.
@@ -1661,6 +1741,77 @@ pub fn drive_onfoot(
         };
     }
     let used_key = (live && keys.just_pressed(KeyCode::KeyE)) || cmds.has(&UiCmd::Use);
+    // Open season on foot (`bc_client_core::brawl`; the server judges): knocked down, the pilot lies
+    // where they fell till they're up, their keys moving nothing; beside somebody down, E (held)
+    // lifts them, before any car or lift door E would take.
+    let afoot = in_city || on_deck || in_town;
+    let hurt = g.core.hangar.hurt.clone().filter(|_| afoot);
+    let down = hurt.as_ref().is_some_and(|h| h.down());
+    if down {
+        own = Stride::default();
+        if let Some(t) = me.town.as_mut() {
+            t.guide = None;
+        }
+        if let Some(d) = me.deck.as_mut() {
+            d.guide = None;
+        }
+        me.brawl.down_since.get_or_insert(now);
+    } else {
+        me.brawl.down_since = None;
+    }
+    if let Some(h) = &hurt
+        && h.heard != me.brawl.down_heard.0
+    {
+        me.brawl.down_heard = (h.heard, now);
+    }
+    let others: Vec<(u16, PersonPose)> =
+        if afoot { g.core.people(now).into_iter().map(|(id, _, p)| (id, p)).collect() } else { Vec::new() };
+    let mine = g.core.pose().filter(|p| afoot && !down && !p.driving() && p.riding().is_none());
+    me.brawl.target = mine.and_then(|p| brawl::target(&p, &others)).map(|(id, _)| id);
+    me.brawl.help = mine.and_then(|p| brawl::down_near(&p, &others));
+    let used_key = match brawl::use_key(me.brawl.help, used_key.then_some(())) {
+        _ if down => false,
+        Some(Use::Help(id)) if used_key => {
+            if me.brawl.helping.is_none_or(|(h, _, _)| h != id) {
+                ask(&net, &g, &Request::Help { pilot: id, on: true });
+                me.brawl.helping = Some((id, now, cmds.has(&UiCmd::Use)));
+            }
+            false
+        }
+        _ => used_key,
+    };
+    // Still at it while E is held and they're still there, down; let go, the server's told.
+    if let Some((id, _, hook)) = me.brawl.helping
+        && (down || me.brawl.help != Some(id) || !(hook || keys.pressed(KeyCode::KeyE)))
+    {
+        if others.iter().any(|(p, pose)| *p == id && pose.down()) {
+            ask(&net, &g, &Request::Help { pilot: id, on: false });
+        }
+        me.brawl.helping = None;
+    }
+    // F on foot: a blow at whoever stands before them in reach (the prompt's, `brawl::target`); the
+    // server judges it from its own poses with the same function. (At the wheel, F is the car's.)
+    if live
+        && !down
+        && keys.just_pressed(KeyCode::KeyF)
+        && now >= me.brawl.ready
+        && let Some(p) = mine.filter(|p| !p.seated())
+    {
+        me.brawl.ready = now + BLOW_COOL;
+        me.brawl.swing = now + SWING;
+        if let Some((id, _)) = brawl::target(&p, &others) {
+            let x_cm = (p.x * 100.0).round() as i32;
+            let s_cm = (p.s * 100.0).round() as i32;
+            let yaw_mrad = (p.yaw.rem_euclid(std::f32::consts::TAU) * 1_000.0).round() as i32;
+            ask(&net, &g, &Request::Strike { pilot: id, x_cm, s_cm, yaw_mrad });
+        }
+    }
+    // While the swing plays, everyone else sees it (`FOOT_STRIKE` on the pose sent, on foot; what
+    // lands is the server's word).
+    let swinging = now < me.brawl.swing;
+    let swung = move |p: PersonPose| {
+        if swinging && p.ride == 0 { PersonPose { jets: bc_proto::presence::FOOT_STRIKE, ..p } } else { p }
+    };
     let mut board_trainer = false;
     if in_city && let Some(c) = me.city.as_mut() {
         // This frame's trains first, so a walk to the tram sees which doors are open now (at a few
@@ -1901,7 +2052,7 @@ pub fn drive_onfoot(
                 }
             }
         }
-        g.core.set_pose(Some(c.pose()));
+        g.core.set_pose(Some(swung(c.pose())));
         // Sent here, the frame it's taken, if one's due (and nowhere else, so a stale one never
         // takes its turn): after a slow frame the walk has caught up by up to a second's worth (a
         // guide's, `GUIDE_CATCH_UP`), and a pose a frame late would reach the server only a moment
@@ -2008,7 +2159,7 @@ pub fn drive_onfoot(
             d.walker.step(&deck_foot::GROUND, &stride, h);
         }
         d.at_door = deck_foot::at_the_airlock(&d.walker, d.bay);
-        g.core.set_pose(Some(deck_foot::pose_of(&d.walker)));
+        g.core.set_pose(Some(swung(deck_foot::pose_of(&d.walker))));
         if let (Some(t), Some(p)) = (net.get(), g.core.poll_pose(now)) {
             t.send_datagram(&p);
         }
@@ -2122,7 +2273,7 @@ pub fn drive_onfoot(
             t.struck.retain(|d| d.until > clock.0 && !g.core.hangar.street.iter().any(|o| o.id == d.id));
             let down: Vec<u32> = g.core.hangar.street.iter().chain(&t.struck).map(|d| d.id).collect();
             if let Some(v) = t.drive
-                && let Some(p) = town_foot::struck(&v, clock, &down)
+                && let Some(p) = town_foot::struck(&v, clock, &down, &t.loose)
             {
                 ask(&net, &g, &Request::Hit { person: p.id });
                 let at = DeckPos::new(RING, p.x, bc_sim::colony::town::deck_s(p.t), 0.0).wrapped();
@@ -2134,6 +2285,16 @@ pub fn drive_onfoot(
                     until: clock.0 + 25 * bc_sim::TICK_HZ,
                     away: false,
                 });
+            }
+            // Another pilot on foot run down: the server judges it from its own poses of both (and
+            // everyone sees them lying there, by its word); asked once a while for each.
+            t.ran.retain(|(_, at)| now - *at < 3.0);
+            if let Some(v) = t.drive
+                && let Some(id) = town_foot::struck_pilot(&v, &others)
+                && !t.ran.iter().any(|(r, _)| *r == id)
+            {
+                ask(&net, &g, &Request::RunDown { pilot: id });
+                t.ran.push((id, now));
             }
             // Fares (F): stopped in a lift's square by someone standing there, they'll ride to
             // another gate's; stopped in that one, they're set down and pay.
@@ -2252,6 +2413,7 @@ pub fn drive_onfoot(
         // quick way round the ring (R picks which).
         if let Some(k) = t.lift
             && live
+            && !down
             && !ui.panel_open()
         {
             if keys.just_pressed(KeyCode::KeyR) {
@@ -2317,6 +2479,9 @@ pub fn drive_onfoot(
         }
         t.pursuit.hear(g.core.hangar.units_heard, &g.core.hangar.units);
         t.pursuit.step(walk_dt(false));
+        let (near, mid, _) = &g.core.hangar.crowd;
+        t.loose.hear(g.core.hangar.crowd_heard, near, mid);
+        t.loose.step(walk_dt(false));
         let level = g.core.hangar.heat;
         // What the Watch made of what they did, every time: who saw it and what it leaves them at,
         // or that nobody did (seen, not done). A rise it explains isn't said again below.
@@ -2391,6 +2556,9 @@ pub fn drive_onfoot(
         if town_cars.down != down {
             town_cars.down = down;
         }
+        if town_cars.loose != t.loose {
+            town_cars.loose.clone_from(&t.loose);
+        }
         // A district's name on the way into it.
         let (district, name) = town_foot::district_from(at.s, t.district);
         if t.district.is_some_and(|d| d != district) {
@@ -2401,7 +2569,7 @@ pub fn drive_onfoot(
             Some(v) => town_foot::pose_driving(v),
             None => town_foot::pose_of(&t.walker),
         };
-        g.core.set_pose(Some(pose));
+        g.core.set_pose(Some(swung(pose)));
         if let (Some(tr), Some(p)) = (net.get(), g.core.poll_pose(now)) {
             tr.send_datagram(&p);
         }
@@ -2411,12 +2579,14 @@ pub fn drive_onfoot(
         t.car = None;
         t.jack = None;
         t.pursuit.clear();
+        t.loose.clear();
     }
     if up_the_lift {
         ask(&net, &g, &Request::LeaveTown);
     }
     if came_across {
         me.done(now);
+        me.rides += 1;
     }
     // (Out of the town, a word of the Watch's or a ride across said as they left is forgotten.)
     if !in_town {
@@ -2427,6 +2597,7 @@ pub fn drive_onfoot(
         g.core.set_pose(None);
     }
     let hangar_bay = g.core.hangar.view.as_ref().map(|v| v.bay.clone());
+    let cosmetics = bc_sim::content::cosmetics::Owned(g.core.hangar.view.as_ref().map_or(0, |v| v.cosmetics));
     if on_foot {
         for cmd in &cmds.0 {
             if let UiCmd::WalkTo { spot: slug } = cmd
@@ -2576,6 +2747,29 @@ pub fn drive_onfoot(
             _ => None,
         },
     };
+    // Its paint: the console's draft while the page tries one on (anything may be tried), else
+    // as the pilot may show it. The draft goes with the console.
+    for cmd in &cmds.0 {
+        if let UiCmd::PaintPreview { paint } = cmd {
+            bay.preview = *paint;
+        }
+    }
+    if !matches!(ui.panel, Panel::Terminal(_)) {
+        bay.preview = None;
+    }
+    bay.look = match &bay.suit {
+        Some(suit) => {
+            use bc_sim::content::cosmetics::{Owned, default_livery, worn};
+            let own = default_livery(suit.line, bc_proto::Faction::Colonies);
+            match bay.preview {
+                Some(p) => worn(Some(p.livery()), p.decal, own, Owned(u32::MAX)),
+                None => {
+                    worn(suit.paint.map(|p| p.livery()), suit.paint.map_or(0, |p| p.decal), own, cosmetics)
+                }
+            }
+        }
+        None => Default::default(),
+    };
     bay.boarded = match me.seq {
         Seq::Boarding | Seq::Venting | Seq::Catapult => true,
         Seq::Arriving => t < ARRIVE_SECS - 1.0,
@@ -2669,7 +2863,27 @@ pub fn drive_onfoot(
         }
     }
     ui.sequence = me.seq != Seq::Walking;
+    // (Down, helping somebody up, or somebody down at hand: those first, anywhere on foot.)
     ui.prompt = match me.seq {
+        Seq::Walking if down => {
+            let h = g.core.hangar.hurt.clone().unwrap_or_default();
+            let left = (f64::from(h.down_s) - (now - me.brawl.down_heard.1)).max(0.0).ceil();
+            match (&h.helper, &h.by) {
+                (Some(helper), _) => format!("DOWN · {} IS HELPING YOU UP", helper.to_uppercase()),
+                (None, Some(by)) => format!("DOWN · UP IN {left:.0} S · {}", by.to_uppercase()),
+                (None, None) => format!("DOWN · UP IN {left:.0} S"),
+            }
+        }
+        Seq::Walking if let Some((id, since, _)) = me.brawl.helping => {
+            let name = g.core.hangar.people.get(&id).map_or(String::new(), |n| n.to_uppercase());
+            let held = ((now - since) / (bc_sim::colony::brawl::HELP_TICKS as f64 / bc_sim::TICK_HZ as f64))
+                .min(1.0);
+            format!("HELPING {name} UP · {:.0}%", held * 100.0)
+        }
+        Seq::Walking if afoot && let Some(id) = me.brawl.help => {
+            let name = g.core.hangar.people.get(&id).map_or(String::new(), |n| n.to_uppercase());
+            format!("E  HOLD TO HELP {name} UP")
+        }
         Seq::Walking if on_foot => me
             .focus
             .map_or_else(String::new, |s| format!("E  {}", verb(s, hangar_bay.as_ref(), colony, me.lift))),
@@ -2757,6 +2971,20 @@ pub fn drive_onfoot(
         s if s.skippable() => "SPACE  SKIP".into(),
         _ => String::new(),
     };
+    // A blow that would land, after whatever E would do there (a car, a lift's door: never hidden
+    // by somebody standing in front).
+    if me.seq == Seq::Walking
+        && afoot
+        && !down
+        && me.brawl.helping.is_none()
+        && me.town.as_ref().is_none_or(|t| t.drive.is_none())
+        && g.core.pose().is_some_and(|p| !p.seated())
+        && let Some(id) = me.brawl.target
+    {
+        let name = g.core.hangar.people.get(&id).map_or(String::new(), |n| n.to_uppercase());
+        let strike = format!("F  STRIKE {name}");
+        ui.prompt = if ui.prompt.is_empty() { strike } else { format!("{} · {strike}", ui.prompt) };
+    }
     // Indoors (the bay, the city, a sequence there): the bay's line, and how fed the pilot is once
     // the server has said. Flying, the HUD has the corner.
     ui.bay_line = if inside {
@@ -2783,7 +3011,13 @@ pub fn drive_onfoot(
                 (far, arrow) => format!(" · LIFT {arrow} {:.1} KM", far / 1_000.0),
             }
         });
-        format!("BAY {:02} · {} CR{fed}{heat}{lift}", g.core.hangar.bay, thousands(g.core.hangar.credits()))
+        let hp =
+            g.core.hangar.hurt.as_ref().and_then(|h| h.tag()).map_or(String::new(), |t| format!(" · {t}"));
+        format!(
+            "BAY {:02} · {} CR{fed}{hp}{heat}{lift}",
+            g.core.hangar.bay,
+            thousands(g.core.hangar.credits())
+        )
     } else {
         String::new()
     };
@@ -2800,6 +3034,19 @@ pub fn drive_onfoot(
     // Leaving from inside the colony, the suit is brought home (`page`'s menu says so).
     ui.inside = flying_inside;
     ui.trainer = flying_inside && g.core.hangar.trainer;
+}
+
+/// Knocked down since then (the page's clock, s): how far the view has eased to the ground, 0 to 1.
+fn lying(me: &OnFoot, now: f64) -> f32 {
+    me.brawl.down_since.map_or(0.0, |t| ((now - t) as f32 / DOWN_DROP).clamp(0.0, 1.0))
+}
+
+/// The view from the ground, `k` of the way there: the eye lowered towards the floor along `up`,
+/// and the view rolled about `look` (Gates' wounded view). The eye moved, and the up.
+fn laid(look: Vec3, up: Vec3, k: f32) -> (Vec3, Vec3) {
+    let drop = (bc_sim::foot::EYE - DOWN_EYE) * k;
+    let rolled = Quat::from_axis_angle(look.normalize_or(Vec3::Z), DOWN_ROLL * k) * up;
+    (-up * drop, rolled)
 }
 
 /// The suit's console's view of the suit in its gantry (`Refit`), while its tab is open.
@@ -2857,6 +3104,7 @@ pub fn onfoot_camera(
         return;
     }
     let now = now_s();
+    let down = lying(&me, now);
     // In the colony: drawn in its frame, relative to the render origin, upright to its floor.
     if let Some(c) = &me.city {
         let (eye, look, up) = if me.seq == Seq::LiftDown {
@@ -2865,6 +3113,8 @@ pub fn onfoot_camera(
         } else {
             c.view()
         };
+        let (dropped, up) = laid(look, up, down);
+        let eye = eye + dropped.as_dvec3();
         let mut moved = *origin;
         moved.follow(eye);
         if moved != *origin {
@@ -2876,12 +3126,15 @@ pub fn onfoot_camera(
     // In the ring's town: the town is drawn in the frame upright where the pilot is (`town.rs`).
     if let Some(t) = &me.town {
         let (eye, look) = t.view();
-        *tf = Transform::from_translation(eye).looking_to(look, Vec3::Y);
+        let (dropped, up) = if t.drive.is_none() { laid(look, Vec3::Y, down) } else { (Vec3::ZERO, Vec3::Y) };
+        *tf = Transform::from_translation(eye + dropped).looking_to(look, up);
         return;
     }
     // On the base's deck: drawn round the pilot, upright to its floor (`base::frame`).
     if let Some(d) = &me.deck {
         let (eye, look, up) = d.view();
+        let (dropped, up) = laid(look, up, down);
+        let eye = eye + dropped;
         let f = crate::base::frame(d.feet().s);
         *tf = Transform::from_translation(f.transform_point(eye))
             .looking_to(f.rotation * look, f.rotation * up);
@@ -2935,6 +3188,13 @@ pub fn publish_onfoot(
             dev.set("deck_walking_to", false);
         }
     }
+    // On foot, a fight (`bc_client_core::brawl`): their health (-1: not told yet), whether they're
+    // down, who a blow would land on and who E would help up (their names).
+    dev.set("foot_hp", h.hurt.as_ref().map_or(-1.0, |x| f64::from(x.hp)));
+    dev.set("foot_down", h.hurt.as_ref().is_some_and(|x| x.down()));
+    let name_of = |id: Option<u16>| id.and_then(|id| h.people.get(&id)).cloned().unwrap_or_default();
+    dev.set("foot_target", name_of(me.brawl.target));
+    dev.set("foot_help", name_of(me.brawl.help));
     // In the ring's town: where on its floor (across the ring, round it, up), the district, being
     // walked, a lift's door or a car at hand, and at the wheel how fast.
     match &me.town {
@@ -2952,6 +3212,9 @@ pub fn publish_onfoot(
             // The lift whose square the fare aboard asked for (-1: none).
             dev.set("town_fare", h.fare.map_or(-1.0, |(to, _)| f64::from(to)));
             dev.set("town_watch", t.pursuit.units.len() as u32);
+            // The town's people out of its crowd round them, and how many of those are running.
+            dev.set("town_loose", t.loose.people.len() as u32);
+            dev.set("town_scared", t.loose.people.iter().filter(|d| d.scared).count() as u32);
             if me.seq == Seq::Walking {
                 let focus = if t.lift.is_some() {
                     "lift"

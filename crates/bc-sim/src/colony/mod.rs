@@ -11,15 +11,19 @@
 //! and the people on its streets (`walkers`), on the tick's clock; the Proving Ground's course
 //! through its air (`course`) and its Blast Hall's live fire (`hall`); and the homes inside its
 //! buildings (`homes`: lobbies, stairs, corridors, flats and houses, each at its own address).
+//! Round it all, its reach (`reach`): where pilots' weapons are safe on one another, and the law
+//! that says who harms whom.
 //!
 //! To suits and shots the colony is `world`'s solid ring and the hub's landmark; this is the rest of
 //! it. Like
 //! the bodies, nothing here allocates or reads a clock of its own, and every function is the same
 //! to the bit on the server and in the browser (libm through `math`).
 
+pub mod brawl;
 pub mod census;
 pub mod city;
 pub mod course;
+pub mod crowd;
 pub mod deck;
 pub mod frame;
 pub mod furniture;
@@ -29,6 +33,7 @@ pub mod hub;
 pub mod interior;
 pub mod louvres;
 pub mod pools;
+pub mod reach;
 pub mod roads;
 pub mod street;
 pub mod time;

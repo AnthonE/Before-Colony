@@ -17,7 +17,8 @@ bc-sector.workspace = true
 bc-econ.workspace = true
 bc-orrery.workspace = true
 tokio.workspace = true
-wtransport.workspace = true
+# `quinn`: the connection's datagram buffer, which proximity voice gives way to snapshots by (`voice`).
+wtransport = { workspace = true, features = ["quinn"] }
 axum.workspace = true
 tower-http.workspace = true
 rustls.workspace = true
@@ -38,6 +39,8 @@ base64 = "0.22"
 
 [dev-dependencies]
 bc-auth = { workspace = true, features = ["sign"] }
+# quinn, re-exported: `tests/leak.rs` dials as a raw QUIC peer.
+wtransport = { workspace = true, features = ["quinn"] }
 bc-bot.workspace = true
 bc-client-core.workspace = true
 

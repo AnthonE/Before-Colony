@@ -135,8 +135,15 @@ pub struct Config {
     pub siwe_domains: Vec<String>,
     /// Elo Pros' account key (`GET /api/account/pubkey`). None: no pass is taken, and `/nonce` says so.
     pub elo_pubkey: Option<[u8; 32]>,
-    /// Where a wallet's items are read at sign-in. None: nobody shows any.
+    /// Where a wallet's items are read at sign-in, and stats are reported. None: nobody shows any,
+    /// and nothing is reported.
     pub elo_origin: Option<String>,
+    /// This server's key on Elo Pros (`--elo-key`, a file on the game box; `crate::serverkey`).
+    /// With it (and `elo_origin`), what signed-in pilots do is reported to the game's stats,
+    /// achievements and boards (`crate::gamestats`); without it, nothing is.
+    pub elo_key: Option<std::sync::Arc<crate::serverkey::ServerKey>>,
+    /// How often the stats are reported (`gamestats::FLUSH_EVERY`; a test's is short).
+    pub elo_flush: Duration,
     /// A CA-issued certificate chain and its key (PEM files) for WebTransport. None: the server
     /// self-signs for 14 days and browsers pin the certificate's hash (`/cert-hash`).
     pub tls: Option<(PathBuf, PathBuf)>,
@@ -157,8 +164,11 @@ pub struct Config {
     pub flight: Flight,
     /// The fabricator and foundry work this many times faster than their recipes say.
     pub craft_speed: f64,
-    /// Where pilot records and the exchange are kept (none: in memory, for this run only).
+    /// Where pilot records and the exchange are kept (none: in memory, for this run only), and
+    /// players' reports (`<data dir>/reports`, `POST /bugs`: none, no such route).
     pub data_dir: Option<PathBuf>,
+    /// How many reports `POST /bugs` takes: per address, in all, and bytes a day (`crate::bugs`).
+    pub reports: crate::bugs::Limits,
     /// The colony is open (survival): pilots may ride the cap lifts down into its city. That
     /// inside is the retired cylinder's (`docs/RING.md`), opened only by the server's `--colony`;
     /// this default stays closed, so a test that doesn't ask for the colony gets no second sector.
@@ -174,6 +184,27 @@ pub struct Config {
     /// The dev HTTP's hooks for tests (`--dev-hooks`): `/dev/incident` raises one of the Watch's
     /// incidents by hand. Off by default, and in every deployment: the route isn't there at all.
     pub dev_hooks: bool,
+    /// Proximity voice is relayed (`crate::voice`): off (`--no-voice`), every frame is dropped and
+    /// counted, the kill switch if it's abused.
+    pub voice: bool,
+    /// Agents' sessions are sent people's voices too (`--voice-agents`). Off: people's voices are
+    /// for people.
+    pub voice_agents: bool,
+    /// Suits fight pilots away from the colony (`--pvp`): the space sector keeps
+    /// `bc_sim::colony::reach::Law::OpenSpace`, past the colony's reach pilots harm pilots of any
+    /// side and inside it none, and the Welcome says so. Off: sides (a suit harms another
+    /// side's). `None`: the ruleset's ([`Config::pvp_on`]), so the server and every test that
+    /// doesn't ask run what a deployment does.
+    pub pvp: Option<bool>,
+}
+
+impl Config {
+    /// Whether the space sector keeps open space: `pvp` as asked, else on under survival rules and
+    /// off under arcade's (which spawn every side's pilots together in open space, for the combat
+    /// suites and the load tests). The sector's law and the Welcome both ask this.
+    pub fn pvp_on(&self) -> bool {
+        self.pvp.unwrap_or(self.rules == Ruleset::Survival)
+    }
 }
 
 impl Default for Config {
@@ -194,6 +225,8 @@ impl Default for Config {
             siwe_domains: Vec::new(),
             elo_pubkey: None,
             elo_origin: None,
+            elo_key: None,
+            elo_flush: crate::gamestats::FLUSH_EVERY,
             tls: None,
             cors_origins: vec![STORE_ORIGIN.to_string()],
             require_auth: false,
@@ -205,11 +238,15 @@ impl Default for Config {
             flight: Flight::Anime,
             craft_speed: 1.0,
             data_dir: None,
+            reports: crate::bugs::Limits::default(),
             colony: false,
             start: Start::Bay,
             limits: crate::net::admit::Limits::default(),
             floor_visitors: None,
             dev_hooks: false,
+            voice: true,
+            voice_agents: false,
+            pvp: None,
         }
     }
 }
@@ -220,6 +257,14 @@ mod tests {
 
     fn list(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn open_space_is_survivals_unless_asked() {
+        assert!(Config::default().pvp_on(), "survival: on");
+        assert!(!Config { rules: Ruleset::Arcade, ..Config::default() }.pvp_on(), "arcade: off");
+        assert!(Config { rules: Ruleset::Arcade, pvp: Some(true), ..Config::default() }.pvp_on());
+        assert!(!Config { pvp: Some(false), ..Config::default() }.pvp_on(), "survival, turned off");
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::perception::{Contact, SelfView};
 
 /// How dangerous a contact is to us right now.
 pub fn threat_score(c: &Contact) -> f32 {
-    if !c.hostile || c.hull <= 0.0 {
+    if !c.threat || c.hull <= 0.0 {
         return 0.0;
     }
     let proximity = 1.0 / (1.0 + c.dist / 1_200.0);
@@ -34,7 +34,7 @@ pub fn threat_score(c: &Contact) -> f32 {
 /// Distribution over up to four targets (threat plus opportunity). Returns how many were filled.
 pub fn target_distribution(contacts: &[Contact], slots: &mut [u16; 4], probs: &mut [f32; 4]) -> usize {
     let mut best: [(f32, u16); 4] = [(f32::NEG_INFINITY, NO_SLOT); 4];
-    for c in contacts.iter().filter(|c| c.hostile && c.hull > 0.0) {
+    for c in contacts.iter().filter(|c| c.threat && c.hull > 0.0) {
         let score = threat_score(c) * 1.5 + (1.0 - c.hull) * 0.6 + 1.0 / (1.0 + c.dist / 2_000.0);
         let mut k = 3;
         if score <= best[k].0 {
@@ -107,7 +107,7 @@ pub fn hypothesis_accels(c: &Contact) -> [Vec3; N_HYP] {
 pub fn own_maneuver_distribution(me: &SelfView, spec: &FrameSpec, contacts: &[Contact]) -> [f32; N_HYP] {
     let mut utility = [0.0f32; N_HYP];
     let mut any = false;
-    for c in contacts.iter().filter(|c| c.hostile && c.hull > 0.0) {
+    for c in contacts.iter().filter(|c| c.threat && c.hull > 0.0) {
         let w = threat_score(c);
         if w <= 0.01 {
             continue;
@@ -154,7 +154,7 @@ pub fn threat_levels(contacts: &[Contact]) -> [f32; THREAT_LEVELS] {
 pub fn flanked(me: &SelfView, contacts: &[Contact]) -> f32 {
     let fwd = me.forward();
     let mut w = 0.0;
-    for c in contacts.iter().filter(|c| c.hostile && c.dist < 2_500.0) {
+    for c in contacts.iter().filter(|c| c.threat && c.dist < 2_500.0) {
         let off = angle_between(fwd, normalize_or(c.pos - me.pos, fwd));
         if off > 60f32.to_radians() {
             w += 1.0 / (1.0 + c.dist / 1_000.0);

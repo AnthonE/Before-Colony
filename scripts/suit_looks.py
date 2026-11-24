@@ -526,8 +526,9 @@ def materials(look, livery, palette, eye, tex, decals):
         elif code < 32 or code >= 64:
             k = code - 16 if code < 32 else 16 + code - 64
             r, g, b, rough = palette[k]
-            # Glass and lenses (the palette's GLASS, and the second bank's visor and lens).
-            if k in (15, 18, 19):
+            # Glass and lenses (the palette's black glass, and the second bank's visor, lens and
+            # sensor glass).
+            if k in (15, 18, 19, 22):
                 m = glass_material(f"{look}-glass{k}", (r, g, b), look)
             else:
                 m = paint_material(f"{look}-fixed{k}", (r, g, b), rough, look, tex, decals if k == 16 else [])

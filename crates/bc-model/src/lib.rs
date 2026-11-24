@@ -19,6 +19,7 @@ mod canopus;
 mod cetus;
 pub mod cockpit;
 mod corvus;
+pub mod decal;
 mod detail;
 pub mod frames;
 pub mod hold;
@@ -136,10 +137,19 @@ pub struct Decal {
 pub fn shoulder_decal(m: &Model) -> Option<Decal> {
     [Bone::ShoulderL, Bone::UpperArmL]
         .into_iter()
-        .find_map(|bone| outer_face(bone, m.bones[bone.index()].as_ref()?))
+        .find_map(|bone| outer_face(bone, m.bones[bone.index()].as_ref()?, -1.0))
 }
 
-fn outer_face(bone: Bone, mesh: &MeshData) -> Option<Decal> {
+/// The right shoulder's outer face, as [`shoulder_decal`] finds the left's: where a worn decal
+/// goes (the Pill has the left).
+pub fn shoulder_decal_right(m: &Model) -> Option<Decal> {
+    [Bone::ShoulderR, Bone::UpperArmR]
+        .into_iter()
+        .find_map(|bone| outer_face(bone, m.bones[bone.index()].as_ref()?, 1.0))
+}
+
+/// The face met first coming in from `dir` (−1: the suit's left, at −x; 1: its right).
+fn outer_face(bone: Bone, mesh: &MeshData, dir: f32) -> Option<Decal> {
     let at = |k: u32| Vec3::from(mesh.positions[k as usize]);
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for p in &mesh.positions {
@@ -150,8 +160,8 @@ fn outer_face(bone: Bone, mesh: &MeshData) -> Option<Decal> {
     if dy <= 0.0 || dz <= 0.0 {
         return None;
     }
-    // The first face met coming in along +x (the suit's left is -x) at a point of the shoulder's
-    // side: its middle if there's anything there, else a little off it.
+    // The first face met coming in from that side (along +x for the suit's left, at -x) at a
+    // point of the shoulder's side: its middle if there's anything there, else a little off it.
     let spots = [(0.5, 0.5), (0.5, 0.35), (0.5, 0.65), (0.35, 0.5), (0.65, 0.5), (0.3, 0.3), (0.7, 0.7)];
     spots.into_iter().find_map(|(fy, fz)| {
         let (y, z) = (lo.y + dy * fy, lo.z + dz * fz);
@@ -160,7 +170,7 @@ fn outer_face(bone: Bone, mesh: &MeshData) -> Option<Decal> {
             let (a, b, c) = (at(tri[0]), at(tri[1]), at(tri[2]));
             let n = (b - a).cross(c - a);
             // Facing out, and steep enough to read as a side.
-            if n.length_squared() < 1e-10 || n.normalize().x > -0.5 {
+            if n.length_squared() < 1e-10 || n.normalize().x * dir < 0.5 {
                 continue;
             }
             // Where the ray meets its plane, and whether that's inside it (in y, z).
@@ -168,7 +178,7 @@ fn outer_face(bone: Bone, mesh: &MeshData) -> Option<Decal> {
             let side = |p: Vec3, q: Vec3| (q.y - p.y) * (z - p.z) - (q.z - p.z) * (y - p.y);
             let (s0, s1, s2) = (side(a, b), side(b, c), side(c, a));
             let inside = (s0 >= 0.0 && s1 >= 0.0 && s2 >= 0.0) || (s0 <= 0.0 && s1 <= 0.0 && s2 <= 0.0);
-            if inside && best.is_none_or(|(bx, _)| x < bx) {
+            if inside && best.is_none_or(|(bx, _)| x * dir > bx * dir) {
                 best = Some((x, n.normalize()));
             }
         }
@@ -543,11 +553,17 @@ mod tests {
     #[test]
     fn every_frame_has_a_place_for_a_shoulder_decal() {
         for frame in FrameId::ALL {
-            let d = shoulder_decal(&build(frame, Lod::Near));
+            let model = build(frame, Lod::Near);
+            let d = shoulder_decal(&model);
             let d = d.unwrap_or_else(|| panic!("{frame:?} has no outer face on its left shoulder"));
             assert!(d.normal.x < -0.5, "{frame:?} faces out: {d:?}");
             assert!((0.3..=1.6).contains(&d.size), "{frame:?}: {d:?}");
             assert!(d.pos.is_finite());
+            // And the right, for a worn decal: facing out the other way.
+            let r = shoulder_decal_right(&model);
+            let r = r.unwrap_or_else(|| panic!("{frame:?} has no outer face on its right shoulder"));
+            assert!(r.normal.x > 0.5, "{frame:?} faces out: {r:?}");
+            assert!((0.3..=1.6).contains(&r.size) && r.pos.is_finite(), "{frame:?}: {r:?}");
         }
     }
     use bc_proto::WeaponKind;

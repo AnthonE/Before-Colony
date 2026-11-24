@@ -1,5 +1,11 @@
 # Roadmap: how PEERS.md's list gets built
 
+> **The whole game's order is `PHASES.md`** (November 2026): releases 0.2 to 1.0, each with an exit
+> bar, and what we take from Gates and oneshot. The current direction inside it is `FREE_ROAM.md`: a
+> town at GTA's scale on the ring's floor, a new pilot starting on foot in it, and the infrastructure
+> for crowds and the Watch before more mechanics. This roadmap's items below still stand; `PHASES.md`
+> says which release each lands in.
+
 `PEERS.md` says what the nearest games teach and what comes first. This is how each item gets built:
 where it lands in the code, what goes on the wire, and how it's tested. It follows the house rule
 from `PEERS.md`: **connect before deepening**, so every item sends pilots along the chain (the city,
@@ -34,7 +40,9 @@ the bay, space, home).
 | Mecha Royale, 27: wrecks that die their own way | built |
 | Mecha Royale, 28: crews | open |
 | Contracts on the Charter Board: supply contracts, patrols, the great works and the charter vote (P1, below) | begun |
-| The open city (`OPEN_CITY.md`): homes not instanced (H0 to H3), the street in the tick, cars you own, heat and the Watch, intrusion, raids, businesses | homes built; the street in the tick begun; the rest designed |
+| The open city (`OPEN_CITY.md`): homes not instanced (H0 to H3), the street in the tick, cars you own, heat and the Watch, intrusion, raids, businesses | homes built (the cylinder's, on hold); heat and the Watch built in the ring's town; the street in the tick begun; the rest designed |
+| Free roam (`FREE_ROAM.md`): the ring at 3 km, the town's plan, its look, its crowd and traffic, the Watch's infrastructure, a new pilot waking in it | F1, T1, V1, P1, W1, O1 built; P2 built off the tick; the floating origin, the Watch's patrols and the district sectors (D1) to do |
+| Sign-in: a wallet (SIWE, and its Solana form) or an Elo Pros pass (`PROTOCOL.md`) | built |
 | P1's rest, P2 below, the loose ends left | planned |
 
 ## The loop's loose ends
@@ -246,11 +254,17 @@ debrief's `PATROL` line work before the militia's hangar is built (patrols come 
 today, so a fresh server has none). It's a new faucet and undercuts the hangar's point: the
 owner's call.
 
-**Liveries.** Body, trim, accent and eye colours chosen at the suit's maintenance console from a
-palette, carried on the suit (`bc_econ::suit::Suit.paint`), paid for in credits (a sink), and drawn
-for everyone: sent with the roster on the control stream (it changes rarely), so the snapshot pays
-nothing; `suits_vis::livery` takes it when there is one. Tests: econ (paint costs, survives strip and
-refit), the hangar e2e paints a suit.
+**Liveries.** *Built (November 2026).* Body, trim, accent and eye colours and a decal on the right
+shoulder, chosen at the suit's maintenance console (its PAINT slot) from
+`bc_sim::content::cosmetics`' swatches, tried on the suit in the gantry before paying, carried on the
+suit (`bc_econ::suit::Suit.paint`), paid for in credits (`livery::PAINT_CR`, a sink), and drawn for
+everyone: sent with the roster on the control stream (it changes rarely), so the snapshot pays
+nothing; `suits_vis::livery_of` takes it when there is one. A suit never painted wears its frame's
+own. Some swatches and decals come with a cosmetic the pilot's wallet holds on Elo Pros (read with
+the Pill as they sign in, `bc-server`'s `elo`), and a suit shows them only while it does. Tests:
+econ (`livery`: costs, the cosmetic's gate, kept through strip and refit), the server's
+`tests/livery.rs` (painted, refused, seen on the roster). To do: the hangar e2e painting a suit, the
+store's shop of the cosmetics (`elo.json`), cosmetics earned in play.
 
 **Drone offensives.** The patrol scales with the pilots out (`SimConfig::target_drones` as a base plus
 a share per awake pilot, within the sector's suits), and now and then an offensive: a wing of drones
@@ -263,12 +277,29 @@ and sit at The Arrival; the server's own tugs, haulers and miners flying the lan
 same protocol, started with the server). Tests: the plaza test with a walking flaneur; a sector
 test with traffic.
 
-**Where PvP lives: a decision for the owner.** *Inside the colony, decided (October 2026): crime
-anywhere, answered by the Watch, homes raidable in the raid hours (`OPEN_CITY.md`). In space it's
-still open.* Today every human pilot flies for the Colonies (the
-server decides, whatever the client asks, and the Welcome says so: protocol v29) and friendly fire
-is off, so people can't harm each other, and `DESIGN.md`'s hunted sleepers can be hunted only by
-agents of another faction (the Alliance: nobody but the drones flies for the Almagest). The options:
+**Where PvP lives.** *Inside the colony, decided (October 2026): crime anywhere, answered by the
+Watch, homes raidable in the raid hours (`OPEN_CITY.md`). In space, decided (2026-11-23,
+`DECISIONS.md`): suits fight pilots away from the colony.* **Built (protocol 49):** the colony's
+reach is a closed form (`bc_sim::colony::reach`: 5 km from the ring's hull and the hub's drum, so
+the hub, the dock and Fornax are inside it), and one rule decides every hit and lock
+(`reach::harms`, `reach::hostile`). Under `Law::OpenSpace` two pilots, people or agents of any side,
+harm each other only when both are out in open space; inside the reach, or firing from it, nothing
+a pilot does lands on a pilot (drones fight by side wherever they are); a hide spot, a parked suit
+and the Eclipse hide a pilot out there from a same-side hunter too, on either side of the line. The
+server's `--pvp` turns it
+on (survival's default; arcade's is off) and the Welcome says so (`OPEN_SPACE`); the HUD says
+which side of the line the pilot is on and how far it is, says so as they cross, explains a shot
+that harms nobody, marks a same-side pilot who is fair game amber and lets Y lock them; the chart
+draws the line and its status says which side of it the pilot is on. Agents' brains, and the
+autopilot of a suit the System has seized, still pick targets by side, hold their guns, blades and
+striking specials (Full Salvo, the Pincer Strike) while a pilot of their own side is in the line or
+within 100 m (the miner's too), and dodge whoever can harm them. *Not built:* an engaged timer (a
+pilot who dives into the reach mid-fight is safe at once), any cost for killing a pilot, ejected
+capsules as targets, crews who don't harm each other. A hold is judged at the trigger: a salvo or a
+missile already on its way still bursts on a same-side pilot out in open space who comes into it.
+Before it, every human pilot flew for the Colonies (the server decides, whatever the client asks,
+and the Welcome says so: protocol v29) and friendly fire is off, so people couldn't harm each
+other. The options were:
 1. As now: pilots against the Consortium's drones, never each other.
 2. Lawless space past the colony's reach (say, beyond 8 km of the hull): PvP there, the colony's law
    inside it (Star Citizen's armistice zones; EVE's security levels).

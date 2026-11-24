@@ -14,7 +14,9 @@ use bc_sim::bodies::{Bodies, Body, BodyPose, MAX_LANDMARKS, Near, Shape, landmar
 use bc_sim::content::landmarks::{LANDMARKS, LandmarkDef};
 use bc_sim::field::Field;
 use bc_sim::flight::FlightState;
-use bc_sim::ground::{CATCH_LEAVE, CATCH_RANGE, CATCH_SPEED, Footing, LEVEL_RANGE, LEVEL_SPEED, STANCE};
+use bc_sim::ground::{
+    CATCH_LEAVE, CATCH_RANGE, CATCH_SPEED, Footing, LEVEL_RANGE, LEVEL_SPEED, RELEASE_SPEED, STANCE,
+};
 use glam::{Quat, Vec3};
 
 /// The sector's bodies: its field of rocks (from the Welcome's seed) and the landmarks it has; in
@@ -217,6 +219,16 @@ pub fn let_go(was: Footing, lifted_off: bool, can_grip: bool) -> LetGo {
     } else {
         LetGo::Lost
     }
+}
+
+/// Whether the own suit, let go of `body` at `pos` moving at `vel` (`bodies` as they are the tick
+/// after), climbed out of its grip on the thrusters: Space held (`climbing`, so it rose past the
+/// release height), the body still there, and the suit no faster over it than a grip holds. Any
+/// other letting go, still armed, the pilot didn't ask for.
+pub fn lifted_off(bodies: &Bodies, body: Body, pos: Vec3, vel: Vec3, climbing: bool) -> bool {
+    climbing
+        && bodies.alive(body)
+        && bodies.pose(body).is_some_and(|b| (vel - b.point_vel(pos)).length() <= RELEASE_SPEED)
 }
 
 #[cfg(test)]

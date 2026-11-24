@@ -23,8 +23,34 @@ pub struct DevHooksPlugin;
 
 impl Plugin for DevHooksPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DevStatus>().add_systems(Last, publish);
+        app.init_resource::<DevStatus>().add_systems(Startup, stamp).add_systems(Last, publish);
     }
+}
+
+/// What the page was built from (`window.BC_BUILD`, which `scripts/build-web.sh` and
+/// `scripts/publish-web.sh` write into its config), as `build_version` and `build_commit`: a
+/// report names them. The page's own reading of it (`window.bcBuild`, `web/boot.js`) when there is
+/// one, else the same rule: a field that isn't 1 to 40 of `0-9A-Za-z.+_-` (or a page served
+/// straight from `web/`, with no stamp) is `dev` and `unknown`.
+fn stamp(mut status: ResMut<DevStatus>) {
+    let global = |key: &str| {
+        web_sys::window()
+            .and_then(|w| js_sys::Reflect::get(&w, &JsValue::from_str(key)).ok())
+            .filter(|v| v.is_object())
+    };
+    let baked = global("bcBuild").or_else(|| global("BC_BUILD")).unwrap_or(JsValue::UNDEFINED);
+    let field = |key: &str, otherwise: &str| {
+        js_sys::Reflect::get(&baked, &JsValue::from_str(key))
+            .ok()
+            .and_then(|v| v.as_string())
+            .filter(|s| {
+                (1..=40).contains(&s.len())
+                    && s.bytes().all(|b| b.is_ascii_alphanumeric() || b".+_-".contains(&b))
+            })
+            .unwrap_or_else(|| otherwise.to_string())
+    };
+    status.set("build_version", field("version", "dev"));
+    status.set("build_commit", field("commit", "unknown"));
 }
 
 /// Below this frame rate every frame publishes: frames come in bunches on a page drawing in
@@ -104,13 +130,13 @@ pub fn aim_hook(
     };
     let t = core.render_tick(crate::net::now_s());
     let w = &core.world;
+    // The nearest foe by the sector's law (`World::foe`).
     let nearest = w
         .entities
         .iter()
-        .flatten()
-        .filter(|tr| {
-            tr.latest.faction != w.faction && tr.latest.flags & bc_proto::snapshot::ent_flags::WRECK == 0
-        })
+        .enumerate()
+        .filter_map(|(slot, tr)| tr.as_ref().filter(|_| w.foe(slot as u16, me.pos, t)))
+        .filter(|tr| tr.latest.flags & bc_proto::snapshot::ent_flags::WRECK == 0)
         .map(|tr| tr.sample(t, &w.bodies).pos - me.pos)
         .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
     dev.set("hostile_range", nearest.map_or(-1.0, |r| f64::from(r.length())));

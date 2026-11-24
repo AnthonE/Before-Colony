@@ -44,6 +44,10 @@ pub struct Scene {
     /// The suit console's open slot (`bcUi.suitSlot`): the page keeps it, the game never says.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slot: Option<&'static str>,
+    /// The report composer (F7) open, its kind and what's typed (`bcUi.report`): the page's own, as
+    /// the slot is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<Value>,
 }
 
 /// Everything the gallery shows.
@@ -75,7 +79,7 @@ fn survival(place: &'static str) -> View {
 }
 
 fn scene(name: &'static str, about: &'static str, expect: &'static str, view: View) -> Scene {
-    Scene { name, about, expect, view, hangar: None, front: None, slot: None }
+    Scene { name, about, expect, view, hangar: None, front: None, slot: None, report: None }
 }
 
 /// A server's `/status`, as much of it as the front screen reads: its rules, who's up, and the
@@ -168,7 +172,7 @@ fn hangar(place: Place, colony: bool, home: Option<(u32, bool)>) -> Value {
         [("MADE 2 × STEEL".to_string(), true), ("not enough nickel-iron for 6 batches".to_string(), false)]
             .into_iter()
             .collect();
-    crate::terminal::hangar_json(&hangar_state(place), &log, colony, home)
+    crate::terminal::hangar_json(&hangar_state(place), &log, colony, home, bc_proto::Faction::Colonies)
 }
 
 /// The suit's console, open on `slot`, with the bay as `tweak` leaves it.
@@ -177,7 +181,7 @@ fn suit(name: &'static str, about: &'static str, slot: &'static str, tweak: fn(&
     let state = hangar_state_with(Place::Hangar, tweak);
     Scene {
         slot: Some(slot),
-        hangar: Some(crate::terminal::hangar_json(&state, &log, true, None)),
+        hangar: Some(crate::terminal::hangar_json(&state, &log, true, None, bc_proto::Faction::Colonies)),
         ..terminal(name, about, "hangar", "suit", None)
     }
 }
@@ -214,6 +218,7 @@ fn terminal(
         hangar: Some(hangar(at, true, home)),
         front: None,
         slot: None,
+        report: None,
     }
 }
 
@@ -375,6 +380,13 @@ pub fn gallery() -> Gallery {
             paused(View { on_foot: true, ..survival("city") }),
         ),
         scene("help", "The controls sheet, flying.", "#help", View { help: true, ..playing() }),
+        Scene {
+            report: Some(serde_json::json!({
+                "kind": "world",
+                "words": "the lamp post by Hub Gate's lift floats a hand above the kerb",
+            })),
+            ..scene("report", "F7: the report composer, a line typed.", "#report", survival("town"))
+        },
         scene(
             "settings",
             "The settings panel, from the menu.",
@@ -394,6 +406,35 @@ pub fn gallery() -> Gallery {
                     ("COLONY".into(), "THE CANAL STRIP'S CAP LIFT IS RUNNING AGAIN".into()),
                 ],
                 ..survival("city")
+            },
+        ),
+        scene(
+            "voice",
+            "Proximity voice's corner: talking in the town, with two people near talking too.",
+            "#voice",
+            View {
+                on_foot: true,
+                voice: Some(crate::page::VoiceView {
+                    on_air: true,
+                    radio: false,
+                    mic: "on",
+                    talking: vec!["KESTREL".into(), "VEGA-7".into()],
+                }),
+                ..survival("town")
+            },
+        ),
+        scene(
+            "voice-radio",
+            "Proximity voice in a suit: someone on the radio, and the microphone not allowed.",
+            "#voice",
+            View {
+                voice: Some(crate::page::VoiceView {
+                    on_air: false,
+                    radio: true,
+                    mic: "denied",
+                    talking: vec!["MAREN ASH".into()],
+                }),
+                ..survival("space")
             },
         ),
         scene(
@@ -440,6 +481,23 @@ pub fn gallery() -> Gallery {
             "The suit's console on its service: propellant, wear, repair all.",
             "service",
             |_| {},
+        ),
+        suit(
+            "suit-paint",
+            "The suit's console on its paint: black glass and gunmetal (Coalsack, in the wallet), the Ring on its shoulder, and the swatches that come with the rest.",
+            "paint",
+            |h| {
+                use bc_sim::content::cosmetics::{Cosmetic, default_livery, paint};
+                h.cosmetics = Cosmetic::Coalsack.bit();
+                let own = default_livery(FrameId::Argo, bc_proto::Faction::Colonies);
+                let p = bc_econ::livery::Paint {
+                    body: paint::GLASS,
+                    trim: paint::GUNMETAL,
+                    decal: 1,
+                    ..bc_econ::livery::Paint::of(own, 0)
+                };
+                let _ = h.paint(p, own);
+            },
         ),
         suit("suit-empty", "The suit's console with the gantry empty.", "torso", |h| {
             let _ = h.dismantle();

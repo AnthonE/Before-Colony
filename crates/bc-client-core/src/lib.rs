@@ -16,6 +16,7 @@ pub mod bay;
 pub mod beam_view;
 pub mod body_mesh;
 pub mod brains;
+pub mod brawl;
 pub mod chart;
 pub mod chase;
 pub mod city;
@@ -25,6 +26,7 @@ pub mod city_nav;
 pub mod clock;
 pub mod controls;
 pub mod course;
+pub mod crowd;
 pub mod dock;
 pub mod doubletap;
 pub mod figure;
@@ -72,6 +74,7 @@ pub mod traffic;
 pub mod tram;
 pub mod upright;
 pub mod vehicle;
+pub mod voice;
 pub mod walker;
 pub mod watch;
 #[cfg(test)]
@@ -94,6 +97,7 @@ use bc_proto::{
 };
 use bc_sim::DT;
 use bc_sim::bodies::Body;
+use bc_sim::colony::reach::Law;
 use bc_sim::config::{G0, MAX_REWIND_TICKS};
 use bc_sim::content::{Mount, Replication, frame, weapon};
 use bc_sim::math::{clamp_to_cone, integrate_rotation, normalize_or};
@@ -186,6 +190,9 @@ pub struct Welcome {
     pub landmarks: u8,
     /// The sector is the colony's inside (the pilot flew in through the inner gate).
     pub interior: bool,
+    /// Open space (`bc_sim::colony::reach::Law::OpenSpace`): past the colony's reach pilots harm
+    /// pilots of any side, inside it none.
+    pub open_space: bool,
 }
 
 /// The server's sign-in challenge.
@@ -285,6 +292,9 @@ pub struct ClientCore {
     pose: Option<PersonPose>,
     pose_seq: u16,
     pose_sent: f64,
+    /// Voices relayed to the pilot (`voice`): waiting to be heard. The browser splits them off at
+    /// arrival and never feeds them here; the bots do.
+    pub voice: voice::VoiceRing,
 }
 
 impl ClientCore {
@@ -320,7 +330,16 @@ impl ClientCore {
             pose: None,
             pose_seq: 0,
             pose_sent: f64::NEG_INFINITY,
+            voice: voice::VoiceRing::default(),
         }
+    }
+
+    /// A frame of the pilot's own voice for the server: `None` if the payload is empty or too long.
+    pub fn voice_up(seq: u16, end: bool, payload: &[u8]) -> Option<Vec<u8>> {
+        let f = bc_proto::voice::VoiceFrame::new(seq, end, payload)?;
+        let mut buf = [0u8; bc_proto::voice::VOICE_UP_MAX];
+        let n = f.encode_up(&mut buf)?;
+        Some(buf[..n].to_vec())
     }
 
     /// On foot in the colony: where the pilot is now (`None`: not in the city, so nothing to send).
@@ -471,12 +490,15 @@ impl ClientCore {
         let old = std::mem::replace(&mut self.world, World::new(self.cfg.faction));
         self.world.roster = old.roster;
         self.world.roster_flags = old.roster_flags;
+        self.world.roster_looks = old.roster_looks;
         self.world.my_hits = old.my_hits;
         self.world.my_kills = old.my_kills;
         self.world.my_deaths = old.my_deaths;
         self.world.hits_taken = old.hits_taken;
         self.world.kit = old.kit;
         self.world.bodies = old.bodies;
+        // The sector's law stays too (the Welcome said; a sortie from the bay gets no new one).
+        self.world.law = old.law;
         let (field, landmarks) = (self.predict.field.clone(), self.predict.landmarks().len() as u8);
         let (rules, interior) = (self.predict.rules(), self.predict.interior());
         self.predict = Predictor::default();
@@ -555,6 +577,8 @@ impl ClientCore {
                 self.predict.set_interior(flags & welcome_flags::INTERIOR != 0);
                 self.predict.set_landmarks(landmarks);
                 let anime = flags & welcome_flags::ANIME != 0;
+                let open_space = flags & welcome_flags::OPEN_SPACE != 0;
+                self.world.law = if open_space { Law::OpenSpace } else { Law::Sides };
                 self.predict.set_rules(if anime { FlightRules::Anime } else { FlightRules::Real });
                 self.welcome = Some(Welcome {
                     client_slot,
@@ -569,6 +593,7 @@ impl ClientCore {
                     anime,
                     colony: flags & welcome_flags::COLONY != 0,
                     interior: flags & welcome_flags::INTERIOR != 0,
+                    open_space,
                     landmarks: self.predict.landmarks().len() as u8,
                 });
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));
@@ -579,13 +604,19 @@ impl ClientCore {
                 self.phase = Phase::InGame;
             }
             ControlMsg::Reject { reason } => self.phase = Phase::Rejected(reason),
-            ControlMsg::Roster { slot, pilot, name, flags } => {
+            ControlMsg::Roster { slot, pilot, name, flags, look } => {
                 if name.is_empty() {
                     self.world.roster.remove(&slot);
                     self.world.roster_flags.remove(&slot);
+                    self.world.roster_looks.remove(&slot);
                 } else {
                     self.world.roster.insert(slot, (name.as_str().to_string(), pilot));
                     self.world.roster_flags.insert(slot, flags);
+                    if look == bc_proto::control::Look::default() {
+                        self.world.roster_looks.remove(&slot);
+                    } else {
+                        self.world.roster_looks.insert(slot, look);
+                    }
                 }
             }
             ControlMsg::Bye { reason } => {
@@ -618,6 +649,13 @@ impl ClientCore {
 
     /// Feeds a datagram received at local time `now` (seconds).
     pub fn on_datagram(&mut self, bytes: &[u8], now: f64) {
+        if packet_kind(bytes) == Some(PacketKind::Voice) {
+            match bc_proto::voice::VoiceFrame::decode_down(bytes) {
+                Ok(f) => self.voice.push(f),
+                Err(_) => self.stats.decode_errors += 1,
+            }
+            return;
+        }
         if packet_kind(bytes) == Some(PacketKind::Plaza) {
             match PlazaReader::new(bytes) {
                 Ok(r) => {
@@ -1078,6 +1116,12 @@ pub fn has_pill(world: &World, slot: u16) -> bool {
     world.roster_flags.get(&slot).is_some_and(|f| f & roster_flags::PILL != 0)
 }
 
+/// What the suit in `slot` wears beyond its frame's livery, as the server says (its pilot's
+/// paint and decal; nothing for a suit nobody's on the roster for).
+pub fn look_of(world: &World, slot: u16) -> bc_proto::control::Look {
+    world.roster_looks.get(&slot).copied().unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1186,5 +1230,54 @@ mod tests {
             panic!("a Hello");
         };
         assert_eq!(faction, Faction::Colonies);
+    }
+
+    /// A survival pilot docks or is lost (back in the bay) and launches again into the same
+    /// sector, which sends no new Welcome: the open space it said stays, sortie after sortie.
+    #[test]
+    fn the_sectors_law_outlasts_a_dock() {
+        use bc_econ::wire::{Place, Update};
+        use bc_sim::colony::reach::Law;
+        let mut core = ClientCore::new(ClientConfig {
+            name: "Agent-01".into(),
+            pilot: PilotKind::Agent,
+            frame: FrameId::Argo,
+            faction: Faction::Colonies,
+        });
+        core.on_control(&encode(ControlMsg::Welcome {
+            version: PROTOCOL_VERSION,
+            client_slot: 2,
+            tick: 0,
+            tick_hz: bc_sim::config::TICK_HZ as u8,
+            sector: 0,
+            orrery_allowed: false,
+            max_datagram: 1_100,
+            field_seed: 7,
+            field_rocks: 0,
+            flags: welcome_flags::SURVIVAL | welcome_flags::OPEN_SPACE,
+            landmarks: 0,
+            faction: Faction::Colonies,
+        }));
+        assert_eq!(core.world.law, Law::OpenSpace);
+        let place = |place| {
+            let json = bc_econ::wire::encode(&Update::Place {
+                place,
+                bay: 3,
+                strip: None,
+                trainer: false,
+                wake: None,
+            });
+            let mut out = vec![0u8; json.len() + 3];
+            let n = bc_proto::control::encode_hangar(&json, &mut out).unwrap();
+            out.truncate(n);
+            out
+        };
+        for (i, at) in
+            [Place::Hangar, Place::Space, Place::Hangar, Place::Space, Place::Hangar].into_iter().enumerate()
+        {
+            core.on_control(&place(at));
+            assert_eq!(core.world.law, Law::OpenSpace, "move {i}: {at:?}");
+        }
+        assert!(core.hangar.in_hangar());
     }
 }

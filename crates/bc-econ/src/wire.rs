@@ -322,6 +322,37 @@ pub enum Request {
         item: Item,
         qty: u64,
     },
+    /// In the bay, at the suit's maintenance console: paint the suit standing there
+    /// (`crate::livery`): body, trim and accent paints, its sensors' glow and a decal, by their slugs
+    /// in `bc_sim::content::cosmetics`. Paid from the bay's credits for what changes; what needs a
+    /// cosmetic needs the pilot's wallet to hold it.
+    Paint {
+        paint: crate::livery::Paint,
+    },
+    /// On foot (`docs/OPEN_CITY.md`, "Heat and the Watch"; `bc_sim::colony::brawl`): a blow thrown at
+    /// pilot `pilot` (their session's id, as the plaza's datagrams know them), from where the pilot
+    /// says they stood: across (or along) and round their floor, cm, and the way they faced (the
+    /// walker's yaw), mrad. The server checks that against the poses it took of them lately, then
+    /// whether it lands (`brawl::lands`) on any pose of the other's of the last moment (everyone is
+    /// drawn a little late); refused with a `note`.
+    Strike {
+        pilot: u16,
+        x_cm: i32,
+        s_cm: i32,
+        yaw_mrad: i32,
+    },
+    /// At the wheel, the pilot's car reached pilot `pilot` on foot: the server checks it from the
+    /// poses it took of both (fast enough, near enough, a moment ago) and knocks them down.
+    RunDown {
+        pilot: u16,
+    },
+    /// On foot beside pilot `pilot`, who is down: start lifting them up (`on`), or stop. The server
+    /// lifts them once it has had the two of them near enough together long enough
+    /// (`brawl::HELP_TICKS`, `HELP_REACH`).
+    Help {
+        pilot: u16,
+        on: bool,
+    },
 }
 
 /// Where a request about a home is made: at its door (outside it, or just in), or inside it, at its
@@ -385,7 +416,11 @@ impl Request {
             | Request::WatchBoard { .. }
             | Request::UseKit { .. }
             | Request::Eject { .. }
-            | Request::Say { .. } => None,
+            | Request::Say { .. }
+            | Request::Paint { .. }
+            | Request::Strike { .. }
+            | Request::RunDown { .. }
+            | Request::Help { .. } => None,
             // Its own door or panel (`Request::home`), not a desk.
             Request::Rent { .. }
             | Request::Buy { .. }
@@ -590,6 +625,46 @@ pub enum UnitState {
     Returning,
 }
 
+/// One of the ring's town's people out of its crowd (`docs/FREE_ROAM.md`, 3: the promoted tier, the
+/// server's from something done by them till they've settled out of everyone's sight): who
+/// (`bc_sim::colony::street::Person::id`: their look is still `street::seed_of`'s), where on the
+/// ring's floor (across it, round it: the deck's own `s`, m), the way they face (the walker's yaw),
+/// how fast they go (m/s: none, standing about) and whether they're running scared. Everyone down
+/// in the town is told those near them ([`Update::Crowd`]).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Promoted {
+    pub id: u32,
+    pub x: f32,
+    pub s: f32,
+    pub yaw: f32,
+    pub speed: f32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub scared: bool,
+}
+
+/// One of the town's people out of its crowd further off ([`Update::Crowd`]'s middle tier): who,
+/// across the ring in decimetres, round it in metres, and the way they face in 256ths of a turn.
+pub type Placed = (u32, i16, u16, u8);
+
+impl Promoted {
+    /// As the middle tier has them.
+    pub fn placed(&self) -> Placed {
+        let turn = self.yaw.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU;
+        (
+            self.id,
+            (self.x * 10.0).round().clamp(-32_767.0, 32_767.0) as i16,
+            self.s.round().clamp(0.0, 65_535.0) as u16,
+            ((turn * 256.0).round() as u32 % 256) as u8,
+        )
+    }
+
+    /// One of the middle tier's, standing (it carries no more).
+    pub fn from_placed((id, x, s, yaw): Placed) -> Promoted {
+        let yaw = f32::from(yaw) / 256.0 * std::f32::consts::TAU;
+        Promoted { id, x: f32::from(x) / 10.0, s: f32::from(s), yaw, speed: 0.0, scared: false }
+    }
+}
+
 /// Where the pilot is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -740,6 +815,38 @@ pub enum Update {
     Units {
         units: Vec<Unit>,
     },
+    /// The town's people out of its crowd round the pilot (`docs/FREE_ROAM.md`, 3, in tiers): those
+    /// near them whole, nearest first; past those, out to as far as any screen draws the crowd, each
+    /// placed in a few numbers; and how many more there are in the districts round them. A few times
+    /// a second while there are any (and once more, empty, when there aren't): a screen draws its
+    /// crowd's people but these where these are.
+    Crowd {
+        near: Vec<Promoted>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mid: Vec<Placed>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        far: u32,
+    },
+    /// The pilot's health on foot (`bc_sim::colony::brawl`), whenever it changes and on entering a
+    /// floor: what's left of `brawl::MAX_HP`; how long till they're up if they're down, s (0: up);
+    /// who did it, if somebody just did; and who's lifting them up, while somebody is.
+    Hurt {
+        hp: u8,
+        #[serde(default, skip_serializing_if = "is_zero_u16")]
+        down_s: u16,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        helper: Option<String>,
+    },
+}
+
+fn is_zero_u16(n: &u16) -> bool {
+    *n == 0
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// The held homes near a pilot, as they see them.
@@ -854,6 +961,9 @@ pub struct HangarView {
     pub parts: Vec<PartUnit>,
     pub bay: Bay,
     pub jobs: Vec<JobView>,
+    /// The cosmetics the pilot's wallet holds (`Hangar::cosmetics`): what the console may offer.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cosmetics: u32,
 }
 
 impl HangarView {
@@ -885,6 +995,7 @@ impl HangarView {
             parts: h.stores.parts().to_vec(),
             bay: h.bay.clone(),
             jobs,
+            cosmetics: h.cosmetics,
         }
     }
 }
@@ -988,7 +1099,12 @@ pub fn apply(
         | Request::WatchBoard { .. }
         | Request::UseKit { .. }
         | Request::Eject { .. }
-        | Request::Say { .. } => return None,
+        | Request::Say { .. }
+        | Request::Strike { .. }
+        | Request::RunDown { .. }
+        | Request::Help { .. } => return None,
+        // The session's: a suit nobody painted wears its frame's livery in its pilot's side.
+        Request::Paint { .. } => return None,
         // The register's (`apply_homes`).
         Request::Rent { .. }
         | Request::Buy { .. }
@@ -1474,6 +1590,31 @@ mod tests {
         let json = String::from_utf8(encode(&body)).unwrap();
         assert_eq!(json, r#"{"t":"body","fed":"peckish","food_s":2400,"well_fed_s":0}"#);
         assert_eq!(decode::<Update>(json.as_bytes()), Some(body));
+    }
+
+    #[test]
+    fn a_fight_on_foot_goes_round() {
+        let whole = Update::Hurt { hp: 100, down_s: 0, by: None, helper: None };
+        assert_eq!(String::from_utf8(encode(&whole)).unwrap(), r#"{"t":"hurt","hp":100}"#);
+        let down = Update::Hurt { hp: 0, down_s: 25, by: Some("Kai".into()), helper: Some("Ines".into()) };
+        let json = String::from_utf8(encode(&down)).unwrap();
+        assert_eq!(json, r#"{"t":"hurt","hp":0,"down_s":25,"by":"Kai","helper":"Ines"}"#);
+        assert_eq!(decode::<Update>(json.as_bytes()), Some(down));
+        for req in [
+            Request::Strike { pilot: 7, x_cm: -1_250, s_cm: 1_100_025, yaw_mrad: 1_571 },
+            Request::RunDown { pilot: 9 },
+            Request::Help { pilot: 9, on: true },
+        ] {
+            assert_eq!(decode::<Request>(&encode(&req)), Some(req.clone()));
+            assert_eq!(req.desk(), None);
+            assert!(req.home().is_none());
+        }
+        let strike: Request =
+            decode(br#"{"t":"strike","pilot":3,"x_cm":10,"s_cm":20,"yaw_mrad":0}"#).unwrap();
+        assert_eq!(strike, Request::Strike { pilot: 3, x_cm: 10, s_cm: 20, yaw_mrad: 0 });
+        // The Watch's word of a blow, by its slug.
+        let seen = Update::Watched { what: Offence::Assault, seen: true, level: 1 };
+        assert!(String::from_utf8(encode(&seen)).unwrap().contains(r#""what":"assault""#));
     }
 
     #[test]

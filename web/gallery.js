@@ -70,6 +70,8 @@ async function main() {
     const v = { ...s.view };
     for (const k of ["toastSeq", "newsSeq", "debriefSeq", "radioSeq"]) if (v[k]) v[k] = seq;
     ui.update(v);
+    // The report composer, the page's own (F7): open only on its scene.
+    ui.report(s.report || null);
     // The front screen's own state (its pane, the download, the server's word); the others leave
     // it on PLAY, the game loaded.
     ui.front(s.front || { pane: "play" });

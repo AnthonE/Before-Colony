@@ -321,6 +321,18 @@ impl BotClient {
         self.core.set_pose(Some(pose));
     }
 
+    /// Talks: one frame of voice (an Opus packet the server checks is one 20 ms frame, never decodes),
+    /// relayed to whoever's near on foot, or in radio range in space. `false` if it couldn't go.
+    pub fn send_voice(&mut self, seq: u16, end: bool, payload: &[u8]) -> bool {
+        ClientCore::voice_up(seq, end, payload).is_some_and(|d| self.conn.send_datagram(d).is_ok())
+    }
+
+    /// The voices relayed to the agent since last asked, oldest first (`bc_proto::voice`: who, how
+    /// it came, the frame). Agents are sent none unless the server lets them hear.
+    pub fn take_voice(&mut self) -> Vec<bc_proto::voice::VoiceFrame> {
+        self.core.voice.drain().collect()
+    }
+
     /// The people near the agent in the city, as drawn now: slot, name and pose.
     pub fn people(&self) -> Vec<(u16, String, bc_proto::presence::PersonPose)> {
         self.core.people(self.now()).into_iter().map(|(id, name, p)| (id, name.to_string(), p)).collect()

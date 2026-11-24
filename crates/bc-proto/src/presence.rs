@@ -74,9 +74,16 @@ pub const RIDE_SEATED: u8 = 15;
 /// [`PersonPose::ride`] for a pilot driving a Markab, the colony's rocket car: where its middle is,
 /// and its heading, pitch and roll its whole attitude.
 pub const RIDE_MARKAB: u8 = 16;
+/// [`PersonPose::ride`] for a pilot knocked down on foot (`bc_sim::colony::brawl`), lying where they
+/// fell: the server's, written into the poses it relays from the state it holds (a client's pose
+/// that says it is refused).
+pub const RIDE_DOWN: u8 = 17;
 /// [`PersonPose::jets`]: a Markab's lift jets (under its floor) and its tail's, firing.
 pub const JET_LIFT: u8 = 1;
 pub const JET_BOOST: u8 = 2;
+/// [`PersonPose::jets`] on foot (nothing ridden): a blow being thrown, while its swing plays (how
+/// everyone else draws it; what it hits is the server's, `Request::Strike`).
+pub const FOOT_STRIKE: u8 = 1;
 /// A rider's `s` is from their train's track, offset by this so it stays positive, m.
 pub const RIDER_S: f32 = 2_048.0;
 /// How long before the plaza's tick the server heard a person's pose, in 10 ms steps.
@@ -118,9 +125,10 @@ pub struct PersonPose {
     /// `x`, `s` and `h` are from the train's middle, from its track's middle (plus [`RIDER_S`])
     /// and from its floor, so they're drawn inside it wherever each screen has it; [`RIDE_CAR`] or
     /// [`RIDE_SCOOTER`] driving one (where it is, its heading, its speed); [`RIDE_SEATED`] sitting;
-    /// [`RIDE_MARKAB`] driving a Markab, GROUNDED its wheels down and RUNNING its fan on.
+    /// [`RIDE_MARKAB`] driving a Markab, GROUNDED its wheels down and RUNNING its fan on;
+    /// [`RIDE_DOWN`] knocked down, lying there (the server's only).
     pub ride: u8,
-    /// A Markab's jets firing: [`JET_LIFT`], [`JET_BOOST`].
+    /// A Markab's jets firing: [`JET_LIFT`], [`JET_BOOST`]; on foot, [`FOOT_STRIKE`].
     pub jets: u8,
     /// How much the Watch wants them, 0 to [`MAX_HEAT`]: the server's, in the plaza's datagrams
     /// only (never sent in a [`PosePacket`], nor in the tick's records of people).
@@ -141,6 +149,16 @@ impl PersonPose {
     /// Sitting on a seat.
     pub fn seated(&self) -> bool {
         self.ride == RIDE_SEATED
+    }
+
+    /// Knocked down, lying where they fell ([`RIDE_DOWN`]).
+    pub fn down(&self) -> bool {
+        self.ride == RIDE_DOWN
+    }
+
+    /// On foot and throwing a blow ([`FOOT_STRIKE`]).
+    pub fn striking(&self) -> bool {
+        self.ride == 0 && self.jets & FOOT_STRIKE != 0
     }
 
     /// Riding train `k`.

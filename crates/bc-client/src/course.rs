@@ -98,8 +98,10 @@ fn park_trainer(
                 ground: None,
                 weathering: 0,
                 pill: false,
+                look: Default::default(),
                 doomed: false,
                 staggered: false,
+                foe: false,
             };
             let tf = Transform::from_translation(drive.pos).with_rotation(drive.rot);
             *parked = Some((commands.spawn((drive, tf, Visibility::default())).id(), f));
@@ -136,6 +138,9 @@ pub struct CourseState {
     flown: Option<(f64, bool, f64)>,
     /// How the last drill ended, whether it was the best yet, and when.
     drilled: Option<(Drilled, bool, f64)>,
+    /// The most targets struck in one drill since the suit came into the colony (`drill_most`): a
+    /// drill can start, score and run out between two frames of a page drawing in software.
+    most: usize,
     /// The panel's lines while flying inside (its heading, its title and how), and the waypoint:
     /// the next ring, or the pad (none when not running: the inner gate's, or a trainer's gantry, is
     /// shown).
@@ -463,6 +468,7 @@ fn run_course(
         None => {
             state.run = Run::default();
             state.stepped = None;
+            state.most = 0;
         }
     }
     let best = settings.as_ref().map_or(0, |s| s.0.course_best_ms);
@@ -501,6 +507,12 @@ fn run_course(
     // The drill, as the world's strikes moved it.
     let drill_best = settings.as_ref().map_or(0, |s| s.0.drill_best_ms);
     for e in std::mem::take(&mut core.world.drill_news) {
+        let reached = match e {
+            DrillEvent::Started => 1,
+            DrillEvent::Struck(n) | DrillEvent::Out(n) => n,
+            DrillEvent::Cleared(_) => DRILL.len(),
+        };
+        state.most = state.most.max(reached);
         match e {
             DrillEvent::Started => {
                 if let Some(ui) = ui.as_mut() {
@@ -558,6 +570,7 @@ fn run_course(
         dev.set("drill_lit", u32::from(drill.lit()));
         dev.set("drill_struck", drill.struck() as u32);
         dev.set("drill_left", drill.left(t).unwrap_or(-1.0));
+        dev.set("drill_most", state.most as u32);
         dev.set("drill_best_ms", drill_best);
         dev.set("in_gantry", core.own_view().is_some_and(|v| hall::in_gantry(v.pos, v.flight_vel)));
         // The Proving Ground's board as the server last sent it: how many on each of the day's

@@ -128,6 +128,25 @@ pub struct View {
     /// The radio's latest lines, who and what, and how many have been heard.
     pub radio_seq: u32,
     pub radio: Vec<(String, String)>,
+    /// Proximity voice's corner (`crate::voice`), while voice is on and there's something to say:
+    /// the pilot on the air, the microphone asked for or refused, who's talking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<VoiceView>,
+}
+
+/// Proximity voice's corner of the page.
+#[derive(Clone, Debug, PartialEq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceView {
+    /// The pilot is talking now.
+    pub on_air: bool,
+    /// Over a suit's radio (in space), not through the air (on foot).
+    pub radio: bool,
+    /// The microphone: `off` (not asked for yet), `asking`, `on`, `denied`, `none` (no microphone),
+    /// `busy`, `unsupported` (this browser can't encode voice) or `failed`.
+    pub mic: &'static str,
+    /// Who's talking now, by callsign (the muted aren't heard, nor shown).
+    pub talking: Vec<String>,
 }
 
 /// A frame to launch in, on the title screen.
@@ -513,6 +532,21 @@ pub enum Cmd {
         #[serde(default)]
         zoom: f32,
     },
+    /// F7 (or the menu's REPORT A BUG): the page's report composer is up (`open`: no keys reach the
+    /// suit, and the pointer goes free) or has closed; and `shot`, take the frame now and hand it
+    /// to the page (`window.bcReportShot`) to send with it.
+    Report {
+        #[serde(default)]
+        open: bool,
+        #[serde(default)]
+        shot: bool,
+    },
+    /// The suit's console, on its paint: draw the suit in the gantry in this draft (none: as it
+    /// stands). Only the look changes; painting it is a hangar request (`paint`).
+    PaintPreview {
+        #[serde(default)]
+        paint: Option<bc_econ::livery::Paint>,
+    },
 }
 
 impl Cmd {
@@ -544,6 +578,11 @@ mod tests {
             Some(Cmd::SuitView { on: true, yaw: 0.5, zoom: 1.2 })
         );
         assert!(matches!(Cmd::parse(r#"{"cmd":"hangar","req":{"t":"sign"}}"#), Some(Cmd::Hangar { .. })));
+        assert_eq!(
+            Cmd::parse(r#"{"cmd":"report","open":true,"shot":true}"#),
+            Some(Cmd::Report { open: true, shot: true })
+        );
+        assert_eq!(Cmd::parse(r#"{"cmd":"report"}"#), Some(Cmd::Report { open: false, shot: false }));
         assert_eq!(Cmd::parse(r#"{"cmd":"warp"}"#), None);
         assert_eq!(Cmd::parse("not json"), None);
     }

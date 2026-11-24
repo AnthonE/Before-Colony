@@ -103,6 +103,8 @@ mod pods;
 #[cfg(target_arch = "wasm32")]
 mod pointer;
 #[cfg(target_arch = "wasm32")]
+mod report;
+#[cfg(target_arch = "wasm32")]
 mod rocks;
 #[cfg(target_arch = "wasm32")]
 mod salvage_vis;
@@ -134,6 +136,8 @@ mod transport;
 mod ui_panel;
 #[cfg(target_arch = "wasm32")]
 mod view;
+#[cfg(target_arch = "wasm32")]
+mod voice;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {

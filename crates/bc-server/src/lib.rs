@@ -12,11 +12,15 @@
 // (`/status`'s `json!` is deep.)
 #![recursion_limit = "256"]
 
+pub mod brawl;
+pub mod bugs;
 pub mod charter;
 pub mod config;
+pub mod crowd;
 pub mod dispatch;
 pub mod elo;
 pub mod floor;
+pub mod gamestats;
 pub mod homes;
 pub mod http;
 pub mod market;
@@ -26,9 +30,12 @@ pub mod pilots;
 pub mod plaza;
 pub mod proving;
 pub mod radio;
+pub mod secret;
+pub mod serverkey;
 pub mod street;
 pub mod telemetry;
 pub mod visitors;
+pub mod voice;
 pub mod watch;
 
 use std::net::SocketAddr;
@@ -63,12 +70,25 @@ impl ServerHandle {
         net::status_json(&self.stats, self.status_view.as_ref())
     }
 
-    /// Stops accepting connections and shuts the sector threads down.
-    pub fn shutdown(mut self) {
-        let _ = self.shutdown.send(true);
-        if let Some(game) = self.game.take() {
-            game.stop();
+    /// Stops accepting connections and shuts the sector threads down. The stats' last post to Elo
+    /// Pros and the stores' last save are left running; [`ServerHandle::shutdown_flushed`] waits.
+    pub fn shutdown(self) {
+        let _ = self.stop();
+    }
+
+    /// [`ServerHandle::shutdown`], then waits up to `within` for the stats' last post to Elo Pros
+    /// and the stores' last save: what a process does before its runtime goes. Whether they
+    /// finished in time.
+    pub async fn shutdown_flushed(self, within: std::time::Duration) -> bool {
+        match self.stop() {
+            Some(left) => left.finish(within).await,
+            None => true,
         }
+    }
+
+    fn stop(mut self) -> Option<net::game::Stopping> {
+        let _ = self.shutdown.send(true);
+        self.game.take().map(|game| game.stop())
     }
 }
 
@@ -138,6 +158,23 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         };
         Arc::new(raise) as http::IncidentFn
     });
+    // And the town's crowd round a place sent running.
+    let scare: Option<http::ScareFn> = shared.clone().filter(|g| g.dev_hooks).map(|g| {
+        let scare = move |ask: &http::ScareAsk| {
+            let reach = ask.reach.unwrap_or(20.0);
+            if !ask.x.is_finite() || !ask.s.is_finite() || !(0.0..=200.0).contains(&reach) {
+                return Err("a place on the ring's floor, and a reach of 0 to 200 m".to_string());
+            }
+            let tick = g.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            let n = g.street.scare_at((ask.x, ask.s), reach, tick);
+            tracing::info!(n, "the town's crowd sent running by hand");
+            Ok(n)
+        };
+        Arc::new(scare) as http::ScareFn
+    });
+    if let Some(d) = &cfg.data_dir {
+        tracing::info!(dir = %d.join("reports").display(), "players' reports: POST /bugs");
+    }
     let http_state = http::HttpState {
         // A CA-issued certificate is validated by the browser: nothing to pin.
         cert_hash_hex: pinned.then(|| hex::encode(cert_hash)),
@@ -160,11 +197,16 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         }),
         cors_origins: cfg.cors_origins.clone().into(),
         incident,
+        scare,
+        // Players' reports, beside the pilots' records (none without a data dir).
+        bugs: cfg.data_dir.as_ref().map(|d| Arc::new(bugs::Intake::new(d.join("reports"), cfg.reports))),
     };
     let router = http::router(http_state);
     let mut http_shutdown = shutdown_rx.clone();
     tokio::spawn(async move {
-        let serve = axum::serve(listener, router).with_graceful_shutdown(async move {
+        // Each request knows its peer: `/bugs` counts a sender's share by it.
+        let app = router.into_make_service_with_connect_info::<SocketAddr>();
+        let serve = axum::serve(listener, app).with_graceful_shutdown(async move {
             let _ = http_shutdown.changed().await;
         });
         if let Err(e) = serve.await {

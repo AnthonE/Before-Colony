@@ -71,7 +71,11 @@ Sources: [Steam store pages](https://store.steampowered.com) of each; [The Gemsb
     key, a label, a bar, its number, its state; what's broken and what to do about it in notes under
     it. What a panel shows is its readings (`instruments::Readings`), apart from how they're drawn
     (`instruments::update_instruments`): the game reads them off the suit, the showcase makes them
-    up, and a new readout is a row, not a new layout.
+    up, and a new readout is a row, not a new layout. In space under open space (`--pvp`) the arms
+    heading says which side of the colony's reach the pilot is on and how far its line is
+    (`instruments::reach_heading`: amber out in open space, dim inside it), a toast says so as they
+    cross it, and another why a trigger pulled on a pilot the reach shelters harms nobody; a pilot
+    of their own side who is fair game out there has an amber bracket tagged OPEN.
 
 ## The front screen
 
@@ -94,8 +98,8 @@ changes. The suit stands in the middle, the real one in its gantry: while the ta
 leaves the pilot's eyes and stands off its front (`bay::Refit`, eased in a quarter of a second), the
 page sends the drag and the wheel as `suit_view`, and the panel's middle is clear glass, each part
 round it a pane of its own. Across the top, the suit, whether it would launch (and why not) and its
-totals; under them the slots as numbered tabs (1–9: the six parts, the weapons, the equipment, the
-service), a square where one needs work (red: missing or failed; amber: damaged, worn, a weapon not
+totals; under them the slots as numbered tabs (1–9 and 0: the six parts, the weapons, the
+equipment, the service, the paint), a square where one needs work (red: missing or failed; amber: damaged, worn, a weapon not
 fitted, the tank low). It opens on the first that does.
 
 Down the left, the open slot's choices as cards: what's fitted, what the stores hold for it, the
@@ -105,11 +109,36 @@ own fit and strip on a copy, so it can't disagree with what the server will do).
 a callout per slot (the suit's right on the left, as it faces you). On the right, the chosen card in
 full: what it is, its rows, how you fire it (a key against each mount and the special), the stat sheet
 as it would launch with it, and the one thing to do, amber, at the pane's foot. ↑↓ choose, Enter
-does it. Its states are the gallery's `suit*` scenes.
+does it. The paint's cards are the livery's body, trim, accent, sensors and decal, and the frame's
+own: the chosen one's swatches in its detail (a ◆ on those that come with a cosmetic on Elo Pros),
+the draft drawn on the suit in its gantry (`paint_preview`) until PAINT pays for it. Its states are
+the gallery's `suit*` scenes.
+
+## Reports
+
+F7 (or REPORT A BUG on the pause menu and the controls sheet) opens a one-line composer low over the
+world: a row of kinds (LOOKS WRONG, THE WORLD, CONTROLS, LAG, NUMBERS, OTHER; Tab steps them), a
+line for what happened, Enter to send, Esc to close. The page owns it (`web/ui.js`, "Reports"), so
+it works while the game doesn't; the game is only told (`report`), and its keys and the pointer
+stand aside. As it opens the game takes the frame with Bevy's `Screenshot` (`bc-client`'s
+`report.rs`: the world, not the page over it), halved to at most 960 wide, and the page makes the
+PNG; the composer says when it's taken, and sends without it after a few frames' time (two seconds
+at least). A report carries the build (`window.BC_BUILD`, which `scripts/build-web.sh` and
+`scripts/publish-web.sh` write), the doc to read first (by its kind and where the pilot is), an
+allowlist of `window.__bc`'s fields (where they stand, the frame rate and the graphics, the link's
+counts), the browser and its GPU, and the console's last errors: never the pilot's sign-in, wallet,
+callsign or resume token (the picture is the world as drawn, so it can show what's drawn in it). A
+send that fails keeps the words. A crash files itself once a page
+(`boot.js`): a trap after a panic, a lost graphics context, or a boot that never started, as a
+beacon. Both go to the game server's `POST /bugs` (`bc-server`'s `bugs.rs`, there with a data dir),
+which writes `bc-report-<id>.json` and `.png` under `<data dir>/reports/` in the document the Elo
+Pros intake takes (`scripts/publish-web.sh --reports <url>` points a published page at that intake
+instead); `scripts/reports.py` ranks them by fingerprint, and `scripts/pt report` files one as an
+agent.
 
 ## Next
 
 - The Orrery's panel as instruments too: its picks' confidence and the threat as bars.
 - HUD options: its scale and opacity as settings (`settings::KNOBS`), as Titanic Scion has them.
-- The suit's console: light the chosen slot's part on the suit itself, and paint (liveries) as a slot.
+- The suit's console: light the chosen slot's part on the suit itself.
 - The objective's marker in the view (`DRONE 1.5 km`) can sit under a focus tag: let `tags` keep clear of it.

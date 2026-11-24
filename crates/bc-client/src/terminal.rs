@@ -81,5 +81,7 @@ pub fn publish_terminal(
     }
     *sent = Some(now);
     let colony = g.core.welcome.is_some_and(|w| w.colony);
-    call_ui("hangar", &JsValue::from_str(&hangar_json(h, &log.lines, colony, home).to_string()));
+    // The side they fly for, the server's word (the Welcome's).
+    let side = g.core.cfg.faction;
+    call_ui("hangar", &JsValue::from_str(&hangar_json(h, &log.lines, colony, home, side).to_string()));
 }

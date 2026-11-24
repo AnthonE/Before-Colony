@@ -124,6 +124,11 @@ your final message, for whoever sent you to save there:
 - **Fix**: where in the code, if you looked (`crates/bc-client/src/onfoot.rs:1181`), and how
 ```
 
+A blocker or a major bug can also be filed the way a player files one, so it's counted with
+theirs: `scripts/pt report <look|world|verb|net|numbers|other> "<what's wrong, in a line>"` sends
+what F7 would (the build, where you stand, the frame) to the world's server, which keeps it under
+its data dir; `scripts/reports.py e2e/artifacts/playtest/world-8080-data/reports` ranks the pile.
+
 Say what you couldn't reach or check (the new pilot's hints show only with the pointer locked,
 `crates/bc-client/src/settings.rs`: click in first), and what's slow because the browser draws in software
 rather than because the game is. Leave a finding out rather than guess at one: a claim someone has

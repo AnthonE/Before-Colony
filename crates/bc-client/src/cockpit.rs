@@ -576,7 +576,8 @@ pub fn drive_cockpit(
             continue;
         }
         if let Some(at) = radar_point(d.pos - own.pos, radius) {
-            place(at, if d.faction == own.faction { 1 } else { 0 }, &mut shown);
+            // Friend or foe by the sector's law (`World::foe`), as the brackets go.
+            place(at, if d.foe { 0 } else { 1 }, &mut shown);
         }
     }
     for m in &feed.0 {

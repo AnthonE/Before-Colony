@@ -196,14 +196,15 @@ async fn somebody_run_down_is_down_for_everyone_in_the_town() -> anyhow::Result<
     b.request(&Request::Hit { person: p.id }).await?;
     both(&mut a, &mut b, 0.6).await?;
     assert!(a.core.hangar.street.is_empty(), "{:?}", a.core.hangar.street);
-    // Pagan takes a car and drives over to them, a car's pace at a time, and says so again.
+    // Pagan takes a car and drives over to them, a car's pace at a time, and says so again. (Said to
+    // be at a crawl: faster where people walk, they'd run from it, out of the crowd: `crowd`.)
     let (dx, ds) = (p.x - lx, town::deck_s(p.t) - town::deck_s(lt));
     let steps = ((dx.hypot(ds) / 20.0).ceil() as usize).max(2);
     for k in 0..=steps {
         let u = k as f32 / steps as f32;
         b.set_pose(PersonPose {
             ride: RIDE_CAR,
-            speed: 12.0,
+            speed: 4.0,
             ..standing(-3.0 + (dx + 3.0) * u, 2.0 + (ds - 2.0) * u)
         });
         both(&mut a, &mut b, 0.7).await?;
@@ -214,10 +215,77 @@ async fn somebody_run_down_is_down_for_everyone_in_the_town() -> anyhow::Result<
     let (da, db) = (a.core.hangar.street[0], b.core.hangar.street[0]);
     assert_eq!(da, db, "the same person down in the same place for both");
     assert!((da.x - p.x).abs() < 0.01 && (da.s - town::deck_s(p.t)).abs() < 0.05, "{da:?} vs {p:?}");
+    // Anyone else of the crowd's near them runs from it, out of the crowd, and both see them run.
+    let tick = server.status()["game"]["tick"].as_u64().unwrap() as u32;
+    let mut round = 0;
+    street::each_person(p.x - 20.0, p.x + 20.0, p.t - 20.0, p.t + 20.0, tick, 0.0, &mut |q| {
+        round += usize::from(q.id != p.id && (q.x - p.x).hypot(q.t - p.t) < 18.0);
+    });
+    if round > 0 {
+        let running =
+            |c: &bc_client_core::ClientCore| c.hangar.crowd.0.iter().any(|q| q.scared && q.id != p.id);
+        a.wait_until(5.0, "those round them running", running).await?;
+        b.wait_until(5.0, "those round them running", running).await?;
+        assert!(server.status()["game"]["town"]["scared"].as_u64().unwrap() >= 1);
+    }
     // Said again, they're no more down than they were.
     b.request(&Request::Hit { person: p.id }).await?;
     both(&mut a, &mut b, 0.6).await?;
     assert_eq!(a.core.hangar.street.len(), 1);
+    Ok(())
+}
+
+/// A car driven fast at someone standing about in Hub Gate's square: they run from it, out of the
+/// crowd, and both pilots down in the town are told so (`Update::Crowd`), with them where the server
+/// has them; `/status` counts them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_car_driven_fast_at_the_crowd_has_it_run_for_everyone() -> anyhow::Result<()> {
+    use bc_sim::colony::street;
+    let server = bc_server::start(config()?).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut a = down(&http, "Maren").await?;
+    let mut b = down(&http, "Pagan").await?;
+    a.set_pose(standing(0.0, 0.0));
+    b.set_pose(standing(-3.0, 2.0));
+    both(&mut a, &mut b, 1.0).await?;
+    let (lx, lt) = town::out_of_the_lift(0);
+    let tick = server.status()["game"]["tick"].as_u64().unwrap() as u32;
+    let mut who = None;
+    street::each_person(lx - 110.0, lx - 15.0, lt + 15.0, lt + 110.0, tick, 0.0, &mut |p| {
+        if p.pose == street::Pose::Stand {
+            who = who.or(Some(*p));
+        }
+    });
+    let p = who.expect("somebody standing in Hub Gate's square");
+    assert_eq!(server.status()["game"]["town"]["promoted"], 0);
+    // Over at a crawl to 7 m short of them, then at them at 12 m/s.
+    let (dx, ds) = (p.x - lx, town::deck_s(p.t) - town::deck_s(lt));
+    let far = dx.hypot(ds);
+    let short = 1.0 - 7.0 / far;
+    let steps = ((far / 20.0).ceil() as usize).max(2);
+    let yaw = dx.atan2(-ds);
+    for k in 0..=steps {
+        let u = short * k as f32 / steps as f32;
+        let speed = if k == steps { 12.0 } else { 4.0 };
+        b.set_pose(PersonPose {
+            ride: RIDE_CAR,
+            speed,
+            yaw,
+            ..standing(-3.0 + (dx + 3.0) * u, 2.0 + (ds - 2.0) * u)
+        });
+        both(&mut a, &mut b, 0.7).await?;
+    }
+    let running = |c: &bc_client_core::ClientCore| {
+        let (near, mid, _) = &c.hangar.crowd;
+        near.iter().any(|q| q.id == p.id && q.scared) || mid.iter().any(|q| q.0 == p.id)
+    };
+    b.wait_until(5.0, "them running from the car", running).await?;
+    a.wait_until(5.0, "them running, seen from the lift", running).await?;
+    let town = &server.status()["game"]["town"];
+    assert!(town["promoted"].as_u64().unwrap() >= 1 && town["scared"].as_u64().unwrap() >= 1, "{town}");
+    // Where the server has them, near where the crowd had them, and moving off.
+    let q = b.core.hangar.crowd.0.iter().find(|q| q.id == p.id).copied().expect("near Pagan, whole");
+    assert!((q.x - p.x).hypot(q.s - town::deck_s(p.t)) < 15.0 && q.speed > 0.5, "{q:?} vs {p:?}");
     Ok(())
 }
 

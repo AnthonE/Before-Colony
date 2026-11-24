@@ -57,6 +57,9 @@ pub fn radio(
     for cmd in &cmds.0 {
         match cmd {
             UiCmd::Chat { open } => ui.chat = *open,
+            // `/mute` and `/unmute` are proximity voice's, answered on this side (`voice.rs`), and
+            // never go out on the radio.
+            UiCmd::Say { text } if bc_client_core::voice::Mute::parse(text).is_some() => {}
             UiCmd::Say { text } => {
                 if let (Some(line), Some(t)) = (bc_econ::wire::clean_line(text), net.get()) {
                     t.send_control(g.core.request(&bc_econ::Request::Say { text: line }));

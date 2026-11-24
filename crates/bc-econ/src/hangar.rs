@@ -85,6 +85,15 @@ pub struct Hangar {
     /// Kept, so a sleeper's wake keeps it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sortie_pay: Vec<Line>,
+    /// The cosmetics the pilot's wallet held on Elo Pros when the server last read it (as they
+    /// signed in), a bit each (`bc_sim::content::cosmetics::Cosmetic::bit`): what they may paint
+    /// their suit in (`crate::livery`), and what it shows. The server's word, never the client's.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cosmetics: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// How a request went: what to tell the pilot.

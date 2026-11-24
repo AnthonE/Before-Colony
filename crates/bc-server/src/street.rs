@@ -25,8 +25,9 @@ use std::sync::Mutex;
 use bc_econ::wire::{Down, LeftCar, TakenDistrict, Update};
 use bc_proto::presence::{PersonPose, RING_DECK};
 use bc_sim::TICK_HZ;
+use bc_sim::colony::crowd::Loose;
 use bc_sim::colony::deck::{RING, round_from};
-use bc_sim::colony::{street, town};
+use bc_sim::colony::{street, town, watch as colony_watch};
 
 /// How long someone knocked down lies there before they get up, ticks.
 pub const DOWN_TICKS: u32 = 25 * TICK_HZ;
@@ -58,6 +59,18 @@ pub const SIGHT: f32 = 1_000.0;
 pub const RELEASE_TICKS: u32 = 120 * TICK_HZ;
 /// How often what's to be released is looked for, ticks.
 const SWEEP_EVERY: u32 = TICK_HZ;
+/// How much further off than [`REACH`] the person a pilot says they hit may be, out of the crowd, m:
+/// the server's word of where they are is a few tenths of a second old on the pilot's screen, and
+/// they may be running.
+const LOOSE_SLACK: f32 = 4.0;
+/// Those within this far of someone run down run from it, m; and of a car taken from its driver.
+pub const RUN_FROM_HIT: f32 = 22.0;
+pub const RUN_FROM_JACK: f32 = 16.0;
+/// A car driven this fast where people walk, m/s (`bc_client_core::town::HIT_SPEED`'s), has those
+/// within [`SCARE_REACH`] of a point [`SCARE_AHEAD`] in front of it run from it.
+pub const SCARE_SPEED: f32 = 6.0;
+pub const SCARE_AHEAD: f32 = 7.0;
+pub const SCARE_REACH: f32 = 8.0;
 
 /// Where a car a pilot holds came from: a kerb's bay (`street::kerb`), or the traffic
 /// (`street::Car::id`). Its look is that one's, on every screen.
@@ -186,6 +199,9 @@ struct Inner {
     /// The last car left's id (each a new one).
     left_ids: u32,
     swept: Option<u32>,
+    /// The town's people out of its crowd (`crate::crowd`), and the tick they were last stepped.
+    crowd: crate::crowd::Crowd,
+    stepped: Option<u32>,
 }
 
 impl Inner {
@@ -193,13 +209,28 @@ impl Inner {
         self.districts.iter().any(|d| d.down.iter().any(|p| p.id == person))
     }
 
-    /// Those whose time is up get up.
+    /// Those whose time is up get up: out of the crowd where they lay, standing about a moment
+    /// before they walk on (a fare away comes back where the town has them).
     fn get_up(&mut self, tick: u32) {
+        let mut up = Vec::new();
         for d in &mut self.districts {
-            if d.down.retain(|p| p.until > tick, |_| ()) > 0 {
+            if d.down.retain(|p| p.until > tick, |p| up.extend((!p.away).then_some(p))) > 0 {
                 d.version += 1;
             }
         }
+        for p in up {
+            if let Some(l) = Loose::getting_up(p.id, (p.x, town::town_t(p.s)), p.yaw, tick) {
+                self.crowd.put(l);
+            }
+        }
+    }
+
+    /// Something frightening at `from` on the town's floor (`(x, t)`): everyone within `reach` m of
+    /// `around` runs from it, out of the crowd (but those lying in the road).
+    fn scare(&mut self, from: (f32, f32), around: (f32, f32), reach: f32, tick: u32) -> usize {
+        let districts = &self.districts;
+        let lying = |id: u32| districts.iter().any(|d| d.down.iter().any(|p| p.id == id));
+        self.crowd.scare(from, around, reach, tick, &lying)
     }
 
     /// `p` is down (or away) in district `d` from now: the one soonest up gets up to make room.
@@ -270,8 +301,24 @@ impl Street {
             return false;
         }
         let t = town::town_t(pose.s);
+        let Some(mut inner) = self.lock() else { return false };
+        inner.get_up(tick);
+        if inner.is_down(person) {
+            return false;
+        }
+        // Out of the crowd, where the server has them; else where the crowd had them a moment ago.
         let mut found = None;
+        if let Some(l) = inner.crowd.get(person) {
+            let off = (l.x - pose.x).hypot(bc_sim::colony::crowd::round_dt(t, l.t));
+            found = (off <= REACH + LOOSE_SLACK).then_some((l.x, l.t));
+            if found.is_none() {
+                return false;
+            }
+        }
         for back in BACK {
+            if found.is_some() {
+                break;
+            }
             street::each_person(
                 pose.x - REACH,
                 pose.x + REACH,
@@ -281,26 +328,22 @@ impl Street {
                 0.0,
                 &mut |p| {
                     if p.id == person && (p.x - pose.x).hypot(p.t - t) <= REACH {
-                        found = found.or(Some(*p));
+                        found = found.or(Some((p.x, p.t)));
                     }
                 },
             );
-            if found.is_some() {
-                break;
-            }
         }
-        let Some(p) = found else { return false };
-        let Some(mut inner) = self.lock() else { return false };
-        inner.get_up(tick);
-        if inner.is_down(person) {
-            return false;
-        }
+        let Some((x, pt)) = found else { return false };
+        inner.crowd.take(person);
         // Where they were, in the deck's own `s`; knocked the way the car was going.
-        let s = town::deck_s(p.t);
+        let s = town::deck_s(pt);
         inner.lie(
             district_at(s),
-            Down { id: p.id, x: p.x, s, yaw: pose.yaw, until: tick + DOWN_TICKS, away: false },
+            Down { id: person, x, s, yaw: pose.yaw, until: tick + DOWN_TICKS, away: false },
         );
+        // Those round them run from it.
+        let at = (x, town::wrap(pt));
+        inner.scare(at, at, RUN_FROM_HIT, tick);
         true
     }
 
@@ -322,7 +365,7 @@ impl Street {
         let from = lift_near(p.x, town::deck_s(p.t), SQUARE)?;
         let mut inner = self.lock()?;
         inner.get_up(tick);
-        if inner.is_down(person) {
+        if inner.is_down(person) || inner.crowd.has(person) {
             return None;
         }
         let s = town::deck_s(p.t);
@@ -382,6 +425,9 @@ impl Street {
         let d = &mut inner.districts[district_at(pose.s)];
         d.lanes.push(Mark { id: car, at: tick, held: true }, |m| m.at);
         inner.lanes += 1;
+        // Those near run from it.
+        let at = (c.x, town::wrap(c.t));
+        inner.scare(at, at, RUN_FROM_JACK, tick);
         Ok((Held { from: Origin::Traffic(car), left_by: None }, c.kind))
     }
 
@@ -524,6 +570,52 @@ impl Street {
         })
     }
 
+    /// Ten times a second, at tick `tick`, with the pilots down in the town at `sights` (`(x, s)` on
+    /// its floor) and the poses of those of them who've sent one: anyone whose time lying in the
+    /// road is up taken out of the crowd where they lay; those ahead of a car driven fast where
+    /// people walk running from it; everyone out of the crowd on; and the settled out of everyone's
+    /// sight let go (`crate::crowd`).
+    pub fn step(&self, tick: u32, sights: &[(f32, f32)], poses: &[PersonPose]) {
+        let Some(mut inner) = self.lock() else { return };
+        let dt = inner.stepped.map_or(0.0, |t| tick.wrapping_sub(t) as f32 / TICK_HZ as f32).min(0.5);
+        inner.stepped = Some(tick);
+        inner.get_up(tick);
+        for p in poses {
+            let fast = p.speed.abs() >= SCARE_SPEED;
+            if p.strip != RING_DECK || !p.driving() || !fast || !colony_watch::where_people_walk(p.x, p.s) {
+                continue;
+            }
+            let (fx, fs) = bc_sim::car::forward(p.yaw);
+            let ahead = if p.speed < 0.0 { -SCARE_AHEAD } else { SCARE_AHEAD };
+            let t = town::town_t(p.s);
+            inner.scare((p.x, t), (p.x + fx * ahead, t + fs * ahead), SCARE_REACH, tick);
+        }
+        let sights: Vec<(f32, f32)> = sights.iter().map(|&(x, s)| (x, town::town_t(s))).collect();
+        inner.crowd.step(tick, dt, &sights);
+    }
+
+    /// Something frightening at `(x, s)` on the town's floor at tick `tick` (the dev hooks'
+    /// `/dev/scare`): everyone within `reach` m runs from it. How many were taken out of the crowd.
+    pub fn scare_at(&self, (x, s): (f32, f32), reach: f32, tick: u32) -> usize {
+        let Some(mut inner) = self.lock() else { return 0 };
+        let at = (x, town::town_t(s));
+        inner.scare(at, at, reach, tick)
+    }
+
+    /// The town's people out of its crowd round a pilot at `(x, s)` on its floor, in tiers
+    /// (`crate::crowd::Crowd::near`).
+    pub fn crowd_near(&self, (x, s): (f32, f32)) -> Update {
+        let (near, mid, far) =
+            self.lock().map(|inner| inner.crowd.near((x, town::town_t(s)))).unwrap_or_default();
+        Update::Crowd { near, mid, far }
+    }
+
+    /// For `/status`: how many of the town's people are out of its crowd, how many of them running
+    /// scared, and how many in each district.
+    pub fn crowd_counts(&self) -> (usize, usize, [u16; DISTRICTS]) {
+        self.lock().map_or((0, 0, [0; DISTRICTS]), |inner| inner.crowd.counts())
+    }
+
     /// For `/status` at tick `tick`: how many are lying in the street (not the fares away), and how
     /// many kerbs are empty, cars of the traffic taken and cars left about.
     pub fn counts(&self, tick: u32) -> (usize, usize, usize, usize) {
@@ -661,6 +753,124 @@ mod tests {
         let (up, _) = sent_to(&street, here, 905 + DOWN_TICKS + 1, &mut sent);
         assert!(up.len() == 1 && up[0].down.is_empty());
         assert!(street.update_for(here, 905 + DOWN_TICKS + 2, &mut sent).is_none(), "nothing new");
+    }
+
+    /// The people out of the crowd a pilot at `(x, s)` is sent: near, and placed further off.
+    fn loose(street: &Street, x: f32, s: f32) -> (Vec<bc_econ::wire::Promoted>, Vec<bc_econ::wire::Placed>) {
+        match street.crowd_near((x, s)) {
+            Update::Crowd { near, mid, .. } => (near, mid),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn those_round_someone_run_down_run_and_they_get_up_out_of_the_crowd_and_are_let_go_out_of_sight() {
+        let (x, t) = town::out_of_the_lift(0);
+        let mut who = None;
+        street::each_person(x - 200.0, x + 200.0, t - 200.0, t + 200.0, 900, 0.0, &mut |p| {
+            if p.pose == street::Pose::Walk && p.id >> 28 != 0xF {
+                who = who.or(Some(*p));
+            }
+        });
+        let p = who.expect("somebody about");
+        let here = town::deck_s(p.t);
+        let street = Street::default();
+        let car = at(p.x + 2.0, here, RIDE_CAR);
+        assert!(street.hit(p.id, &car, 905));
+        // Those within reach of it are running from it; they're never the one lying there.
+        let (near, _) = loose(&street, p.x, here);
+        assert!(near.iter().all(|q| q.id != p.id && q.scared), "{near:?}");
+        let ran = near.len();
+        let watcher = [(p.x, here)];
+        street.step(905, &watcher, &[]);
+        // Up again: out of the crowd where they lay, standing a moment, then walking on.
+        let up = 905 + DOWN_TICKS;
+        street.step(up, &watcher, &[]);
+        let (near, _) = loose(&street, p.x, here);
+        let q = near.iter().find(|q| q.id == p.id).copied().expect("up, out of the crowd");
+        assert!(apart((q.x, q.s), (p.x, here)) < 2.0 && q.speed == 0.0 && !q.scared, "{q:?}");
+        for k in 1..=40 {
+            street.step(up + 3 * k, &watcher, &[]);
+        }
+        let (near, _) = loose(&street, p.x, here);
+        let q = near.iter().find(|q| q.id == p.id).copied().unwrap();
+        assert!(q.speed > 0.5, "{q:?}");
+        // A car of theirs can run them down again where the server has them.
+        let (_, _, by) = street.crowd_counts();
+        assert!(by.iter().map(|&n| usize::from(n)).sum::<usize>() >= ran.max(1));
+        assert!(street.hit(p.id, &at(q.x + 2.0, q.s, RIDE_CAR), up + 130));
+        // Everyone gone off: once up and settled, they're all let go.
+        let later = up + 130 + DOWN_TICKS + 60 * TICK_HZ;
+        for k in 0..12 {
+            street.step(later + k * TICK_HZ, &[], &[]);
+        }
+        assert_eq!(street.crowd_counts().0, 0);
+    }
+
+    #[test]
+    fn a_car_driven_fast_where_people_walk_has_those_ahead_run() {
+        let t0 = town::CELL * 30.0;
+        let mut who = None;
+        street::each_person(-300.0, 300.0, t0, t0 + town::CELL, 2_000, 0.0, &mut |p| {
+            if p.pose == street::Pose::Walk && p.id >> 28 != 0xF {
+                who = who.or(Some(*p));
+            }
+        });
+        let p = who.expect("somebody about");
+        let street = Street::default();
+        // 7 m behind them (the way `s` grows is the walker's yaw π), coming at 12 m/s on the block.
+        let s = town::deck_s(p.t);
+        let mut car = PersonPose { yaw: std::f32::consts::PI, speed: 12.0, ..at(p.x, s - 7.0, RIDE_CAR) };
+        assert!(colony_watch::where_people_walk(car.x, car.s), "{car:?}");
+        // At a crawl, nobody minds.
+        car.speed = 2.0;
+        street.step(2_000, &[(car.x, car.s)], &[car]);
+        assert_eq!(street.crowd_counts().0, 0);
+        car.speed = 12.0;
+        street.step(2_003, &[(car.x, car.s)], &[car]);
+        let (n, scared, _) = street.crowd_counts();
+        assert!(n >= 1 && scared == n, "{n} {scared}");
+        let (near, _) = loose(&street, car.x, car.s);
+        assert!(near.iter().any(|q| q.id == p.id));
+    }
+
+    #[test]
+    fn a_fright_by_hand_sends_those_round_it_running_but_not_the_one_lying_there() {
+        let (x, t) = town::out_of_the_lift(0);
+        let mut all = Vec::new();
+        street::each_person(x - 150.0, x + 150.0, t - 150.0, t + 150.0, 3_000, 0.0, &mut |p| all.push(*p));
+        let p = all.iter().find(|p| p.id >> 28 != 0xF).copied().expect("somebody about");
+        let street = Street::default();
+        let here = town::deck_s(p.t);
+        assert!(street.hit(p.id, &at(p.x + 2.0, here, RIDE_CAR), 3_000));
+        let before = street.crowd_counts().0;
+        let n = street.scare_at((p.x, here), 60.0, 3_001);
+        assert!(n >= 1 && street.crowd_counts().0 == before + n, "{n}");
+        assert!(loose(&street, p.x, here).0.iter().all(|q| q.id != p.id && q.scared));
+    }
+
+    #[test]
+    fn the_crowds_word_fits_a_frame_at_its_most() {
+        let p = bc_econ::wire::Promoted {
+            id: u32::MAX,
+            x: -987.654_3,
+            s: 18_765.432,
+            yaw: 6.2,
+            speed: 5.678_9,
+            scared: true,
+        };
+        let crowd = Update::Crowd {
+            near: vec![p; crate::crowd::NEAR_MOST],
+            mid: vec![p.placed(); crate::crowd::MID_MOST],
+            far: 9_999,
+        };
+        let json = bc_econ::wire::encode(&crowd);
+        assert!(json.len() < 16_000, "{}", json.len());
+        assert_eq!(bc_econ::wire::decode::<Update>(&json), Some(crowd));
+        let back = bc_econ::wire::Promoted::from_placed(p.placed());
+        let turn = (back.yaw - p.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        assert!((back.x - p.x).abs() < 0.06 && (back.s - p.s).abs() < 0.6 && turn.abs() < 0.03, "{back:?}");
     }
 
     #[test]

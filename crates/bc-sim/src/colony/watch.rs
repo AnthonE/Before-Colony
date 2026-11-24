@@ -35,10 +35,14 @@ pub enum Offence {
     Reckless,
     /// Somebody run down.
     HitSomeone,
+    /// A blow thrown at another pilot on foot that landed (`super::brawl`).
+    Assault,
+    /// Another pilot knocked down (or out) with blows.
+    Downed,
 }
 
 impl Offence {
-    pub const ALL: [Offence; 8] = [
+    pub const ALL: [Offence; 10] = [
         Offence::TookACar,
         Offence::TookACarInSight,
         Offence::Jacked,
@@ -47,6 +51,8 @@ impl Offence {
         Offence::Knock,
         Offence::Reckless,
         Offence::HitSomeone,
+        Offence::Assault,
+        Offence::Downed,
     ];
 
     /// What it adds to a pilot's heat.
@@ -62,6 +68,8 @@ impl Offence {
             Offence::Knock => 1.0,
             Offence::Reckless => 0.8,
             Offence::HitSomeone => 4.0,
+            Offence::Assault => 1.0,
+            Offence::Downed => 4.0,
         }
     }
 
@@ -76,6 +84,8 @@ impl Offence {
             Offence::Knock => "knock",
             Offence::Reckless => "reckless",
             Offence::HitSomeone => "hit_someone",
+            Offence::Assault => "assault",
+            Offence::Downed => "downed",
         }
     }
 
@@ -101,9 +111,10 @@ impl Offence {
 
     /// Whether it adds heat only if somebody saw it (`docs/OPEN_CITY.md`: seen, not done). The
     /// rest are seen by their nature: a driver put out or knocked into, the one run down, the
-    /// people driven at, the Watch's own car. Only a car taken from a kerb can go unseen.
+    /// people driven at, the Watch's own car, the pilot knocked down. Only a car taken from a kerb
+    /// and a blow thrown can go unseen.
     pub const fn wants_a_witness(self) -> bool {
-        matches!(self, Offence::TookACar)
+        matches!(self, Offence::TookACar | Offence::Assault)
     }
 
     /// What the pilot is told when the Watch takes it: who saw what.
@@ -117,6 +128,8 @@ impl Offence {
             Offence::Knock => "THE CAR YOU KNOCKED CALLED IT IN",
             Offence::Reckless => "SEEN DRIVING WHERE PEOPLE WALK",
             Offence::HitSomeone => "SEEN RUNNING SOMEONE DOWN",
+            Offence::Assault => "SEEN THROWING A BLOW",
+            Offence::Downed => "THE ONE YOU PUT DOWN CALLED IT IN",
         }
     }
 
@@ -492,6 +505,7 @@ mod tests {
         assert_eq!(Offence::from_slug("loitering"), None);
         // What a client may say it did: never a hit or reckless driving (the server sees those).
         assert!(!Offence::HitSomeone.reported() && !Offence::Reckless.reported());
+        assert!(!Offence::Assault.reported() && !Offence::Downed.reported(), "the server judges a blow");
         assert!(!Offence::TookACarInSight.reported() && !Offence::JackedInSight.reported());
     }
 

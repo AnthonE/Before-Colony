@@ -347,8 +347,9 @@ impl Sim {
         if s.input[j].lock_target == viewer as u16 && self.designation(j) == Some(viewer) {
             flags |= ent_flags::LOCKED_ON_YOU;
         }
-        // Allies see a jamming suit's shimmer; its enemies (close enough to see it at all) don't.
-        if self.jamming(j).is_some() && s.faction[j] == s.faction[viewer] {
+        // Allies see a jamming suit's shimmer; its enemies (close enough to see it at all) don't,
+        // nor a pilot who could hunt it in open space (`Sim::unfriendly`).
+        if self.jamming(j).is_some() && !self.unfriendly(viewer, j) {
             flags |= ent_flags::SPECIAL;
         }
         flags

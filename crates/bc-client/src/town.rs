@@ -29,6 +29,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use bc_client_core::crowd;
 use bc_client_core::life::{self as plan, Lights, Livery, Slots};
 use bc_client_core::life_mesh::{self, Body, Gait};
 use bc_client_core::station::{PAINT, PAINTS};
@@ -140,6 +141,9 @@ pub struct TownCars {
     pub movers: Vec<town_foot::Mover>,
     /// The town's people knocked down: the server's word, and the pilot's own hits till it comes.
     pub down: Vec<bc_econ::wire::Down>,
+    /// The town's people out of its crowd round the pilot, the server's (`bc_client_core::crowd`):
+    /// drawn where it has them, and not where the crowd would.
+    pub loose: bc_client_core::crowd::Loose,
     /// The traffic within `traffic_reach` m of the pilot as this client has it (held back by
     /// what's in its lanes: `bc_client_core::traffic`), and the cars taken out of it, by id.
     pub traffic: Vec<bc_client_core::traffic::Shown>,
@@ -251,6 +255,12 @@ pub struct Streamer {
     spent: Slowest,
     /// The pieces in sight not built yet.
     missing: u32,
+    /// The frames the latest fill has taken: one a frame that began with a piece in sight still to
+    /// build, counted afresh after a frame that began with none (`town_fill_frames`). Streamed
+    /// within the frame's budget, a fill takes several; built all at once (a showcase's held
+    /// clock), one.
+    fill_frames: u32,
+    filling: bool,
     /// Pieces built whose signs wait for the letters to be measured (`station::SignAtlas`).
     unsigned: Vec<(Piece, Entity)>,
 }
@@ -277,6 +287,9 @@ struct Seen<T> {
     lie: bool,
 }
 
+/// Faster than this, m/s, one of the town's people is drawn running (only those out of its crowd
+/// ever are: `bc_sim::colony::crowd`).
+const RUNNING: f32 = 2.8;
 /// A Sirius hound as drawn: how much smaller than a car, and how far over the road, m.
 const HOUND: (f32, f32) = (0.32, 3.2);
 
@@ -298,6 +311,11 @@ pub struct TownLife {
     cars: Vec<Seen<CarLook>>,
     ids: Vec<u64>,
     seats: Vec<usize>,
+    /// Which of a pool's places this frame takes (kept between frames: its buffer).
+    used: Vec<bool>,
+    /// This frame's meshes of them, and how many of each are drawn: each mesh one draw (Bevy
+    /// batches the rest, one material and the looks in their tags), its triangles that many times.
+    meshes: Vec<(AssetId<Mesh>, u32)>,
     drawn: (u32, u32),
     /// The slowest frame's placing of them lately.
     spent: Slowest,
@@ -341,12 +359,18 @@ pub struct TownStats {
     /// The pieces in sight still to build, and the pieces built (shown or kept).
     pub missing: u32,
     pub cached: u32,
+    /// The frames the latest fill of the pieces in sight took (or has taken so far).
+    pub fill_frames: u32,
     /// The people and the cars drawn.
     pub people: u32,
     pub cars: u32,
     /// The meshes on the town's layer in view (of the camera or a shadow's cascade: Bevy's
     /// `ViewVisibility`, last frame's), each drawn once a pass it's in: the draws, near enough.
     pub draws: u32,
+    /// The people's and the cars' triangles (not in `tris`), and the batches they're drawn in: one a
+    /// mesh of theirs in use (a frame of a stride, a car's body), however many share it.
+    pub life_tris: u32,
+    pub life_batches: u32,
 }
 
 /// One of the town's life's entities.
@@ -520,6 +544,9 @@ fn stream_town(
         }
     }
     if !view.active {
+        if streamer.filling {
+            streamer.filling = false;
+        }
         return;
     }
     let s = &mut *streamer;
@@ -542,6 +569,11 @@ fn stream_town(
     if s.building.as_ref().is_some_and(|(p, _)| !s.sight.contains(p)) {
         s.building = None;
     }
+    let to_build = s.sight.iter().any(|p| !s.pieces.contains_key(p));
+    if to_build {
+        s.fill_frames = if s.filling { s.fill_frames + 1 } else { 1 };
+    }
+    s.filling = to_build;
     let layer = RenderLayers::layer(CITY_LAYER);
     let mut fresh = Vec::new();
     while start.elapsed().as_secs_f32() * 1000.0 <= budget {
@@ -794,9 +826,10 @@ fn draw_life(
                         && (o.x - p.x).abs() < CLEAR
                         && round_from(RING, o.s, at.s + (p.t - t)).abs() < CLEAR
                 });
-            // (Nor anyone knocked down: they're drawn where they lie, below.)
-            let down = own.down.iter().any(|d| d.id == p.id && d.until > tick);
-            if d2 <= reach * reach && !hidden && !down {
+            // (Nor anyone knocked down: they're drawn where they lie, below, and a moment after
+            // they're up, till the server's word has them up out of the crowd; nor anyone out of it.)
+            let down = own.down.iter().any(|d| d.id == p.id && d.until + crowd::UP_GRACE > tick);
+            if d2 <= reach * reach && !hidden && !down && !own.loose.has(p.id) {
                 // Stepped aside from the pilots' cars.
                 let s = at.s + (p.t - t);
                 let (mut x, mut ps) = (p.x, s);
@@ -808,8 +841,32 @@ fn draw_life(
                 people.push(Seen { d2, id: u64::from(p.id), x, s: ps, yaw: p.yaw, what: *p, lie: false });
             }
         });
-        // Those knocked down, where they lie.
-        for d in own.down.iter().filter(|d| d.until > tick && !d.away) {
+        // Those out of the crowd, where the server has them.
+        // (Not one run down a moment ago: they're lying where they fell, below.)
+        let lying = |id: u32| own.down.iter().any(|d| d.id == id && d.until > tick);
+        for l in own.loose.people.iter().filter(|l| !lying(l.id)) {
+            let ds = round_from(RING, at.s, l.s);
+            let d2 = near(l.x, ds);
+            let hidden = on_foot && d2 < CLEAR * CLEAR;
+            if d2 <= reach * reach && !hidden {
+                let what = l.person(at.s, t);
+                people.push(Seen {
+                    d2,
+                    id: u64::from(l.id),
+                    x: l.x,
+                    s: at.s + ds,
+                    yaw: l.yaw,
+                    what,
+                    lie: false,
+                });
+            }
+        }
+        // Those knocked down, where they lie (and a moment after, standing there, till the server's
+        // word has them up).
+        let up = |d: &&bc_econ::wire::Down| {
+            d.until > tick || (d.until + crowd::UP_GRACE > tick && !own.loose.has(d.id))
+        };
+        for d in own.down.iter().filter(|d| !d.away).filter(up) {
             let ds = round_from(RING, at.s, d.s);
             let d2 = near(d.x, ds);
             if d2 <= reach * reach {
@@ -830,7 +887,7 @@ fn draw_life(
                     s: at.s + ds,
                     yaw: d.yaw,
                     what,
-                    lie: true,
+                    lie: d.until > tick,
                 });
             }
         }
@@ -943,6 +1000,7 @@ fn draw_life(
     let (pn, pe) = split(&mut life.people.iter().map(|p| p.d2), levels[0], levels[1]);
     let (cn, ce) = split(&mut life.cars.iter().map(|c| c.d2), levels[2], levels[3]);
     let ranges = [(0, pn), (pn, pe), (0, cn), (cn, ce)];
+    life.meshes.clear();
     for (k, pool) in pools.iter_mut().enumerate() {
         let (a, b) = ranges[k];
         let is_car = k >= 2;
@@ -954,7 +1012,9 @@ fn draw_life(
             life.ids.extend(life.people[a..b].iter().map(|p| p.id));
         }
         pool.slots.assign(&life.ids, &mut life.seats);
-        let mut used = vec![false; pool.entities.len()];
+        let used = &mut life.used;
+        used.clear();
+        used.resize(pool.entities.len(), false);
         for n in 0..(b - a) {
             let seat = life.seats[n];
             let Some(&entity) = pool.entities.get(seat) else { continue };
@@ -975,7 +1035,12 @@ fn draw_life(
                 let w = &p.what;
                 let o = plan::outfit(w.seed, dress(district));
                 let (wide, tall) = plan::build(w.seed);
-                let g = if w.pose == street::Pose::Stand { Gait::Stand } else { Gait::Walk };
+                // (Running, out of the crowd and scared off: the run's cycle.)
+                let g = match w.pose {
+                    street::Pose::Stand => Gait::Stand,
+                    _ if w.speed > RUNNING => Gait::Run,
+                    _ => Gait::Walk,
+                };
                 let f = life_mesh::bank_frame(g, full, w.stride);
                 let m = if full {
                     &scene.near_figures[o.cut * life_mesh::bank_frames(true) + f]
@@ -1006,6 +1071,10 @@ fn draw_life(
             if mesh.0 != *want_mesh {
                 mesh.0 = want_mesh.clone();
             }
+            match life.meshes.iter_mut().find(|(id, _)| *id == want_mesh.id()) {
+                Some((_, n)) => *n += 1,
+                None => life.meshes.push((want_mesh.id(), 1)),
+            }
             vis.set_if_neq(Visibility::Inherited);
             used[seat] = true;
         }
@@ -1017,7 +1086,7 @@ fn draw_life(
                 vis.set_if_neq(Visibility::Hidden);
             }
         }
-        pool.shown.copy_from_slice(&used);
+        pool.shown.copy_from_slice(used);
     }
     life.drawn = (pe as u32, ce as u32);
     life.spent.add(start.elapsed().as_secs_f32() * 1000.0, time.delta_secs());
@@ -1145,13 +1214,14 @@ fn light_town(
 }
 
 /// [`TownStats`], and `window.__bc`'s `town_cells`, `town_pieces`, `town_tris`, `town_ms` (the build's),
-/// `town_life_ms`, `town_missing`, `town_cached`, `town_people`, `town_cars` and `town_draws` from
-/// it.
+/// `town_life_ms`, `town_missing`, `town_cached`, `town_fill_frames`, `town_people`, `town_cars` and
+/// `town_draws` from it.
 fn publish_stats(
     view: Res<TownView>,
     streamer: Res<Streamer>,
     life: Res<TownLife>,
     meshes: Query<(&ViewVisibility, &RenderLayers), With<Mesh3d>>,
+    scene: Option<Res<crate::life::LifeScene>>,
     mut stats: ResMut<TownStats>,
     status: Option<ResMut<crate::dev_hooks::DevStatus>>,
 ) {
@@ -1160,6 +1230,8 @@ fn publish_stats(
         let (pieces, tris) = shown.fold((0u32, 0u32), |(n, t), b| (n + 1, t + b.tris));
         let town = RenderLayers::layer(CITY_LAYER);
         let draws = meshes.iter().filter(|(seen, layers)| seen.get() && layers.intersects(&town)).count();
+        let tris_of = |id: AssetId<Mesh>| scene.as_ref().and_then(|s| s.tris.get(&id).copied()).unwrap_or(0);
+        let life_tris = life.meshes.iter().map(|&(id, n)| n * tris_of(id)).sum();
         TownStats {
             cells: streamer.covered,
             pieces,
@@ -1168,9 +1240,12 @@ fn publish_stats(
             life_ms: life.spent.ms(),
             missing: streamer.missing,
             cached: streamer.pieces.len() as u32,
+            fill_frames: streamer.fill_frames,
             people: life.drawn.0,
             cars: life.drawn.1,
             draws: draws as u32,
+            life_tris,
+            life_batches: life.meshes.len() as u32,
         }
     } else {
         TownStats::default()
@@ -1184,7 +1259,10 @@ fn publish_stats(
     status.set("town_life_ms", now.life_ms);
     status.set("town_missing", now.missing);
     status.set("town_cached", now.cached);
+    status.set("town_fill_frames", now.fill_frames);
     status.set("town_people", now.people);
     status.set("town_cars", now.cars);
     status.set("town_draws", now.draws);
+    status.set("town_life_tris", now.life_tris);
+    status.set("town_life_batches", now.life_batches);
 }

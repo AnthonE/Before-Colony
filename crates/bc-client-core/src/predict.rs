@@ -524,6 +524,23 @@ impl Predictor {
         (s.tick == tick && tick >= self.first).then_some(s)
     }
 
+    /// The own suit free now, and let go of a body within the ticks still held (the newest 128,
+    /// about 4.3 s, none from before [`Predictor::forget_before`]): how it stood on the last tick it
+    /// held on, and the first tick it flew free. A page drawing a frame a second or slower can see
+    /// it go from the ground straight to flying, the hop and the climb out of the grip both between
+    /// two of its frames; this is how it let go. `None` if it isn't free, or a tick between is gone.
+    pub fn letting_go(&self) -> Option<(Footing, &Sample)> {
+        let mut free = None;
+        for t in (self.tick.saturating_sub(HISTORY as u32 - 1)..=self.tick).rev() {
+            let s = self.sample(t)?;
+            if s.footing != Footing::Free {
+                return free.map(|f| (s.footing, f));
+            }
+            free = Some(s);
+        }
+        None
+    }
+
     /// The sector's field, from the Welcome.
     pub fn set_field(&mut self, field: Field) {
         self.field = std::sync::Arc::new(field);
@@ -1003,6 +1020,81 @@ mod tests {
             assert_eq!((s.footing, s.body), (Footing::Grounded, Body::Landmark(0)), "let go at {t}");
             assert!(s.local.distance(local) < 1e-3, "moved off its spot at {t}");
         }
+    }
+
+    #[test]
+    fn a_page_that_saw_it_standing_and_now_sees_it_flying_reads_how_it_let_go() {
+        use crate::surface::{LetGo, let_go, lifted_off};
+        use bc_proto::BodyRef;
+        use bc_proto::buttons::GRIP;
+        use bc_proto::snapshot::{OwnSurface, footing};
+
+        // Standing on Fornax's aft module, then Space held with the grip armed: it stands, hops and
+        // climbs out of the grip on the thrusters. A page drawing a frame every few seconds looks
+        // only once it's free, the hop and the climb all between two of its frames.
+        let local = Vec3::new(-230.0, 0.0, 80.0 + bc_sim::ground::STANCE);
+        let own = OwnState {
+            pos: local,
+            rot: bc_sim::math::look_rotation(Vec3::X, Vec3::Z),
+            surface: Some(OwnSurface {
+                footing: footing::GROUNDED,
+                body: BodyRef::Landmark(0),
+                stance_q: 146,
+            }),
+            ..own_at(local)
+        };
+        let mut history = InputHistory::default();
+        let mut p = Predictor::default();
+        p.reconcile(4_000, &own, &history);
+        let fly = |p: &mut Predictor, history: &mut InputHistory, t: u32| {
+            let c = InputCmd {
+                tick: t,
+                aim: p.state.rot * Vec3::Z,
+                thrust: [0, 127, 0],
+                buttons: GRIP | FLIGHT_ASSIST,
+                ..InputCmd::default()
+            }
+            .quantized();
+            history.push(c);
+            p.advance(&c, history);
+        };
+        let mut t = 4_000;
+        while p.mover().footing != Footing::Free {
+            t += 1;
+            assert!(t < 4_000 + 600, "never let go");
+            fly(&mut p, &mut history, t);
+        }
+        let first_free = t;
+        // On a few more ticks before the page looks.
+        for _ in 0..20 {
+            t += 1;
+            fly(&mut p, &mut history, t);
+        }
+        let held = p.sample(first_free - 1).unwrap();
+        assert_eq!((held.footing, held.body), (Footing::Aloft, Body::Landmark(0)), "climbed out of the air");
+        let (was, s) = p.letting_go().expect("let go within the ticks held");
+        assert_eq!((was, s.tick), (Footing::Aloft, first_free));
+        assert_eq!(*s, *p.sample(first_free).unwrap());
+        // Which is flying, as asked; not the grip lost, as it was read from the ground.
+        let lifted = lifted_off(&p.bodies(s.tick + 1), Body::Landmark(0), s.pos, s.vel, true);
+        assert_eq!(let_go(was, lifted, true), LetGo::Flying);
+        assert_eq!(let_go(Footing::Grounded, lifted, true), LetGo::Lost);
+        // The held tick forgotten (a new life), or fallen out of the ticks held: no telling how.
+        let mut q = p.clone();
+        q.forget_before(first_free);
+        assert!(q.letting_go().is_none());
+        while t - (first_free - 1) < HISTORY as u32 - 1 {
+            t += 1;
+            fly(&mut p, &mut history, t);
+        }
+        assert_eq!(
+            p.letting_go().map(|(was, s)| (was, s.tick)),
+            Some((Footing::Aloft, first_free)),
+            "the last held"
+        );
+        t += 1;
+        fly(&mut p, &mut history, t);
+        assert!(p.sample(first_free - 1).is_none() && p.letting_go().is_none(), "out of the ticks held");
     }
 
     #[test]

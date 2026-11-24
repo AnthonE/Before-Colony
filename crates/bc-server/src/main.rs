@@ -60,9 +60,19 @@ struct Args {
     /// in with an Elo Pros pass: any login, or a wallet on either chain. Without it, wallets only.
     #[arg(long)]
     elo_pubkey: Option<String>,
-    /// Where a wallet's items are read at sign-in (`none`: nobody shows any).
+    /// Where a wallet's items are read at sign-in, and stats reported (`none`: nobody shows any,
+    /// and nothing is reported).
     #[arg(long, default_value = bc_server::config::STORE_ORIGIN)]
     elo_origin: String,
+    /// This server's Ed25519 key on Elo Pros: a PKCS#8 PEM file on this box (`openssl genpkey
+    /// -algorithm ed25519 -out server.key`), never in the repo. With it, what signed-in pilots do
+    /// is reported to the game's stats, achievements and boards, signed; without it, nothing is.
+    /// Its public half is in the log as the server starts, to name in `elo.json`'s `server_keys`.
+    #[arg(long)]
+    elo_key: Option<PathBuf>,
+    /// The id the key is named under on Elo Pros (`server_keys`' `id`).
+    #[arg(long, default_value = "sector-1")]
+    elo_key_id: String,
     /// Origins whose pages may read /status, /status.json and /cert-hash from another site (CORS).
     /// Repeat it or separate with commas.
     #[arg(long, default_value = bc_server::config::STORE_ORIGIN)]
@@ -86,9 +96,13 @@ struct Args {
     /// The fabricator and foundry work this many times faster than their recipes say.
     #[arg(long, default_value_t = 1.0)]
     craft_speed: f64,
-    /// Keep pilot records and the exchange in this directory (otherwise they last one run).
+    /// Keep pilot records and the exchange in this directory (otherwise they last one run); and
+    /// take players' reports (`POST /bugs`), kept in its `reports/`.
     #[arg(long)]
     data_dir: Option<PathBuf>,
+    /// Reports `POST /bugs` takes from one address in ten minutes (behind nginx, its X-Real-IP).
+    #[arg(long, default_value_t = bc_server::bugs::Limits::default().per_address)]
+    reports_per_address: u32,
     /// Open the colony's inside: the bays' airlocks lead to the cap lifts, down into the
     /// cylinder's city, and suits fly inside it. That inside is retired (`docs/RING.md`): it's
     /// closed by default and kept behind this flag for the browser suites until it's cleared.
@@ -103,15 +117,41 @@ struct Args {
     /// spoke's lift; or in their bay, as agents always do.
     #[arg(long, value_enum, default_value_t = bc_server::config::Start::Town)]
     start: bc_server::config::Start,
-    /// Connections taken in all, handshaking or open.
+    /// Connections taken in all, handshaking or open (QUIC may hold four times this, closing ones
+    /// included).
     #[arg(long, default_value_t = bc_server::net::admit::Limits::default().connections)]
     max_connections: u32,
-    /// Connections taken from one address (loopback excepted).
+    /// Connections taken from one address, and opened by it each 5 s (loopback excepted).
     #[arg(long, default_value_t = bc_server::net::admit::Limits::default().per_address)]
     per_address: u32,
     /// The dev HTTP's hooks for tests and playtests (`/dev/incident`). Never in a deployment.
     #[arg(long, hide = true)]
     dev_hooks: bool,
+    /// Relay no proximity voice: every frame is dropped (and counted on /status).
+    #[arg(long)]
+    no_voice: bool,
+    /// Send people's voices to agents' sessions too (off: voices are for people).
+    #[arg(long)]
+    voice_agents: bool,
+    /// Suits fight pilots away from the colony: past its reach (5 km from the ring's hull and the
+    /// hub) pilots harm pilots of any side, inside it none (`on`, or the flag alone); `off`: by
+    /// side. Default: on under survival rules, off under arcade's (which spawn every side's pilots
+    /// together in open space, for the combat suites and load tests).
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "on")]
+    pvp: Option<Switch>,
+}
+
+/// A knob's word on the command line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum Switch {
+    On,
+    Off,
+}
+
+impl Switch {
+    fn on(self) -> bool {
+        self == Switch::On
+    }
 }
 
 /// The store's list of traders to stand on the Exchange floor: `--floor-visitors` as given (`none`:
@@ -126,6 +166,24 @@ fn floor_visitors(flag: Option<&str>, siwe_domains: &[String]) -> Option<String>
             .then(|| bc_server::config::STORE_VISITORS.to_string()),
     }
 }
+
+/// The server's key from its file (`--elo-key`). Why not, never quoting the file.
+fn load_key(path: &std::path::Path, id: &str) -> Result<bc_server::serverkey::ServerKey, String> {
+    let pem = std::fs::read_to_string(path).map_err(|e| format!("can't be read ({})", e.kind()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(path)
+            && meta.permissions().mode() & 0o077 != 0
+        {
+            tracing::warn!("--elo-key {}: others on this box can read it (chmod 600 it)", path.display());
+        }
+    }
+    bc_server::serverkey::ServerKey::from_pem(bc_auth::GAME, id, &pem)
+}
+
+/// How long a shutdown waits for the stats' last post and the stores' last save.
+const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 fn main() -> anyhow::Result<()> {
     bc_server::telemetry::init();
@@ -158,6 +216,12 @@ fn main() -> anyhow::Result<()> {
             })
         }),
         elo_origin: (args.elo_origin != "none").then(|| args.elo_origin.clone()),
+        elo_key: args.elo_key.as_deref().map(|path| {
+            load_key(path, &args.elo_key_id).map(std::sync::Arc::new).unwrap_or_else(|why| {
+                eprintln!("--elo-key {}: {why}", path.display());
+                std::process::exit(2);
+            })
+        }),
         tls: args.cert.zip(args.key),
         cors_origins: bc_server::config::split_list(&args.cors_origin),
         require_auth: args.require_auth,
@@ -165,6 +229,10 @@ fn main() -> anyhow::Result<()> {
         flight: args.flight,
         craft_speed: args.craft_speed.max(0.01),
         data_dir: args.data_dir,
+        reports: bc_server::bugs::Limits {
+            per_address: args.reports_per_address.max(1),
+            ..bc_server::bugs::Limits::default()
+        },
         colony: args.rules == Ruleset::Survival && args.colony,
         start: args.start,
         floor_visitors: floor_visitors(
@@ -173,14 +241,29 @@ fn main() -> anyhow::Result<()> {
         ),
         limits: bc_server::net::admit::Limits {
             connections: args.max_connections.max(1),
+            quic_connections: args
+                .max_connections
+                .max(1)
+                .saturating_mul(bc_server::net::admit::QUIC_HEADROOM),
             per_address: args.per_address.max(1),
             ..bc_server::net::admit::Limits::default()
         },
         dev_hooks: args.dev_hooks,
+        voice: !args.no_voice,
+        voice_agents: args.voice_agents,
+        pvp: args.pvp.map(Switch::on),
         ..Config::default()
     };
+    if args.no_voice {
+        tracing::warn!("--no-voice: proximity voice is off (every frame dropped)");
+    }
+    if cfg.pvp_on() {
+        tracing::info!("open space (--pvp): past the colony's reach pilots harm pilots of any side");
+    }
     if cfg.dev_hooks {
-        tracing::warn!("--dev-hooks: the dev HTTP takes /dev/incident (never in a deployment)");
+        tracing::warn!(
+            "--dev-hooks: the dev HTTP takes /dev/incident and /dev/scare (never in a deployment)"
+        );
     }
     match (args.rules, args.colony) {
         (Ruleset::Survival, true) => {
@@ -201,7 +284,14 @@ fn main() -> anyhow::Result<()> {
         tracing::info!("open http://{} (WebTransport on UDP {})", handle.http_addr, handle.wt_port);
         tokio::signal::ctrl_c().await?;
         tracing::info!("shutting down");
-        handle.shutdown();
+        // The stats' last post to Elo Pros and the stores' last save finish before the runtime
+        // goes (it would cancel them), within a bound so a deploy never hangs on them.
+        if !handle.shutdown_flushed(SHUTDOWN_WAIT).await {
+            tracing::warn!(
+                "the last post to Elo Pros or the last save didn't finish in {}s: let go",
+                SHUTDOWN_WAIT.as_secs()
+            );
+        }
         Ok(())
     })
 }
@@ -240,9 +330,37 @@ mod tests {
     }
 
     #[test]
+    fn the_server_key_is_off_unless_a_file_is_named() {
+        let a = Args::parse_from(["bc-server"]);
+        assert!(a.elo_key.is_none());
+        assert_eq!(a.elo_key_id, "sector-1");
+        let a = Args::parse_from(["bc-server", "--elo-key", "/etc/bc/server.key", "--elo-key-id", "eu-1"]);
+        assert_eq!(
+            (a.elo_key.as_deref(), a.elo_key_id.as_str()),
+            (Some(std::path::Path::new("/etc/bc/server.key")), "eu-1")
+        );
+        // A file that isn't there, or isn't a key, says so without quoting it.
+        let missing = load_key(std::path::Path::new("/nonexistent/bc-server.key"), "sector-1").unwrap_err();
+        assert!(missing.contains("can't be read"), "{missing}");
+    }
+
+    #[test]
     fn the_dev_hooks_are_off_unless_asked_for() {
         assert!(!Args::parse_from(["bc-server"]).dev_hooks);
         assert!(Args::parse_from(["bc-server", "--dev-hooks"]).dev_hooks);
+    }
+
+    #[test]
+    fn open_space_is_survivals_and_asked_for_under_arcade() {
+        let law = |argv: &[&str]| {
+            let a = Args::parse_from(argv);
+            Config { rules: a.rules, pvp: a.pvp.map(Switch::on), ..Config::default() }.pvp_on()
+        };
+        assert!(law(&["bc-server"]), "survival: on");
+        assert!(!law(&["bc-server", "--rules", "arcade"]), "arcade: off");
+        assert!(law(&["bc-server", "--rules", "arcade", "--pvp"]), "the flag alone: on");
+        assert!(law(&["bc-server", "--rules", "arcade", "--pvp", "on"]));
+        assert!(!law(&["bc-server", "--pvp", "off"]), "survival, turned off");
     }
 
     #[test]

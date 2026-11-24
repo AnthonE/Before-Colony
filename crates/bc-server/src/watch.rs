@@ -148,6 +148,8 @@ fn what(cause: Offence, s: f32) -> String {
         Offence::Knock => format!("A CRASH IN {d}"),
         Offence::Reckless => format!("RECKLESS DRIVING IN {d}"),
         Offence::HitSomeone => format!("SOMEBODY RUN DOWN IN {d}"),
+        Offence::Assault => format!("A FIGHT IN {d}"),
+        Offence::Downed => format!("SOMEBODY BEATEN DOWN IN {d}"),
     }
 }
 
@@ -275,6 +277,31 @@ impl Watch {
         // Seen, not done (`docs/OPEN_CITY.md`): a car taken from its kerb with nobody about adds
         // nothing, and they're told so.
         if !seen && o.wants_a_witness() && !tables::person_near(at.0, at.1, tables::WITNESS, tick, &[]) {
+            self.with(id, |_, w| w.tell(o, false));
+            return false;
+        }
+        self.offend(id, name, if seen { o.in_sight() } else { o }, at, tick)
+    }
+
+    /// `id` (called `name`) did `o` at `at` on the ring's floor at tick `tick`, as the server saw for
+    /// itself (a blow, `crate::brawl`): if it wants a witness (`Offence::wants_a_witness`), only if
+    /// one of the Watch's cars on its beat saw it, one of the town's people was near, or another
+    /// pilot was (`pilot_saw`, the plaza's to say). True if their heat rose a level.
+    pub fn judged(
+        &self,
+        id: u16,
+        name: &str,
+        o: Offence,
+        at: (f32, f32),
+        tick: u32,
+        pilot_saw: bool,
+    ) -> bool {
+        let seen = tables::car_sees(at.0, at.1, tables::SIGHT, tick, 0.0);
+        if !seen
+            && o.wants_a_witness()
+            && !pilot_saw
+            && !tables::person_near(at.0, at.1, tables::WITNESS, tick, &[])
+        {
             self.with(id, |_, w| w.tell(o, false));
             return false;
         }

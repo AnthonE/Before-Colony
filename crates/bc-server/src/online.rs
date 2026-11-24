@@ -1,5 +1,6 @@
 //! Who is on, for the Elo Pros store (`/online.json`): each signed-in session's wallet, its
-//! callsign, whether an agent flies it, and since when. The platform's playtime polls it once a
+//! callsign, whether an agent flies it, since when, and a line of what they're doing ([`Status`],
+//! the store's rich presence). The platform's playtime polls it once a
 //! minute and counts hours per wallet (`meter/playtime.py` in AnthonE/scry-forge), in the shape
 //! Gates' shard serves (`crates/server/src/online.rs` there). `wallet` is the pilot's id as Elo Pros
 //! writes it: `0x…` lowercase, base58 exactly as written, or an account's `acct_…`. Guests have none
@@ -17,6 +18,33 @@ struct Entry {
     agent: bool,
     since: u64,
     session: u64,
+    status: Status,
+}
+
+/// What a pilot is doing, as the store shows it beside the game on their profile and friends list
+/// (`status` in a row; `meter/playtime.py` `clean_roster`). Coarse on purpose: on foot it's open
+/// season anywhere, so a line never says where in the colony someone is (their home least of all),
+/// only what they're at.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Status {
+    /// On foot anywhere: the bay, Bay Row, the town, the city.
+    #[default]
+    InTheColony,
+    /// In a suit's cockpit, out in space or inside the colony.
+    Flying,
+    /// On foot, at the Colony Exchange's books (its terminal, or its desk).
+    AtTheExchange,
+}
+
+impl Status {
+    /// The line the store prints.
+    pub fn line(self) -> &'static str {
+        match self {
+            Status::InTheColony => "In the colony",
+            Status::Flying => "Flying",
+            Status::AtTheExchange => "At the Exchange",
+        }
+    }
 }
 
 /// The wallets on now, by address (so the document reads in a stable order).
@@ -28,12 +56,13 @@ impl Online {
     /// session for the same wallet takes the entry over, and the older one's guard then leaves it.
     pub fn enter(self: &Arc<Self>, address: PlayerId, session: u64, name: &str, agent: bool) -> Here {
         if let Ok(mut on) = self.0.lock() {
-            on.insert(address, Entry { name: name.to_string(), agent, since: unix_now(), session });
+            let status = Status::default();
+            on.insert(address, Entry { name: name.to_string(), agent, since: unix_now(), session, status });
         }
         Here { online: self.clone(), address, session }
     }
 
-    /// `{"at": unix, "online": [{"wallet", "name", "agent", "since"}]}`.
+    /// `{"at": unix, "online": [{"wallet", "name", "agent", "since", "status"}]}`.
     pub fn json(&self) -> serde_json::Value {
         let online: Vec<serde_json::Value> = self.0.lock().map_or_else(
             |_| Vec::new(),
@@ -45,6 +74,7 @@ impl Online {
                             "name": e.name,
                             "agent": e.agent,
                             "since": e.since,
+                            "status": e.status.line(),
                         })
                     })
                     .collect()
@@ -59,6 +89,31 @@ pub struct Here {
     online: Arc<Online>,
     address: PlayerId,
     session: u64,
+}
+
+impl Here {
+    /// The handle the session moves its [`Status`] with.
+    pub fn presence(&self) -> Presence {
+        Presence { online: self.online.clone(), address: self.address, session: self.session }
+    }
+}
+
+/// Moves a session's [`Status`] in [`Online`] (only while that session holds the entry).
+#[derive(Clone)]
+pub struct Presence {
+    online: Arc<Online>,
+    address: PlayerId,
+    session: u64,
+}
+
+impl Presence {
+    pub fn set(&self, status: Status) {
+        if let Ok(mut on) = self.online.0.lock()
+            && let Some(e) = on.get_mut(&self.address).filter(|e| e.session == self.session)
+        {
+            e.status = status;
+        }
+    }
 }
 
 impl Drop for Here {
@@ -100,6 +155,27 @@ mod tests {
         assert_eq!(doc["online"][0]["wallet"], format!("0x{}", "ab".repeat(20)));
         assert_eq!(doc["online"][0]["name"], "Ace");
         drop(second);
+        assert_eq!(online.json()["online"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn the_status_line_is_coarse_and_the_holders_alone() {
+        let online = Arc::new(Online::default());
+        let a = PlayerId::from(bc_proto::auth::Address([0xCD; 20]));
+        let first = online.enter(a, 1, "Ace", false);
+        assert_eq!(online.json()["online"][0]["status"], "In the colony");
+        first.presence().set(Status::Flying);
+        assert_eq!(online.json()["online"][0]["status"], "Flying");
+        // A newer session holds the entry: the older one's word doesn't move it.
+        let second = online.enter(a, 2, "Ace", false);
+        first.presence().set(Status::AtTheExchange);
+        assert_eq!(online.json()["online"][0]["status"], "In the colony");
+        second.presence().set(Status::AtTheExchange);
+        assert_eq!(online.json()["online"][0]["status"], "At the Exchange");
+        for s in [Status::InTheColony, Status::Flying, Status::AtTheExchange] {
+            assert!(s.line().len() <= 64 && s.line().chars().all(|c| c.is_ascii_graphic() || c == ' '));
+        }
+        drop((first, second));
         assert_eq!(online.json()["online"], serde_json::json!([]));
     }
 }

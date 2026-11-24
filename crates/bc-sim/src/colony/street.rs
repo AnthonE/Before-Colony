@@ -240,7 +240,7 @@ pub struct Person {
 /// How far in from its kerb a block's people walk, m (and the other way's file, [`FILE`] further in):
 /// clear of its buildings, which stand 2 m in.
 pub const WALK_IN: f32 = 0.8;
-const FILE: f32 = 0.6;
+pub(super) const FILE: f32 = 0.6;
 /// A stride's length, m.
 const STRIDE: f32 = 1.45;
 /// The most people a block has walking round it, and standing about in it.
@@ -282,7 +282,7 @@ pub fn seed_of(id: u32) -> u32 {
 
 /// Where `u` m round a rectangle's edge is (from its low corner, along `x` first), and the heading
 /// there going that way round; `back` goes the other way.
-fn round_rect(r: &town::TownBox, u: f32, back: bool) -> (f32, f32, f32) {
+pub(super) fn round_rect(r: &town::TownBox, u: f32, back: bool) -> (f32, f32, f32) {
     let (w, h) = (r.x1 - r.x0, r.t1 - r.t0);
     // Headings: +x is τ/4, the way `t` grows π, −x 3τ/4, back round `t` 0.
     let (x, t, yaw) = if u < w {
@@ -399,6 +399,43 @@ pub fn each_person(x0: f32, x1: f32, t0: f32, t1: f32, tick: u32, frac: f32, f: 
             });
         }
     }
+}
+
+/// The person `id` names (`Person::id`) where the tick has them, if the town has anyone by it: the
+/// same as [`each_person`] finds them, worked out for them alone.
+pub fn person(id: u32, tick: u32) -> Option<Person> {
+    let mut found = None;
+    let mut look = |x0: f32, x1: f32, t0: f32, t1: f32| {
+        each_person(x0, x1, t0, t1, tick, 0.0, &mut |p| {
+            if p.id == id {
+                found = Some(*p);
+            }
+        });
+    };
+    if id >> 28 == 0xF {
+        // A stroller: their file's place round the ring this tick, as `each_person` has it.
+        let (k, slot) = ((id >> 16) & 0xFFF, id & 0xFFFF);
+        if k >= 4 {
+            return None;
+        }
+        let slots = (ROUND / STROLL_PITCH) as u32;
+        let pitch = ROUND / slots as f32;
+        let lap = (ROUND / STROLL_SPEED * HZ + 0.5) as u32;
+        let side = if k < 2 { -1.0 } else { 1.0 };
+        let dir = if k.is_multiple_of(2) { 1.0 } else { -1.0 };
+        let x = side * (COLONY_HALF_WIDTH - 0.5 * RIM_WALK) + dir * STROLL_OFF;
+        let t = (slot as f32 + 0.5) * pitch + dir * (tick % lap) as f32 / lap as f32 * ROUND;
+        look(x - 4.0, x + 4.0, t - 1.0, t + 1.0);
+    } else {
+        let block = id >> 4;
+        let (cell, column) = (block / u32::from(COLUMNS), (block % u32::from(COLUMNS)) as u8);
+        if cell >= u32::from(CELLS) {
+            return None;
+        }
+        let r = town::block_rect(BlockId::new(cell as u16, column));
+        look(r.x0 - 1.0, r.x1 + 1.0, r.t0 - 1.0, r.t1 + 1.0);
+    }
+    found.map(|p| Person { t: town::wrap(p.t), ..p })
 }
 
 /// The boulevard's kerbs, for the tests: nothing of the traffic is outside its carriageways.

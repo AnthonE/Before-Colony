@@ -73,6 +73,8 @@ mechs and nothing to do.
 - **Hanging out needs a way to talk.** A VRChat world is a room full of voices. Ours was silent,
   with no chat, emote, wave or seat anywhere. Since P0 there's the colony's radio (in the city,
   what's said shows over the speaker's head) and seats out in front of The Arrival, our bar;
+  since 0.3, proximity voice (push-to-talk on `: through the air to whoever's within 30 m on
+  foot, over a suit's radio to the suits in its sensor range; `/mute` on the client);
   still no emote or wave, and inside, its counter has the Almagest's Most Wanted pinned up behind the
   bar and its menu, the colony's staff's meals (`LIFE.md`, L1). Pilots pass each other in flight suits of their own colours;
   together they can talk and sit, and nothing more.
@@ -529,8 +531,9 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    rewards, aces' bounties, a certificate's rifle) waits to be collected, and its patrol and ace
    pay are lines on the sortie's debrief.
 7. **Liveries.** Body, trim and accent colours chosen at the suit's maintenance console, carried on
-   the suit (`bc_econ::suit::Suit`) and drawn for everyone (`livery` takes only the frame and the
-   faction today). Paint costs credits: a sink that sells itself.
+   the suit (`bc_econ::suit::Suit`) and drawn for everyone. Paint costs credits: a sink that sells
+   itself. Built (`ROADMAP.md`, "Liveries"): the console's PAINT slot, a decal on the right shoulder,
+   and premium swatches and decals that come with cosmetics a wallet holds on Elo Pros.
 8. **Drone offensives.** Squads that scale with the pilots out, an offensive now and then against
    the dock or Fornax, and something big: a carrier that launches drones. The bounties already pay
    for it (`content::salvage::bounty`).
@@ -538,11 +541,14 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    m back and forth, `bc-bot/examples/flaneur.rs`), and the server's own tugs, haulers and miners
    in the lanes (`DESIGN.md`, roadmap, "Traffic").
 10. **Decide where PvP lives.** *Decided for the city (October 2026): crime anywhere inside, answered
-   by the Watch, homes raidable in the raid hours (`OPEN_CITY.md`). Space is still open.* Every human
-   pilot flies for the Colonies, whatever their client asks (the server decides: `bc-server`'s
-   `net::game::side`, and the Welcome says so), and friendly fire is off (`bc_sim::config`), so
-   people can't harm each other, and `DESIGN.md`'s hunted sleepers can only be hunted by agents of
-   another faction (an agent may fly for the Alliance; nobody but the drones flies for the Almagest).
+   by the Watch, homes raidable in the raid hours (`OPEN_CITY.md`). Decided for space (2026-11-23):
+   suits fight pilots away from the colony, and it's built (protocol 49, `ROADMAP.md`, "Where PvP
+   lives"): past the colony's reach (5 km from the ring's hull and the hub, `bc_sim::colony::reach`)
+   pilots of any side harm each other, inside it none, and survival's server runs it by default
+   (`--pvp`).* Every human pilot still flies for the Colonies, whatever their client asks (the server
+   decides: `bc-server`'s `net::game::side`, and the Welcome says so); what changed is that out in
+   open space a pilot of your own side is fair game, and `DESIGN.md`'s hunted sleepers can be hunted
+   by anyone out there. No engaged timer yet: a pilot who dives into the reach is safe at once.
    Star Citizen has armistice zones and lawless space; EVE grades its space by security.
    `STORY.md`'s "law and heat" is ours, and it needs a map of where the law holds.
 

@@ -6,6 +6,13 @@
 
 Every name in the game is its own (`STORY.md`, "Voice and naming"). All art is procedural.
 
+> **Where the game is now** (November 2026): the colony is a ring (`RING.md`), and the direction is
+> free roam (`FREE_ROAM.md`): a town at GTA's scale on its floor, where a new pilot wakes on foot, with
+> its crowd, its traffic and the Watch; the bay and the suit are up a spoke's lift. This document is the
+> design of the suits, the fighting and survival, written before that turn; where it says the cylinder or
+> a start in the bay, `FREE_ROAM.md` and `RING.md` win. The order everything is built in, to 1.0, is
+> `PHASES.md`.
+
 ## Pillars
 
 1. **It flies like a suit in space.** Newtonian 6DOF, limb trim, pilot G limits. There is no
@@ -1530,11 +1537,14 @@ wake in their bay. A guest flying sees DISCONNECT.
   it, and their eyes find it only within 400 m, or 150 m in a hide spot. Its allies see it all
   along.
 - *Hunted.* Drones leave sleepers alone; pilots of another side can shoot them down and
-  salvage what's left. Every human pilot flies for the Colonies (the server decides, whatever the
-  client asks) and friendly fire is off, so today only agents of another side hunt them, and
-  people can't harm each other: where PvP lives is an open decision (`ROADMAP.md`, "Where PvP
-  lives"). A sleeper destroyed stays gone, and its pilot is told by whom when they're back. Parked
-  is safer than drifting, and hidden safer still.
+  salvage what's left, and so can any pilot out in open space, past the colony's reach, where the
+  server keeps open space (`--pvp`, survival's default: `ROADMAP.md`, "Where PvP lives"). Inside
+  the reach no pilot harms a pilot, so a suit asleep in it is safe from everyone but drones, which
+  leave it alone. What a sleeper hides (parked dark, in a hide spot, the Eclipse) it hides from
+  anyone who could hunt it: a sleeper out in open space hides from its own side's pilots too,
+  whether they're out there or just inside the line. A sleeper destroyed stays
+  gone, and its pilot is told by whom when they're back. Parked is safer than drifting, and hidden
+  safer still.
 - *Room.* At most 256 sleepers a sector; past that, or when the sector's suits run out, the longest
   asleep is cleared (those in hide spots last), and its pilot is told.
 - *A restart.* Under survival rules, a suit left on its feet in a landmark's hide spot is saved with
@@ -1568,6 +1578,15 @@ reactor going dark and powering up, and, through the rock, the footsteps of anyo
 same body within 500 m, so hunter and hider can hear each other. There's no air in space, so it's
 the cockpit's sound: the suit's own machinery, and the world as the sensors render it, quieter with
 distance and gone beyond each cue's range. A blackout muffles everything.
+On foot, in the ring's air, it's the street's (`bc_sound::street`): the pilot's steps, one each
+stride of ground covered (a run lengthens the stride more than it quickens it); the town's traffic
+and its crowd as beds, as loud as what's near (the cars within 120 m, the nearer and the faster the
+more, a jam idling; the people within 30 m, those standing about more than those walking past),
+never quite silent down there; a car's engine rising with its speed, its door as the pilot gets in
+and out, and the traffic's cars going by within 6 m; a lift's ride as it comes in (not on waking
+where they left the town); and the bay's air handlers and mains hum, fainter on Bay Row. It all
+sits under the cockpit's level. A blow landing, a body falling and a pilot downed on foot are in
+the bank for the fights on foot to sound; nothing plays them yet.
 The browser plays it through Web Audio; volumes are settings (master, weapons, cockpit, music).
 `cargo run -p bc-sound --release --example reel -- reel.wav` writes a reel to listen to.
 

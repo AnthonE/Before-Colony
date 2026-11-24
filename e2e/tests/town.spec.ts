@@ -43,6 +43,23 @@ function seenAt(s: Record<string, any>, name: string): number[] | undefined {
 const inTheTown = (page: Page, ms: number) =>
   until(page, "the town", (s) => s.place === "town" && s.seq === "walking" && s.town_feet !== "", ms);
 
+/** A new pilot loaded and awake in the town, on foot; loaded again if the link failed first (a
+ * loaded machine can miss the first handshake). */
+async function awake(page: Page, name: string): Promise<Record<string, any>> {
+  for (let k = 0; k < 3; k++) {
+    await page.goto(`/?autoplay=1&name=${name}&quality=low`);
+    const s = await until(
+      page,
+      "the town",
+      (s) => (s.place === "town" && s.seq === "walking" && s.town_feet !== "") || s.link === "failed",
+      240_000,
+    );
+    if (s.link !== "failed") return s;
+    console.log(`${name}: the link failed (${s.last_error}); loading again`);
+  }
+  throw new Error(`${name} never got in`);
+}
+
 /** From the bay: to its airlock, and down the spoke's lift to the town. */
 async function downToTheTown(page: Page) {
   await push(page, { cmd: "walk_to", spot: "airlock" });
@@ -88,11 +105,9 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   const sampler = townSampler(page);
   const loaded = Date.now();
   const marks: [string, number][] = [];
-  await page.goto("/?autoplay=1&name=Tester&quality=low");
-
   // Awake at Hub Gate's lift's door, on the floor of its square, in Charter Square, told where
   // their suit is; the town drawn round them, its people and its traffic about.
-  let s = await inTheTown(page, 240_000);
+  let s = await awake(page, "Tester");
   await expect(page.locator("#news")).toContainText("UP THE SPOKE'S LIFT", { timeout: 30_000 });
   const [x0, , h0] = townFeet(s);
   expect(x0).toBeLessThan(-40);
@@ -107,10 +122,15 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   expect(status.game.town.people).toBe(1);
   expect(status.game.hangars.find((h: any) => h.name === "Tester")?.place).toBe("town");
   await page.screenshot({ path: "artifacts/town-hub-gate.png" });
+  // The street is heard: its traffic's bed and its crowd's (the test browser allows autoplay).
+  const heard = (s: Record<string, any>, loop: string) => String(s.audio_street ?? "").split(" ").includes(loop);
+  await until(page, "the street heard", (s) => s.audio_state === "running" && heard(s, "traffic") && heard(s, "crowd"), 120_000);
 
-  // Out to the boulevard's pavement between the lift's piers.
+  // Out to the boulevard's pavement between the lift's piers, their steps heard as they go.
+  const steps0 = (await bc(page)).audio_steps ?? 0;
   await push(page, { cmd: "walk_to", spot: "boulevard" });
   s = await until(page, "the boulevard", (s) => !s.town_walking_to && Math.abs(townFeet(s)[0] + 36) < 1.5, 240_000);
+  expect(s.audio_steps).toBeGreaterThan(steps0);
   await page.screenshot({ path: "artifacts/town-boulevard.png" });
 
   // To the nearest car at a kerb: taken, pulled out of its bay and stopped again (W the throttle,
@@ -125,6 +145,7 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   await page.keyboard.down("KeyW");
   s = await until(page, "pulling away", (s) => s.town_speed > 1.5 || s.town_driving === false, 240_000);
   await page.keyboard.up("KeyW");
+  if (s.town_driving) expect(heard(await bc(page), "engine")).toBe(true);
   await page.screenshot({ path: "artifacts/town-driving.png" });
   await page.keyboard.down("Space");
   s = await until(page, "stopped", (s) => Math.abs(s.town_speed) < 0.5, 120_000);
@@ -152,6 +173,8 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   await expect(page.locator("#use")).toContainText("UP TO YOUR BAY");
   await push(page, { cmd: "use" });
   await until(page, "their bay", (s) => s.place === "hangar" && s.seq === "walking", 120_000);
+  // The bay's machinery hums; the street's gone.
+  await until(page, "the bay heard", (s) => heard(s, "bay") && !heard(s, "traffic"), 30_000);
   status = await (await page.request.get("/status")).json();
   expect(status.game.town.people).toBe(0);
   // And down again: Q at the bay's airlock is the spoke's lift.
@@ -172,20 +195,6 @@ test("two new pilots wake in the town and see each other in Hub Gate's square", 
   const [ca, cb] = [await browser.newContext(small), await second.newContext(small)];
   const [a, b] = [await ca.newPage(), await cb.newPage()];
   const logs = [collectConsole(a), collectConsole(b)];
-  const awake = async (p: Page, name: string) => {
-    for (let k = 0; k < 3; k++) {
-      await p.goto(`/?autoplay=1&name=${name}&quality=low`);
-      const s = await until(
-        p,
-        "the town",
-        (s) => (s.place === "town" && s.seq === "walking" && s.town_feet !== "") || s.link === "failed",
-        240_000,
-      );
-      if (s.link !== "failed") return;
-      console.log(`${name}: the link failed (${s.last_error}); loading again`);
-    }
-    throw new Error(`${name} never got in`);
-  };
   await awake(a, "Kai");
   await awake(b, "Nico");
   // Nico steps out to the boulevard; Kai sees him there (within 2 m of where he stands).

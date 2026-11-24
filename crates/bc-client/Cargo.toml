@@ -50,6 +50,8 @@ web-sys = { workspace = true, features = [
     "AudioContext", "BaseAudioContext", "AudioContextState", "AudioBuffer", "AudioBufferSourceNode",
     "AudioScheduledSourceNode", "AudioNode", "AudioParam", "AudioDestinationNode", "GainNode", "StereoPannerNode",
     "BiquadFilterNode", "BiquadFilterType", "DynamicsCompressorNode",
+    # Proximity voice (voice.rs): the context at the bank's (and Opus's) 48 kHz.
+    "AudioContextOptions",
 ] }
 web-transport-wasm.workspace = true
 console_error_panic_hook.workspace = true

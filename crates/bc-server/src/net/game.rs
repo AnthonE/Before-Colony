@@ -11,13 +11,14 @@ use std::time::Duration;
 
 use bc_econ::Bay;
 use bc_proto::auth::{Domain, NONCE_BYTES, PlayerId};
-use bc_proto::control::{ControlMsg, Frame, MAX_FRAME, RejectReason, hello_flags, roster_flags};
+use bc_proto::control::{ControlMsg, Frame, Look, MAX_FRAME, Name, RejectReason, hello_flags, roster_flags};
 use bc_proto::{Faction, MAX_DATAGRAM, PROTOCOL_VERSION, PilotKind};
 use bc_sector::{
     Control, EgressEnds, Metrics, Reparked, Restored, SectorConfig, SectorShared, SectorThread, SlotState,
     read_packet,
 };
 use bc_sim::SimConfig;
+use bc_sim::colony::reach::Law;
 use bc_sim::content::landmarks::LANDMARKS_VERSION;
 use bc_sim::sim::Gone;
 use crossbeam_queue::ArrayQueue;
@@ -48,6 +49,8 @@ pub struct RosterEntry {
     pub session: u16,
     /// `roster_flags` (signed in, asleep).
     pub flags: u8,
+    /// What the suit wears (its pilot's paint and decal).
+    pub look: Look,
     /// A signed-in pilot's wallet, shortened (`0x1234…abcd`).
     pub address: Option<String>,
 }
@@ -61,6 +64,33 @@ pub struct RosterUpdate {
     /// Empty = the pilot left.
     pub name: String,
     pub flags: u8,
+    pub look: Look,
+}
+
+impl RosterUpdate {
+    /// As the control stream carries it.
+    pub fn msg(&self) -> ControlMsg {
+        ControlMsg::Roster {
+            slot: self.suit,
+            pilot: self.pilot,
+            name: Name::new(&self.name),
+            flags: self.flags,
+            look: self.look,
+        }
+    }
+}
+
+impl RosterEntry {
+    /// As the control stream carries it, for entity `slot`.
+    pub fn msg(&self, slot: u16) -> ControlMsg {
+        ControlMsg::Roster {
+            slot,
+            pilot: self.pilot,
+            name: Name::new(&self.name),
+            flags: self.flags,
+            look: self.look,
+        }
+    }
 }
 
 /// Wallet sign-in settings.
@@ -132,6 +162,8 @@ pub struct GameShared {
     pub street: Arc<crate::street::Street>,
     /// Every pilot's heat, and the incidents the Watch is answering in the town (`crate::watch`).
     pub watch: Arc<crate::watch::Watch>,
+    /// Every pilot's health and fight on foot (`crate::brawl`).
+    pub brawl: Arc<crate::brawl::Brawls>,
     /// The Watch's units, out of its stations by road (`crate::dispatch`).
     pub dispatch: Arc<crate::dispatch::Dispatch>,
     /// The dev hooks are on (`Config::dev_hooks`): the dev HTTP's `/dev/incident`.
@@ -142,6 +174,8 @@ pub struct GameShared {
     pub plaza: Arc<crate::plaza::Plaza>,
     /// Anime flight rules (else the simulator's).
     pub anime: bool,
+    /// Open space (`Config::pvp_on`): the space sector keeps `Law::OpenSpace`, and its Welcome says so.
+    pub pvp: bool,
     /// The Colony Exchange.
     pub market: Arc<Market>,
     /// The Charter Board: contracts and the colony's great works.
@@ -159,8 +193,13 @@ pub struct GameShared {
     pub radio: Arc<crate::radio::Radio>,
     /// The wallets on now, for the store (`/online.json`).
     pub online: Arc<crate::online::Online>,
+    /// Proximity voice: every session's ear, and the relay's counts (`crate::voice`).
+    pub voice: Arc<crate::voice::Relay>,
     /// Where a wallet's items are read (`Config::elo_origin`; off: nobody shows any).
     pub(super) elo: Option<Arc<crate::elo::Items>>,
+    /// Where what signed-in pilots do goes, for Elo Pros' stats (`crate::gamestats`; off without
+    /// the server's key).
+    pub(super) reporter: Option<Arc<crate::gamestats::Reporter>>,
     /// The suits left in hide spots have been put back (or let go): a suit the sector puts back
     /// from now on came too late, and goes again ([`process_notes`]).
     restore_over: Arc<AtomicBool>,
@@ -273,17 +312,20 @@ impl GameShared {
             let pilot = rec.pilot;
             let weathering = r.hangar.as_ref().map_or(0, bc_econ::hangar::Hangar::weathering);
             let flags = roster_flags::VERIFIED | roster_flags::ASLEEP | roster_flags::weathering(weathering);
+            // Its paint as its pilot's wallet held the cosmetics when it was last read.
+            let look = r.hangar.as_ref().map_or_else(Look::default, |h| h.look(rec.faction));
             if let Ok(mut roster) = self.roster.write() {
                 let entry = RosterEntry {
                     name: r.name.clone(),
                     pilot,
                     session: super::sessions::NO_SESSION,
                     flags,
+                    look,
                     address: Some(pilots::short(&address)),
                 };
                 roster.insert(suit, entry);
             }
-            let _ = self.roster_tx.send(RosterUpdate { suit, pilot, name: r.name.clone(), flags });
+            let _ = self.roster_tx.send(RosterUpdate { suit, pilot, name: r.name.clone(), flags, look });
             if let Err(fate) = self.pilots.bind_restored((suit, generation), address) {
                 // Gone already, as it came back: its pilot hears so, and it isn't kept.
                 self.pilots.tell(address, fate);
@@ -320,8 +362,10 @@ pub struct StatusView {
     plaza: Arc<crate::plaza::Plaza>,
     street: Arc<crate::street::Street>,
     watch: Arc<crate::watch::Watch>,
+    brawl: Arc<crate::brawl::Brawls>,
     dispatch: Arc<crate::dispatch::Dispatch>,
     anime: bool,
+    pvp: bool,
     market: Arc<Market>,
     charter: Arc<Charter>,
     proving: Arc<Proving>,
@@ -330,6 +374,7 @@ pub struct StatusView {
     sessions: Arc<super::sessions::Sessions>,
     inside: Option<Arc<SectorShared>>,
     radio: Arc<crate::radio::Radio>,
+    voice: Arc<crate::voice::Relay>,
 }
 
 /// Owns the sector and egress threads.
@@ -342,6 +387,29 @@ pub struct GameRuntime {
     shared: GameShared,
     oracle: &'static str,
     _oracle_worker: Option<bc_orrery::WorkerHandle>,
+    /// Tells the stats' reporter to post what it holds, and stop.
+    reporter_stop: tokio::sync::watch::Sender<bool>,
+    /// The stats' reporter's task, whose last post is in it ([`Stopping`]).
+    reporter_task: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// What still finishes once the game has stopped: the stats' last post to Elo Pros and the stores'
+/// last save. A process awaits it ([`Stopping::finish`]) before its runtime goes, or both die
+/// half-done with it.
+pub struct Stopping {
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl Stopping {
+    /// Waits for them, up to `within`. Whether they all finished.
+    pub async fn finish(self, within: std::time::Duration) -> bool {
+        let all = async {
+            for t in self.tasks {
+                let _ = t.await;
+            }
+        };
+        tokio::time::timeout(within, all).await.is_ok()
+    }
 }
 
 impl GameRuntime {
@@ -362,6 +430,9 @@ impl GameRuntime {
                 max_sleepers: cfg.max_sleepers,
                 survival,
                 flight: cfg.flight.rules(),
+                // Past the colony's reach, pilots against pilots (`colony::reach`); the colony's
+                // inside harms nobody anyway.
+                law: if cfg.pvp_on() { Law::OpenSpace } else { Law::Sides },
                 ..SimConfig::default()
             },
             max_clients: cfg.max_clients,
@@ -453,6 +524,32 @@ impl GameRuntime {
         let homes =
             Arc::new(crate::homes::HomeRegister::open(cfg.data_dir.as_ref().map(|d| d.join("homes.json"))));
         let watch = Arc::new(crate::watch::Watch::default());
+        let brawl = Arc::new(crate::brawl::Brawls::default());
+        // Stats for Elo Pros: only with the server's key, and somewhere to send them.
+        let (reporter_stop, stop_rx) = tokio::sync::watch::channel(false);
+        let (reporter, reporter_task) = match (&cfg.elo_key, &cfg.elo_origin) {
+            (Some(key), Some(origin)) => {
+                match crate::serverkey::Signed::new(origin, key.clone(), stats.clone()) {
+                    Some(s) => {
+                        tracing::info!(who = %key.who(), public = %key.public_b64(), "stats reported to Elo Pros, signed");
+                        let (r, task) =
+                            crate::gamestats::Reporter::start(s, stats.clone(), cfg.elo_flush, stop_rx);
+                        (Some(Arc::new(r)), Some(task))
+                    }
+                    None => {
+                        tracing::warn!("no HTTP client for Elo Pros: nothing is reported");
+                        (None, None)
+                    }
+                }
+            }
+            (Some(_), None) => {
+                tracing::warn!(
+                    "a server key, and no Elo Pros to report to (--elo-origin none): nothing is reported"
+                );
+                (None, None)
+            }
+            (None, _) => (None, None),
+        };
         let game = GameShared {
             sector: shared,
             egress: queue,
@@ -469,17 +566,22 @@ impl GameRuntime {
                 nonces: Arc::new(crate::elo::Nonces::default()),
             },
             elo: cfg.elo_origin.clone().and_then(crate::elo::Items::new).map(Arc::new),
+            reporter,
             idle: cfg.idle_timeout,
             survival,
             colony: survival && cfg.colony,
             town_start: survival && cfg.start == crate::config::Start::Town,
             street: Arc::new(crate::street::Street::default()),
             watch: watch.clone(),
+            brawl: brawl.clone(),
             dispatch: Arc::new(crate::dispatch::Dispatch::default()),
             dev_hooks: cfg.dev_hooks,
             inside,
-            plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone()).with_watch(watch)),
+            plaza: Arc::new(
+                crate::plaza::Plaza::with_homes(homes.clone()).with_watch(watch).with_brawl(brawl),
+            ),
             anime: cfg.flight == Flight::Anime,
+            pvp: cfg.pvp_on(),
             market,
             charter,
             proving,
@@ -489,6 +591,7 @@ impl GameRuntime {
             sessions: super::sessions::Sessions::new(cfg.max_sessions),
             radio: Arc::new(crate::radio::Radio::default()),
             online: Arc::new(crate::online::Online::default()),
+            voice: Arc::new(crate::voice::Relay::new(cfg.voice, cfg.voice_agents)),
             restore_over: Arc::new(AtomicBool::new(false)),
         };
         // The exchange's, the Charter Board's, the Proving Ground's and the register of homes'
@@ -539,14 +642,20 @@ impl GameRuntime {
                 aces.watch(&notes);
             }
         });
-        // The Watch's units, on the sector's clock, ten times a second.
+        // The Watch's units and the town's people out of its crowd, on the sector's clock, ten times
+        // a second.
         let (dispatch, watch, sector) = (game.dispatch.clone(), game.watch.clone(), game.sector.clone());
+        let (street, plaza) = (game.street.clone(), game.plaza.clone());
         tokio::spawn(async move {
             let mut every = tokio::time::interval(crate::dispatch::STEP);
             every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             while !sector.stop.load(Ordering::Acquire) {
                 every.tick().await;
-                dispatch.step(&watch, sector.tick.load(Ordering::Acquire));
+                let tick = sector.tick.load(Ordering::Acquire);
+                dispatch.step(&watch, tick);
+                let sights: Vec<(f32, f32)> =
+                    plaza.in_town_at().into_iter().map(|(_, x, s)| (x, s)).collect();
+                street.step(tick, &sights, &plaza.town_poses());
             }
         });
         Ok(Self {
@@ -557,6 +666,8 @@ impl GameRuntime {
             shared: game,
             oracle,
             _oracle_worker: oracle_worker,
+            reporter_stop,
+            reporter_task,
         })
     }
 
@@ -575,8 +686,10 @@ impl GameRuntime {
             plaza: self.shared.plaza.clone(),
             street: self.shared.street.clone(),
             watch: self.shared.watch.clone(),
+            brawl: self.shared.brawl.clone(),
             dispatch: self.shared.dispatch.clone(),
             anime: self.shared.anime,
+            pvp: self.shared.pvp,
             market: self.shared.market.clone(),
             charter: self.shared.charter.clone(),
             proving: self.shared.proving.clone(),
@@ -585,10 +698,16 @@ impl GameRuntime {
             sessions: self.shared.sessions.clone(),
             inside: self.shared.inside.as_ref().map(|i| i.sector.clone()),
             radio: self.shared.radio.clone(),
+            voice: self.shared.voice.clone(),
         }
     }
 
-    pub fn stop(mut self) {
+    /// Stops the sector threads. The stats' last post and the stores' last save go on: await what
+    /// comes back, bounded, before the runtime goes.
+    pub fn stop(mut self) -> Stopping {
+        // What the sessions handed over goes to Elo Pros.
+        let _ = self.reporter_stop.send(true);
+        let mut tasks: Vec<tokio::task::JoinHandle<()>> = self.reporter_task.take().into_iter().collect();
         if let Some(s) = self.sector.take() {
             s.stop();
         }
@@ -602,12 +721,12 @@ impl GameRuntime {
         let proving = self.shared.proving.clone();
         let homes = self.shared.homes.clone();
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            rt.spawn(async move {
+            tasks.push(rt.spawn(async move {
                 market.save().await;
                 charter.save().await;
                 proving.save().await;
                 homes.save().await;
-            });
+            }));
         }
         self.egress_stop.store(true, Ordering::Release);
         if let Some(e) = self.egress.take() {
@@ -618,6 +737,7 @@ impl GameRuntime {
             e.thread().unpark();
             let _ = e.join();
         }
+        Stopping { tasks }
     }
 }
 
@@ -818,6 +938,8 @@ impl StatusView {
                     .collect::<serde_json::Map<_, _>>(),
             },
             "flight": if self.anime { "anime" } else { "real" },
+            // Who harms whom in space (`bc_sim::colony::reach`).
+            "law": if self.pvp { "open_space" } else { "sides" },
             // Survival: pilots in their hangar bays (and out of them), the exchange's ledger, and
             // the Charter Board.
             "hangars": hangars,
@@ -864,6 +986,8 @@ impl StatusView {
             "inputs": l(&m.inputs),
             "inputs_stale": l(&m.inputs_stale),
             "inputs_missing": l(&m.inputs_missing),
+            // Views claimed further back than the link explains, put on its floor.
+            "rewind_cut": l(&m.rewind_cut),
             "pictures": l(&m.pictures),
             "pictures_dropped": l(&m.pictures_dropped),
             "advice": l(&m.advice),
@@ -879,9 +1003,15 @@ impl StatusView {
         // (Its people knocked down and the Watch's incidents: counts, never where or whose.)
         let tick = self.sector.tick.load(Ordering::Acquire);
         let (down, kerbs, lanes, left) = self.street.counts(tick);
+        let (promoted, scared, by_district) = self.street.crowd_counts();
         status["town"] = serde_json::json!({
             "people": self.plaza.in_town(),
             "down": down,
+            // Its people out of the crowd (`crate::crowd`): how many, how many running scared, and
+            // how many in each district.
+            "promoted": promoted,
+            "scared": scared,
+            "promoted_by_district": by_district,
             // (What's been taken out of its crowd: kerbs emptied, the traffic's cars, cars left.)
             "kerbs": kerbs,
             "jacked": lanes,
@@ -890,6 +1020,17 @@ impl StatusView {
             // The Watch's units out of their stations, and the pilots they've stopped.
             "units": self.dispatch.out(),
             "stops": self.dispatch.stops(),
+        });
+        // Proximity voice: frames relayed and refused, counted (never who, never what).
+        status["voice"] = self.voice.json();
+        // Pilots fighting on foot, anywhere (`crate::brawl`): counts, never who or where.
+        let [blows, downs, outs, helped, refused] = self.brawl.counts();
+        status["brawl"] = serde_json::json!({
+            "blows": blows,
+            "downs": downs,
+            "outs": outs,
+            "helped": helped,
+            "refused": refused,
         });
         status["sessions"] = sessions;
         status
@@ -1146,15 +1287,17 @@ async fn session(
         None => (None, None),
     };
     // On the store's roster (`/online.json`) while this session holds the pilot.
-    let _here = held.map(|(a, s)| game.online.enter(a, s, name.as_str(), pilot != PilotKind::Human));
-    // Their items, read once as they come in. Never in the way: no answer in time costs the look.
-    let pill = match (&game.elo, address) {
+    let here = held.map(|(a, s)| game.online.enter(a, s, name.as_str(), pilot != PilotKind::Human));
+    let presence = here.as_ref().map(crate::online::Here::presence);
+    // Their items, read once as they come in. Never in the way: no answer in time is no answer,
+    // and the session keeps what their wallet held when it was last read.
+    let holdings = match (&game.elo, address) {
         (Some(elo), Some(a)) if a.is_wallet() => {
-            tokio::time::timeout(crate::elo::READ_WAIT, elo.holds_pill(&a)).await.unwrap_or(false)
+            tokio::time::timeout(crate::elo::READ_WAIT, elo.read(&a)).await.ok().flatten()
         }
-        _ => false,
+        _ => None,
     };
-    let who = super::session::Who { pilot, frame, faction, name, address, pill };
+    let who = super::session::Who { pilot, frame, faction, name, address, holdings, presence };
     let result = super::session::run(conn, &game, &stats, &mut tx, &mut rx, pending, who, kicked).await;
     if let Some((address, session)) = held {
         // What was said of their suit in a hide spot while they flew, now that the session has
@@ -1183,14 +1326,22 @@ impl Drop for Present<'_> {
     }
 }
 
-/// Sets a pilot's roster entry's flags (and tells everyone).
-pub(super) fn set_roster_flags(game: &GameShared, suit: u16, pilot: PilotKind, name: &str, flags: u8) {
+/// Sets a pilot's roster entry's flags and look (and tells everyone).
+pub(super) fn set_roster_flags(
+    game: &GameShared,
+    suit: u16,
+    pilot: PilotKind,
+    name: &str,
+    flags: u8,
+    look: Look,
+) {
     if let Ok(mut r) = game.roster.write()
         && let Some(e) = r.get_mut(&suit)
     {
         e.flags = flags;
+        e.look = look;
     }
-    let _ = game.roster_tx.send(RosterUpdate { suit, pilot, name: name.to_string(), flags });
+    let _ = game.roster_tx.send(RosterUpdate { suit, pilot, name: name.to_string(), flags, look });
 }
 
 /// The roster forgets a suit's pilot (and tells everyone).
@@ -1198,7 +1349,13 @@ pub(super) fn forget(game: &GameShared, suit: u16, pilot: PilotKind) {
     if let Ok(mut r) = game.roster.write() {
         r.remove(&suit);
     }
-    let _ = game.roster_tx.send(RosterUpdate { suit, pilot, name: String::new(), flags: 0 });
+    let _ = game.roster_tx.send(RosterUpdate {
+        suit,
+        pilot,
+        name: String::new(),
+        flags: 0,
+        look: Look::default(),
+    });
 }
 
 /// The Almagest's ace among the drones (`bc_sim::content::aces`), from the sector's word
@@ -1241,6 +1398,7 @@ impl AceWatch {
                     pilot: PilotKind::Drone,
                     name: String::new(),
                     flags: 0,
+                    look: Look::default(),
                 });
             }
         }
@@ -1254,6 +1412,7 @@ impl AceWatch {
                 pilot: PilotKind::Drone,
                 session: super::sessions::NO_SESSION,
                 flags: 0,
+                look: Look::default(),
                 address: None,
             };
             if let Ok(mut r) = game.roster.write() {
@@ -1264,6 +1423,7 @@ impl AceWatch {
                 pilot: PilotKind::Drone,
                 name: name.to_string(),
                 flags: 0,
+                look: Look::default(),
             });
             if game.survival {
                 game.charter.with(|b| b.ace_out(ace));

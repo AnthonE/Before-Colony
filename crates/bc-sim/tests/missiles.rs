@@ -280,7 +280,7 @@ fn a_full_pool_swallows_launches() {
         .spawn(
             WeaponKind::HomingMissile,
             0,
-            Faction::Almagest,
+            bc_sim::colony::reach::Party::drone(Faction::Almagest),
             (NO_SLOT, 0),
             AT + Vec3::Y * 500.0,
             Vec3::ZERO,

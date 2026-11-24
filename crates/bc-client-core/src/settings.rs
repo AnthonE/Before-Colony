@@ -6,6 +6,8 @@
 //! lines a person can read; a key this build doesn't know is kept as it is (a newer build wrote
 //! it), and a known key with a bad value falls back to its default.
 
+use crate::voice::TalkMode;
+
 /// The version this build writes. 2: the cockpit became the default view, and a file from before
 /// starts in it once.
 pub const SETTINGS_VERSION: u32 = 2;
@@ -150,6 +152,14 @@ pub const KNOBS: &[Knob] = &[
     range("vol_effects", "Weapons and impacts", "SOUND", 0.0, 1.0, 0.05),
     range("vol_cockpit", "Cockpit, alarms and menus", "SOUND", 0.0, 1.0, 0.05),
     range("vol_music", "Music", "SOUND", 0.0, 1.0, 0.05),
+    toggle("voice_chat", "Voice: hear the people near you, and talk (` or the mouse's back button)", "SOUND"),
+    range("vol_voice", "Voices", "SOUND", 0.0, 1.0, 0.05),
+    Knob {
+        key: "talk_mode",
+        label: "Talk key (hold: talk while it's down; toggle: a press on, a press off)",
+        group: "SOUND",
+        kind: Kind::Choice(&TalkMode::NAMES),
+    },
 ];
 
 /// The pilot's settings.
@@ -201,6 +211,11 @@ pub struct Settings {
     pub vol_effects: f32,
     pub vol_cockpit: f32,
     pub vol_music: f32,
+    /// Proximity voice (`crate::voice`): heard and talked on at all, how loud others are, and how
+    /// the talk key works.
+    pub voice_chat: bool,
+    pub vol_voice: f32,
+    pub talk_mode: TalkMode,
 }
 
 impl Default for Settings {
@@ -231,6 +246,9 @@ impl Default for Settings {
             vol_effects: 0.9,
             vol_cockpit: 0.8,
             vol_music: 0.5,
+            voice_chat: true,
+            vol_voice: 0.8,
+            talk_mode: TalkMode::Hold,
         }
     }
 }
@@ -298,6 +316,9 @@ impl Settings {
             "vol_effects" => self.vol_effects.to_string(),
             "vol_cockpit" => self.vol_cockpit.to_string(),
             "vol_music" => self.vol_music.to_string(),
+            "voice_chat" => self.voice_chat.to_string(),
+            "vol_voice" => self.vol_voice.to_string(),
+            "talk_mode" => self.talk_mode.name().to_string(),
             _ => return None,
         })
     }
@@ -308,7 +329,8 @@ impl Settings {
         match key {
             "name" => self.name = clean(value, 16),
             "frame" => self.frame = clean(value, 16),
-            "sensitivity" | "fov" | "shake" | "vol_master" | "vol_effects" | "vol_cockpit" | "vol_music" => {
+            "sensitivity" | "fov" | "shake" | "vol_master" | "vol_effects" | "vol_cockpit" | "vol_music"
+            | "vol_voice" => {
                 let Some(v) = parse_num(value) else { return false };
                 let v = clamp_to(key, v);
                 match key {
@@ -318,10 +340,12 @@ impl Settings {
                     "vol_master" => self.vol_master = v,
                     "vol_effects" => self.vol_effects = v,
                     "vol_cockpit" => self.vol_cockpit = v,
+                    "vol_voice" => self.vol_voice = v,
                     _ => self.vol_music = v,
                 }
             }
-            "invert_y" | "hints" | "flashing" | "objectives" | "lead" | "double_tap" | "cockpit_holo" => {
+            "invert_y" | "hints" | "flashing" | "objectives" | "lead" | "double_tap" | "cockpit_holo"
+            | "voice_chat" => {
                 let Some(b) = parse_bool(value) else { return false };
                 match key {
                     "invert_y" => self.invert_y = b,
@@ -330,6 +354,7 @@ impl Settings {
                     "objectives" => self.objectives = b,
                     "lead" => self.lead = b,
                     "double_tap" => self.double_tap = b,
+                    "voice_chat" => self.voice_chat = b,
                     _ => self.flashing = b,
                 }
             }
@@ -344,6 +369,10 @@ impl Settings {
             "flight_controls" => {
                 let Some(c) = FlightControls::parse(value) else { return false };
                 self.flight_controls = c;
+            }
+            "talk_mode" => {
+                let Some(m) = TalkMode::parse(value) else { return false };
+                self.talk_mode = m;
             }
             // `OLD_DRONES_DOWNED` is what settings saved before 2026-10-14 call `drones_downed`.
             k if k == OLD_DRONES_DOWNED => return self.set("drones_downed", value),
@@ -365,7 +394,7 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 25] = [
+    const KEYS: [&'static str; 28] = [
         "name",
         "frame",
         "flight_controls",
@@ -391,6 +420,9 @@ impl Settings {
         "vol_effects",
         "vol_cockpit",
         "vol_music",
+        "voice_chat",
+        "vol_voice",
+        "talk_mode",
     ];
 }
 
@@ -489,6 +521,9 @@ mod tests {
             vol_effects: 1.0,
             vol_cockpit: 0.35,
             vol_music: 0.0,
+            voice_chat: false,
+            vol_voice: 0.45,
+            talk_mode: TalkMode::Toggle,
         };
         let text = serialize(&s, SETTINGS_VERSION, &[]);
         let back = parse(&text, Settings::default());
@@ -499,17 +534,17 @@ mod tests {
 
     #[test]
     fn a_newer_builds_keys_survive_in_order() {
-        let text = "version = 7\nvoice_chat = 0.3\nfov = 90\nzoom_style = \"snappy\"\nvoice_chat = 0.4\n";
+        let text = "version = 7\nfuture_knob = 0.3\nfov = 90\nzoom_style = \"snappy\"\nfuture_knob = 0.4\n";
         let loaded = parse(text, Settings::default());
         assert_eq!(loaded.settings.fov, 90.0);
         assert_eq!(
             loaded.unknown,
-            vec!["zoom_style = \"snappy\"".to_string(), "voice_chat = 0.4".to_string()]
+            vec!["zoom_style = \"snappy\"".to_string(), "future_knob = 0.4".to_string()]
         );
         let written = serialize(&loaded.settings, loaded.version, &loaded.unknown);
         assert!(written.contains("version = 7\n"), "a newer file stays marked newer");
-        assert!(written.contains("zoom_style = \"snappy\"\n") && written.contains("voice_chat = 0.4\n"));
-        assert!(!written.contains("voice_chat = 0.3"), "the last value wins");
+        assert!(written.contains("zoom_style = \"snappy\"\n") && written.contains("future_knob = 0.4\n"));
+        assert!(!written.contains("future_knob = 0.3"), "the last value wins");
     }
 
     #[test]

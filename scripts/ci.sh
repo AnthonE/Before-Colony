@@ -5,10 +5,12 @@ cd "$(dirname "$0")/.."
 step() { echo; echo "==> $*"; }
 
 step "format";               cargo fmt --all -- --check
+step "doc references";       sh scripts/refs.sh
 step "clippy (native)";      cargo clippy --workspace --all-targets -- -D warnings
 step "clippy (wasm client)"; cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings
 step "clippy (wasm, webgpu)"; cargo clippy -p bc-client --target wasm32-unknown-unknown --features webgpu -- -D warnings
 step "tests";                cargo test --workspace --release
+step "the reports' board";   python3 scripts/reports.py --self-test
 step "determinism on wasm";  cargo test -p bc-sim --target wasm32-unknown-unknown --release --test determinism
 step "tick benchmark";       cargo bench -p bc-sim --bench tick -- --warm-up-time 1 --measurement-time 2
 if [ "${BC_E2E:-0}" = "1" ]; then
@@ -28,5 +30,6 @@ if [ "${BC_E2E:-0}" = "1" ]; then
   step "e2e: homes";          ./scripts/e2e.sh home webgl2
   step "e2e: the town";       ./scripts/e2e.sh town webgl2
   step "e2e: the town timed"; ./scripts/e2e.sh perf webgl2
+  step "e2e: reports";        ./scripts/e2e.sh report webgl2
 fi
 echo; echo "all green"

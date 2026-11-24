@@ -199,7 +199,19 @@ Built so far (protocol 47): the census (`colony::census`, `CENSUS_GOLDEN`), the 
 all closed forms; the taken set on the server (`bc-server`'s `street`): per district, fixed sets of the
 people down or away as fares, the kerbs emptied, the traffic's cars taken and the cars left about, each
 take checked against the pilot's pose and sent to the districts round each pilot when their version
-moves. Promotion into the tick and the wire's tiers are still to do.
+moves.
+
+Since (protocol 48), promotion and release: a car driven fast where people walk has those ahead of it
+run, someone run down or a car taken from its driver has those round it run, and someone run down gets up
+where they lay, stands a moment and walks on. Each is the server's from the closed form's own place on
+that tick (`colony::crowd::Loose`: the closed form's ground, so nobody out of the crowd steps into a road
+either), in a fixed pool of 512 (`bc-server`'s `crowd`), stepped ten times a second with the Watch's units,
+and let go once settled with both them and their place in the crowd out of everyone's sight; full, the
+settled one furthest from every pilot gives way. On the wire in tiers (`Update::Crowd`): within 130 m
+whole, out to 320 m in four numbers each, and a count past that; a screen draws the crowd but these
+where these are (`bc_client_core::crowd`), and its cars can run them down where they're drawn. `/status`
+has the counts, and `/dev/scare` (with `--dev-hooks`) frightens a place by hand. Still to do: the pools in the interior sector's tick (with S1), and a fare set down
+coming out of the car where it stopped.
 
 ### 4. The Watch as infrastructure (W)
 
@@ -225,7 +237,11 @@ what the client reports, which can only add), an incident queue and its news, an
 and hounds sent by road (`colony::watch::ANSWERS`, the server's `dispatch`): they hold a cordon for the
 level's time and go home, chase a wanted pilot, and stop and fine them with no word from the client.
 Clients draw the units the server sends (`units`). `/dev/incident` (with `--dev-hooks`) raises one.
-Patrols while nothing happens, and the units promoted into the tick, are still to do.
+An offence adds heat only if it's seen (the Watch's cars, or anyone within 30 m), and every one is told
+(`Update::Watched`): who saw, or that nobody did. Since protocol 49 a fight on foot is an offence too
+(`OPEN_CITY.md`, X1): a blow seen (by its cars, the crowd or another pilot) and a pilot beaten down,
+judged by the server itself, never a blow at whoever hurt you in the last 15 s. Patrols while nothing
+happens, and the units promoted into the tick, are still to do.
 
 ### 5. Many sectors for one town (D)
 
@@ -253,14 +269,25 @@ is one closed form, so neighbours can't disagree about it. This is `SCALE.md`'s 
 Built so far: cells built a part at a time under the frame's budget and cached once out of sight; three
 tiers (near cells whole, a quad a face to about 1 km, boxes in the haze past it, the far ones merged by
 four cells and by district: 171k triangles to 94k on the crowded camera); `town.wgsl`'s distant path;
-the town's numbers in `?perf=1`; showcase camera 9, timed nightly (`perf`); and the painted look as the
-default (`?look=plain` for the old one). The floating origin and instancing are still to do.
+the town's numbers in `?perf=1`; showcase camera 9, timed nightly (`perf`, its triangles and meshes
+capped); and the painted look as the default (`?look=plain` for the old one).
+
+Instancing turned out to be there already: the people and cars are pooled entities sharing one material,
+each one's look in its `MeshTag`, so Bevy batches them by mesh (a frame of a stride, a car's body), and
+lamps, trees and railings are in the cells' own meshes. `?perf=1` now says what they cost: their triangles
+(not in the town's) and their batches. What grows with the crowd is the CPU's work per entity, not the
+draws. The floating origin is still to do.
 
 ### 7. Start on foot (O)
 
 When the town has a street to wake in: a new pilot wakes in the town (a flat of the colony's, or a bunk at
 the nearest Watch station's hostel), and the bay is up the spoke lift. The objectives start on the street.
 The suit stays exactly as it is.
+
+Built (protocols 47 and on): a new pilot wakes in the town, a returning one where they left it; the first
+objectives are the street's (TAKE A CAR, CARRY A FARE, GO UP TO YOUR SUIT) before the bay's; E takes what
+the pilot looks at, else the nearest; and the spoke express (Q at a lift's door, R to pick) rides across
+the hub to another square, the quick way round an 18.85 km ring without a car.
 
 ## Phases
 
@@ -269,11 +296,11 @@ The suit stays exactly as it is.
 | FR0 | This plan | written |
 | F1 | The ring at 3 km, the hub on its own turn | done (protocol 42) |
 | T1 | The town's plan as a closed form on the ring's deck, its goldens | done (protocol 43) |
-| V1 | The town drawn in the station language, painted like the anime: chunks, a floating origin, level of detail; a showcase camera; the anime look made the default | done but the floating origin and instancing (protocol 47) |
+| V1 | The town drawn in the station language, painted like the anime: chunks, a floating origin, level of detail; a showcase camera; the anime look made the default | done but the floating origin (protocol 47); people and cars were batched all along (below) |
 | P1 | Ambient people and traffic on the town's plan; the census | done (protocol 47) |
 | W1 | The Watch's stations, patrols and dispatch, with incidents from a test hook | done but patrols (protocol 47) |
-| P2 | Promotion and release: the taken set, the pools in the tick, the wire's tiers | the taken set (protocol 47) |
-| O1 | A new pilot wakes in the town | done (protocol 47): and a returning one where they left it |
+| P2 | Promotion and release: the taken set, the pools in the tick, the wire's tiers | the taken set (protocol 47); promotion, release and the crowd's tiers on the wire, on the server off the tick (protocol 48) |
+| O1 | A new pilot wakes in the town | done (protocol 47): and a returning one where they left it; the street's objectives first (TAKE A CAR, CARRY A FARE, GO UP TO YOUR SUIT) |
 | D1 | The town split into district sectors | when one sector isn't enough |
 
 Each phase follows `CLAUDE.md`'s rules: the tick allocation-free and lock-free, closed forms deterministic

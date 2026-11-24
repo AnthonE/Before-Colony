@@ -4,6 +4,32 @@ Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagra
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
 
+v49 (from v48): proximity voice (`bc_proto::voice`; the server's `voice`). Kind 5, Voice, both ways,
+one Opus frame (opaque to the wire, at most 160 B) per datagram, in whole bytes: up, the kind and
+flags (END: the last frame of a press of the talk key) in the first byte, then seq (u16) and the
+payload's length (u8) and the payload (4 B + payload); down, the flags (END, and RADIO: over a
+suit's radio, not through the air), then the talker (u16: through the air the plaza's id, their
+session's; over the radio their suit's entity slot, never a session's id), seq, length and payload
+(6 B + payload, at most 166 B). The server takes only one 20 ms Opus frame (its TOC byte, RFC 6716
+§3.1) within the talker's own bucket (50 a second, 10 at once), and sends it on to whoever it
+picked: the people on the talker's floor within 30 m on foot, the live suits within the talker's
+frame's sensor range in space (none in the bay or flying inside the colony), at most 8 talkers a
+listener, never an agent unless the server says so; nothing else of it, and nothing of the payload,
+is kept or logged (`/status`'s `voice` counts).
+
+v49, too: open space (`bc_sim::colony::reach`, the server's `--pvp`). The Welcome's flags
+gain OPEN_SPACE (`1 << 7`, the space sector only): past the colony's reach, 5 km from the ring's
+hull and the hub's drum, pilots of any side harm each other, and inside it none; without it, sides.
+Nothing changes shape; both ends judge who is fair game by the same closed form.
+
+v49, too: liveries (`docs/ROADMAP.md`, "Liveries"; `bc_sim::content::cosmetics`): a Roster
+frame's flags take bit 6, PAINTED, and bit 7, DECAL, and after the flags come the suit's paint (2
+bytes, `control::Livery::pack`: body, trim and accent 4 bits each, the eye 2) when PAINTED is set and
+its decal's id (1 byte) when DECAL is: a suit nobody painted costs nothing more. The two bits are
+the wire's alone (`ControlMsg::Roster`'s `look` carries them). The hangar takes `paint` {`paint`} and
+the hangar view carries `cosmetics`, the bits of the cosmetics the pilot's wallet holds (the
+server's read at sign-in) (below).
+
 v47 (from v46): the Watch's heat is the server's (`docs/OPEN_CITY.md`, "Heat and the Watch";
 `bc_sim::colony::watch`'s tables, the server's `watch`). A person in a plaza datagram takes 3 bits
 more after their pose, their heat (0 to 5), which the server writes from the heat it holds: 15.25
@@ -536,6 +562,7 @@ their own screen has it (`transit::train` is a closed form of the tick).
 |---|---|---|
 | kind 3, Pose (client → server, 15 Hz in the city or on the base's deck) | kind (4), seq (u16), strip (2: a strip, or 3 the base's deck), the pose (97) | 15 B |
 | kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), floor (3), then until the bits run out: per person their session's id (16), how long before the tick their pose was heard (6 bits, 10 ms steps), the pose (97) and their heat (3: 0 to 5, the server's; v47) | 5 B + 15.25 B a person, at most 48 (737 B) |
+| kind 5, Voice (both ways, 50 Hz while talking; v49) | up: kind (4), flags (4: END), seq (u16), length (u8), the Opus frame; down: kind (4), flags (4: END, RADIO), the talker (u16), seq, length, the frame | up 4 B, down 6 B, + the frame (at most 160 B) |
 
 A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
 (`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s over the reach
@@ -585,9 +612,9 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME, 4 STREET), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR, 64 STREET), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR, 64 STREET, 128 OPEN_SPACE), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
-| 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7)} | server → client |
+| 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7, 32 PILL, 64 PAINTED, 128 DECAL), then its paint (u16, when PAINTED) and its decal's id (u8, when DECAL) (v49)} | server → client |
 | 5 | Respawn {frame} | client → server |
 | 6 | Bye {reason: 0 leaving, 1 taken over, 2 idle, 3 shutdown} | either |
 | 7 | Challenge {nonce (32 B), issued_at (u64, Unix seconds), domain (u8 length + ASCII, ≤ 64 B)} | server → client |
@@ -674,6 +701,7 @@ Client → server (`Request`):
 | `overhaul` | `part` (optional: all) | restore damaged and failed systems as far as the stores allow |
 | `scrap` | `item` | melt one down for half its materials |
 | `fuel` | `grade` (`standard`, `refined`, `ultra`) | fill the suit's tank with that grade from the stores (what it has of another is pumped back to the stores first; a launch tops up from the suit's own grade) |
+| `paint` | `paint` {`body`, `trim`, `accent` (paint slugs), `eye` (a glow's), `decal` (a decal's, or `none`; left out: none)} | in the bay, the suit standing there: paint it, paid from the bay's credits for each thing that changes (`livery::PAINT_CR`). A paint, glow or decal that comes with a cosmetic needs the pilot's wallet to hold it (the server's read). Refused with a `note` otherwise; the hangar answers (v49) |
 | `order` | `item`, `side` (`buy`, `sell`), `price`, `qty`, `rest` | a limit order on the exchange; `rest: true` leaves what doesn't fill on the book (desk: the Exchange floor) |
 | `cancel_order` | `id` | |
 | `watch` | `item` (or `null`) | send that item's book and history as they change |

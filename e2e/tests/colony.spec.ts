@@ -1,9 +1,13 @@
 import { spawn } from "node:child_process";
 import { chromium, expect, test, type Page } from "@playwright/test";
-import { bc, built, calmPointer, collectConsole } from "./util";
+import { bc, built, calmPointer, collectConsole, keepStatus, seen, statusMark } from "./util";
 
-// Each move whole: the pointer locks here (`util.ts`, `calmPointer`).
-test.beforeEach(({ page }) => page.addInitScript(calmPointer));
+// Each move whole: the pointer locks here (`util.ts`, `calmPointer`). Every status the page
+// publishes is kept, for the states that stand a frame or two (`util.ts`, `keepStatus`).
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(calmPointer);
+  await page.addInitScript(keepStatus);
+});
 
 // The colony inside (`scripts/e2e.sh colony`: a survival server with the colony open, no drones,
 // and an agent strolling outside Hub Gate). The pilot goes out through their bay's airlock and
@@ -92,8 +96,11 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await push(page, { cmd: "walk_to", spot: "airlock" });
   await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
   await expect(page.locator("#use")).toContainText("CAP LIFT");
+  // (The ride is 12 s, and a page drawing a frame every few seconds may show it in one frame between
+  // two looks: it's found among all the page has published since.)
+  const mark = await statusMark(page);
   await push(page, { cmd: "use" });
-  await until(page, "the ride down", (s) => s.seq === "lift_down", FRAMES);
+  await seen(page, "the ride down", (s) => s.seq === "lift_down", FRAMES, mark);
   let s = await until(page, "the city", (s) => s.place === "city", FRAMES);
   // The ride can be skipped.
   await push(page, { cmd: "skip" });
@@ -462,8 +469,9 @@ test("a pilot chooses the Canal strip's cap lift at the airlock, and rides up ag
   await page.focus("#bc");
   await page.keyboard.press("q");
   await expect(page.locator("#use")).toContainText("CAP LIFT 2, DOWN TO THE CANAL STRIP", { timeout: 30_000 });
+  const mark = await statusMark(page);
   await push(page, { cmd: "use" });
-  await until(page, "the ride down", (s) => s.seq === "lift_down", 30_000);
+  await seen(page, "the ride down", (s) => s.seq === "lift_down", 30_000, mark);
   await until(page, "the city", (s) => s.place === "city", 30_000);
   await push(page, { cmd: "skip" });
   let s = await until(page, "the Canal strip's Hub Gate", (s) => s.seq === "walking", 30_000);

@@ -579,8 +579,14 @@ pub fn dodge(x: f32, s: f32, seed: u32, car: &Mover) -> (f32, f32) {
 }
 
 /// Whoever of the town's people a car at `v` runs down at tick `tick` plus `frac`: someone it
-/// reaches, going [`HIT_SPEED`] or more, wherever they'd stepped aside to. Not those `down` already.
-pub fn struck(v: &Vehicle, (tick, frac): (u32, f32), down: &[u32]) -> Option<bc_sim::colony::street::Person> {
+/// reaches, going [`HIT_SPEED`] or more, wherever they'd stepped aside to (or, out of the crowd,
+/// wherever `loose` has them). Not those `down` already.
+pub fn struck(
+    v: &Vehicle,
+    (tick, frac): (u32, f32),
+    down: &[u32],
+    loose: &crate::crowd::Loose,
+) -> Option<bc_sim::colony::street::Person> {
     if v.speed.abs() < HIT_SPEED {
         return None;
     }
@@ -588,9 +594,16 @@ pub fn struck(v: &Vehicle, (tick, frac): (u32, f32), down: &[u32]) -> Option<bc_
     let t = town::town_t(v.s);
     let reach = CAR_CIRCLE.0 + bc_sim::foot::HALF;
     let circles = Obstacles::circles(v.x, v.s, v.yaw);
+    let out = loose.within(v.x, v.s, 7.0).find(|l| {
+        !down.contains(&l.id)
+            && circles.iter().any(|(cx, cs)| (cx - l.x).hypot(deck::round_from(RING, *cs, l.s)) < reach)
+    });
+    if let Some(l) = out {
+        return Some(l.person(v.s, t));
+    }
     let mut hit = None;
     bc_sim::colony::street::each_person(v.x - 7.0, v.x + 7.0, t - 7.0, t + 7.0, tick, frac, &mut |p| {
-        if hit.is_some() || down.contains(&p.id) {
+        if hit.is_some() || down.contains(&p.id) || loose.has(p.id) {
             return;
         }
         let s = v.s + (p.t - t);
@@ -601,6 +614,32 @@ pub fn struck(v: &Vehicle, (tick, frac): (u32, f32), down: &[u32]) -> Option<bc_
         }
     });
     hit
+}
+
+/// Which of the other pilots on foot in the town (`people`, by the plaza's ids, drawn where this
+/// screen has them) a car at `v` runs down: one it reaches going [`HIT_SPEED`] or more, as it reaches
+/// the town's people ([`struck`]). Not those down already, nor the store's traders. The server
+/// judges it from its own poses (`Request::RunDown`).
+pub fn struck_pilot(v: &Vehicle, people: &[(u16, bc_proto::presence::PersonPose)]) -> Option<u16> {
+    if v.speed.abs() < HIT_SPEED {
+        return None;
+    }
+    let reach = CAR_CIRCLE.0 + bc_sim::foot::HALF;
+    let circles = Obstacles::circles(v.x, v.s, v.yaw);
+    people
+        .iter()
+        .filter(|(id, p)| {
+            *id < bc_proto::presence::VISITOR_BASE
+                && p.strip == bc_proto::presence::RING_DECK
+                && !p.driving()
+                && !p.down()
+                && !p.seated()
+                && p.riding().is_none()
+        })
+        .find(|(_, p)| {
+            circles.iter().any(|(cx, cs)| (cx - p.x).hypot(deck::round_from(RING, *cs, p.s)) < reach)
+        })
+        .map(|(id, _)| *id)
 }
 
 /// Where a guide walks a pilot in the town to from `from` (their feet), by name (the dev hooks'
@@ -642,6 +681,49 @@ pub fn route(spot: &str, from: Vec3) -> Option<(Vec<Vec3>, Vec3)> {
         }
         _ => None,
     }
+}
+
+/// How far off the town's traffic is heard over its bed, and its people over theirs, m.
+pub const TRAFFIC_HEARD: f32 = 120.0;
+pub const CROWD_HEARD: f32 = 30.0;
+
+/// How much of the town's traffic a pilot at `at` hears, 0..1 (the street's bed,
+/// `bc_sound::street`): each car of `traffic` within [`TRAFFIC_HEARD`] m, the nearer and the
+/// faster the more (a jam idles), the sum easing towards 1 as the roads fill.
+pub fn traffic_near(at: DeckPos, traffic: &[crate::traffic::Shown]) -> f32 {
+    let sum: f32 = traffic
+        .iter()
+        .map(|c| {
+            let d = (c.car.x - at.x).hypot(deck::round_from(RING, at.s, c.s));
+            if d > TRAFFIC_HEARD {
+                return 0.0;
+            }
+            let fade = 1.0 - d / TRAFFIC_HEARD;
+            (c.car.speed / 15.0).clamp(0.0, 1.0) * fade / (1.0 + d / 12.0)
+        })
+        .sum();
+    sum / (sum + 1.2)
+}
+
+/// How many of the town's people a pilot at `at` hears at `tick` plus `frac`, 0..1 (the crowd's
+/// bed): the closed form's within [`CROWD_HEARD`] m (those standing about talk; those walking
+/// past, less), the nearer the more, and `others` more (other pilots near, weighed alike), the sum
+/// easing towards 1 as a square fills.
+pub fn crowd_near(at: DeckPos, (tick, frac): (u32, f32), others: f32) -> f32 {
+    let r = CROWD_HEARD;
+    let mut sum = others.max(0.0);
+    let t = town::town_t(at.s);
+    bc_sim::colony::street::each_person(at.x - r, at.x + r, t - r, t + r, tick, frac, &mut |p| {
+        let d = (p.x - at.x).hypot(p.t - t);
+        let talks = if p.pose == bc_sim::colony::street::Pose::Stand { 1.0 } else { 0.6 };
+        sum += talks * crowd_weight(d);
+    });
+    sum / (sum + 3.0)
+}
+
+/// How much another person `d` m off adds to [`crowd_near`]'s `others`.
+pub fn crowd_weight(d: f32) -> f32 {
+    if d > CROWD_HEARD { 0.0 } else { (1.0 - d / CROWD_HEARD) / (1.0 + d / 6.0) }
 }
 
 #[cfg(test)]
@@ -981,7 +1063,7 @@ mod tests {
                 if d.abs() < 2.0 {
                     least = least.min(dx.hypot(ds));
                 }
-                hit |= struck(&car, (0, 0.0), &[]).is_some_and(|h| h.id == p.id);
+                hit |= struck(&car, (0, 0.0), &[], &Default::default()).is_some_and(|h| h.id == p.id);
                 d -= speed / 60.0;
             }
             (least, hit)
@@ -992,12 +1074,35 @@ mod tests {
         assert!(aside < 0.4 && hit, "a fast one: {aside} m aside, hit {hit}");
         // Already down, nobody's hit twice; and nobody minds a car standing still or one going away.
         let on_them = Vehicle { speed: 18.0, ..Vehicle::new(Kind::Car, RING_FLOOR, s, p.x, p.yaw) };
-        assert!(struck(&on_them, (0, 0.0), &[]).is_some());
-        assert!(struck(&on_them, (0, 0.0), &[p.id]).is_none_or(|h| h.id != p.id));
+        assert!(struck(&on_them, (0, 0.0), &[], &Default::default()).is_some());
+        assert!(struck(&on_them, (0, 0.0), &[p.id], &Default::default()).is_none_or(|h| h.id != p.id));
         let parked = Mover { speed: 0.0, ..Mover::of(&on_them) };
         assert_eq!(dodge(p.x + 0.5, s, 0, &parked), (0.0, 0.0));
         let gone = Mover { x: p.x + fx * 12.0, s: s + fs * 12.0, ..Mover::of(&on_them) };
         assert_eq!(dodge(p.x, s, 0, &gone), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_fast_car_runs_another_pilot_down_and_a_slow_one_doesnt() {
+        use bc_proto::presence::{PersonPose, RIDE_CAR, RIDE_DOWN, RING_DECK, VISITOR_BASE};
+        let (x, t) = town::out_of_the_lift(0);
+        let s = town::deck_s(t);
+        let pilot =
+            |dx: f32, ds: f32| PersonPose { strip: RING_DECK, x: x + dx, s: s + ds, ..PersonPose::default() };
+        // A car facing +x (τ/4), its nose a metre short of them.
+        let car = |speed: f32| Vehicle {
+            speed,
+            ..Vehicle::new(Kind::Car, RING_FLOOR, s, x, core::f32::consts::FRAC_PI_2)
+        };
+        let ahead = [(7, pilot(2.0, 0.0))];
+        assert_eq!(struck_pilot(&car(HIT_SPEED + 4.0), &ahead), Some(7));
+        assert_eq!(struck_pilot(&car(HIT_SPEED - 1.0), &ahead), None, "slow: only shoves past");
+        assert_eq!(struck_pilot(&car(14.0), &[(7, pilot(0.0, 4.0))]), None, "beside its way");
+        // Not somebody down already, another driver, or one of the store's traders.
+        let down = PersonPose { ride: RIDE_DOWN, ..pilot(2.0, 0.0) };
+        let driving = PersonPose { ride: RIDE_CAR, ..pilot(2.0, 0.0) };
+        let none = [(7, down), (8, driving), (VISITOR_BASE + 1, pilot(2.0, 0.0))];
+        assert_eq!(struck_pilot(&car(14.0), &none), None);
     }
 
     #[test]
@@ -1044,5 +1149,45 @@ mod tests {
         let (far, _) = way_to_lift(DeckPos::new(RING, x, town::deck_s(t), 0.0), 0.0, Some(1));
         assert!((far - town::ROUND / 6.0).abs() < 1.0, "a gate to the next: {far} m");
         assert_eq!((town::lift_name(0), town::lift_name(1)), ("HUB GATE", "TOWER HILL"));
+    }
+
+    #[test]
+    fn the_street_is_heard_by_whats_near() {
+        use crate::traffic::Shown;
+        use bc_sim::colony::street::{Car, Kind as CarKind};
+        let at = DeckPos::new(RING, -40.0, 500.0, 0.0);
+        let car = |x: f32, s: f32, speed: f32| Shown {
+            car: Car { id: 1, x, t: 0.0, yaw: 0.0, speed, kind: CarKind::Car, seed: 0 },
+            s,
+        };
+        assert_eq!(traffic_near(at, &[]), 0.0);
+        let one = traffic_near(at, &[car(-35.0, 505.0, 15.0)]);
+        assert!(one > 0.2 && one < 0.6, "{one}");
+        // Stopped, it idles; far off, it's not heard; across the ring's seam it is.
+        assert_eq!(traffic_near(at, &[car(-35.0, 505.0, 0.0)]), 0.0);
+        assert_eq!(traffic_near(at, &[car(-35.0, 500.0 + TRAFFIC_HEARD + 5.0, 15.0)]), 0.0);
+        let seam = DeckPos::new(RING, -40.0, round() - 2.0, 0.0);
+        assert!(traffic_near(seam, &[car(-35.0, 3.0, 15.0)]) > 0.2);
+        // A busy road is louder, and never past 1.
+        let busy: Vec<Shown> =
+            (0..30).map(|k| car(-30.0 + (k % 6) as f32 * 3.0, 450.0 + k as f32 * 4.0, 17.0)).collect();
+        let loud = traffic_near(at, &busy);
+        assert!(loud > one && loud < 1.0, "{loud}");
+
+        // The people: beside the blocks, and nobody in the boulevard's middle (its median is
+        // farther from them than they're heard).
+        let (mut beside, mut middle) = (0.0f32, 0.0f32);
+        for k in 0..60 {
+            let s = 200.0 + k as f32 * 40.0;
+            beside = beside.max(crowd_near(DeckPos::new(RING, -40.0, s, 0.0), (1_000, 0.0), 0.0));
+            middle = middle.max(crowd_near(DeckPos::new(RING, 0.0, s, 0.0), (1_000, 0.0), 0.0));
+        }
+        assert!(beside > 0.1 && middle < beside, "{beside} beside the blocks, {middle} in the middle");
+        // Others near add to it; the level stays under 1.
+        let here = DeckPos::new(RING, 0.0, 300.0, 0.0);
+        let alone = crowd_near(here, (1_000, 0.0), 0.0);
+        let with = crowd_near(here, (1_000, 0.0), 6.0 * crowd_weight(3.0));
+        assert!(with > alone && with < 1.0);
+        assert_eq!(crowd_weight(CROWD_HEARD + 1.0), 0.0);
     }
 }
