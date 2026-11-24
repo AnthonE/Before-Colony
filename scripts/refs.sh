@@ -5,12 +5,13 @@
 # a stranger's hands.
 #
 # What's read as a path: a backticked token (its first word only: a command's arguments aren't
-# paths) and a relative link's target. Skipped: routes (`/status`), flags, tokens holding `=`, `[`,
-# `<`, `*`, `…` or `?`, URLs, and paths another repo owns: written with its owner first
-# (`AnthonE/Gates/...`), straight after its name (Gates' `ci/quick.sh`), or under a top-level
-# folder we don't have. A bare `NAME.md` is looked for at the root, in `docs/` and in `.github/`.
-# "In the repo" means tracked, or new and not ignored; a path git ignores is a build's output (`web/dist`)
-# and is taken as named.
+# paths; a leading `./` is dropped) and a relative link's target. Skipped: routes (`/status`), flags,
+# tokens holding `=`, `[`, `<`, `*`, `…` or `?`, URLs, and paths another repo owns: written with its
+# owner first (`AnthonE/Gates/...`), straight after its name (Gates' `ci/quick.sh`), or beside this
+# checkout (`../Gates`). A file's path under a top-level folder we don't have is a warning, not a
+# failure: a typo, or another repo's path written without its name. A bare `NAME.md` is looked for at
+# the root, in `docs/` and in `.github/`. "In the repo" means tracked, or new and not ignored; a path
+# git ignores is a build's output (`web/dist`) and is taken as named.
 #
 #   sh scripts/refs.sh            # the docs above
 #   sh scripts/refs.sh FILE...    # just these
@@ -37,13 +38,13 @@ out=$(mktemp)
 trap 'rm -f "$out"' EXIT
 
 # One record per reference: file, line, kind (code|link), token, and 1 if the text just before it
-# names another repo.
+# (on its line, or at the end of the line before) names another repo.
 # shellcheck disable=SC2086
 awk -v q="'" '
-  BEGIN { theirs = "(Gates|oneshot|scry-forge|Fireplace|elo-pros-launcher|elopros[.]com)(" q "s|" q ")?[ (:]*$" }
+  BEGIN { theirs = "(Gates|oneshot|scry-forge|Fireplace|elo-pros-launcher|elopros[.]com)(" q "s|" q ")? *:? *$" }
   function other(before) { return before ~ theirs }
-  FNR == 1 { fence = 0 }
-  /^[ \t]*```/ { fence = !fence; next }
+  FNR == 1 { fence = 0; prev = "" }
+  /^[ \t]*```/ { fence = !fence; prev = ""; next }
   fence { next }
   {
     s = $0
@@ -51,7 +52,8 @@ awk -v q="'" '
       printf "%s\t%d\tlink\t%s\t0\n", FILENAME, FNR, substr(s, RSTART + 2, RLENGTH - 3)
       s = substr(s, RSTART + RLENGTH)
     }
-    s = $0; before = ""
+    # A repo name ending the line before still owns the first token on this line.
+    s = $0; before = prev " "
     while ((i = index(s, "`")) > 0) {
       rest = substr(s, i + 1)
       j = index(rest, "`")
@@ -62,6 +64,7 @@ awk -v q="'" '
       before = before "`" tok "`"
       s = substr(rest, j + 1)
     }
+    prev = $0
   }
 ' $files >"$out"
 
@@ -73,6 +76,7 @@ while IFS="$tab" read -r file line kind tok foreign; do
     *=* | *\[* | *\<* | *\** | *…* | *\?* | *\{* | *\$*) continue ;;
   esac
   w=${tok%% *}
+  w=${w#./}
   w=${w%%#*}
   w=$(printf '%s' "$w" | sed 's/:[0-9][0-9,-]*$//')
   [ -n "$w" ] || continue
@@ -86,13 +90,17 @@ while IFS="$tab" read -r file line kind tok foreign; do
     continue
   fi
   case "$w" in
+    .. | ../*) ;; # beside this checkout: another repo's (`../Gates`)
     */*)
       seg=${w%%/*}
       if [ -e "$seg" ] && [ "$seg" != . ] && [ "$seg" != .. ]; then
         p=$w
-      elif [ -d "crates/$seg" ]; then
+      elif [ "$seg" != . ] && [ "$seg" != .. ] && [ -d "crates/$seg" ]; then
         p="crates/$w"
       else
+        case "${w##*/}" in
+          ?*.?*) echo "$file:$line: warning: \`$w\` is under no top-level folder of this repo (a typo, or another repo's path without its name?)" >&2 ;;
+        esac
         continue
       fi
       p=${p%/}
