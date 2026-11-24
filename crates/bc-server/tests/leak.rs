@@ -2,14 +2,16 @@
 //! QUIC's handshake but grants no stream credit, so the server can't even send its SETTINGS, is
 //! let go once its handshake deadline passes, however long it keeps the link alive. That was
 //! wtransport's remote connection leak, fixed upstream in 1df1c05 (the pin in `Cargo.toml`): the
-//! accept loop gave the pass back and the connection lived on, out of the count. And past the
-//! ceiling, counted on what QUIC holds rather than on the passes, a new connection is refused.
+//! accept loop gave the pass back and the connection lived on, out of the count. Past the
+//! ceiling, counted on what QUIC holds rather than on the passes, a new connection is refused; and
+//! one address opening and closing connections as fast as it can (each lingering in QUIC's count
+//! while it closes) can't fill that ceiling and shut everyone else out.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use bc_server::net::admit::{HANDSHAKE, Limits};
+use bc_server::net::admit::{HANDSHAKE, Limits, QUIC_HEADROOM};
 use bc_server::{Config, Mode};
 use rustls::DigitallySignedStruct;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -74,9 +76,15 @@ impl ServerCertVerifier for Pinned {
     }
 }
 
-/// A raw QUIC peer that speaks HTTP/3's ALPN but grants the server no unidirectional streams (so
-/// its control stream and SETTINGS can never go), and keeps the link alive every 200 ms.
+/// A raw QUIC peer on 127.0.0.1 that speaks HTTP/3's ALPN but grants the server no
+/// unidirectional streams (so its control stream and SETTINGS can never go), and keeps the link
+/// alive every 200 ms.
 fn stingy_peer(cert_hash: [u8; 32]) -> anyhow::Result<quinn::Endpoint> {
+    stingy_peer_on([127, 0, 0, 1], cert_hash)
+}
+
+/// The same, from another loopback address.
+fn stingy_peer_on(ip: [u8; 4], cert_hash: [u8; 32]) -> anyhow::Result<quinn::Endpoint> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let mut tls = rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_protocol_versions(&[&rustls::version::TLS13])?
@@ -90,7 +98,7 @@ fn stingy_peer(cert_hash: [u8; 32]) -> anyhow::Result<quinn::Endpoint> {
     let mut client =
         quinn::ClientConfig::new(Arc::new(quinn::crypto::rustls::QuicClientConfig::try_from(tls)?));
     client.transport_config(Arc::new(transport));
-    let mut endpoint = quinn::Endpoint::client(SocketAddr::from(([127, 0, 0, 1], 0)))?;
+    let mut endpoint = quinn::Endpoint::client(SocketAddr::from((ip, 0)))?;
     endpoint.set_default_client_config(client);
     Ok(endpoint)
 }
@@ -136,8 +144,9 @@ async fn a_peer_stuck_before_settings_is_let_go_at_its_deadline() -> anyhow::Res
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn past_the_ceiling_quic_holds_a_connection_is_refused() -> anyhow::Result<()> {
-    // One connection in all, loopback's too.
-    let server = bc_server::start(config(Limits { connections: 1, ..Limits::default() })?).await?;
+    // QUIC may hold one connection in all, loopback's too (the passes would take more).
+    let limits = Limits { connections: 8, quic_connections: 1, ..Limits::default() };
+    let server = bc_server::start(config(limits)?).await?;
     let at = SocketAddr::from(([127, 0, 0, 1], server.wt_port));
     let first = stingy_peer(server.cert_hash)?;
     let _held = first.connect(at, "localhost")?.await?;
@@ -146,6 +155,43 @@ async fn past_the_ceiling_quic_holds_a_connection_is_refused() -> anyhow::Result
     assert!(refused.is_err(), "a connection past the ceiling got in");
     let net = &server.status()["net"];
     assert_eq!((net["refused_open"].as_u64(), net["refused_full"].as_u64()), (Some(1), Some(0)));
+    server.shutdown();
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_address_opening_and_closing_cant_shut_the_others_out() -> anyhow::Result<()> {
+    // Four connections in all, two an address, loopback counted as any other address.
+    let limits = Limits {
+        connections: 4,
+        quic_connections: 4 * QUIC_HEADROOM,
+        per_address: 2,
+        loopback_excepted: false,
+        ..Limits::default()
+    };
+    let server = bc_server::start(config(limits)?).await?;
+    let at = SocketAddr::from(([127, 0, 0, 1], server.wt_port));
+    // One address connects and closes, again and again: each connection gives its pass back at
+    // once but stays in QUIC's count while it closes.
+    let churner = stingy_peer_on([127, 0, 0, 2], server.cert_hash)?;
+    let mut opened = 0;
+    for _ in 0..20 {
+        if let Ok(Ok(conn)) =
+            tokio::time::timeout(Duration::from_secs(3), churner.connect(at, "localhost")?).await
+        {
+            opened += 1;
+            conn.close(0u32.into(), b"again");
+        }
+    }
+    // Another address still gets in...
+    let player = stingy_peer(server.cert_hash)?;
+    let joined = tokio::time::timeout(Duration::from_secs(3), player.connect(at, "localhost")?).await?;
+    let net = server.status()["net"].clone();
+    assert!(joined.is_ok(), "shut out after one address came and went ({opened} times): {net}");
+    assert_eq!(net["refused_open"], 0, "{net}");
+    // ...because the one that came and went was held to its share.
+    assert!(opened <= 3, "it opened {opened} in a moment");
+    assert!(net["refused_address"].as_u64() >= Some(16), "{net}");
     server.shutdown();
     Ok(())
 }

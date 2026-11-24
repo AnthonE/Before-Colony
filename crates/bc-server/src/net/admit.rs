@@ -7,10 +7,16 @@
 //!   that hasn't proved it hears back (QUIC's address validation) is sent a Retry first: a flood
 //!   from spoofed addresses never gets as far as a handshake.
 //! - **A share per address.** One address holds at most [`Limits::per_address`] connections,
-//!   handshaking or open. Loopback is excepted: the server's own agents connect from it.
-//! - **A ceiling.** At most [`Limits::connections`] in all: counted by the passes here, and again
-//!   by what QUIC really holds (the accept loop, `endpoint.rs`), so a connection that outlives its
-//!   pass can't pile up past it unseen.
+//!   handshaking or open, and opens no more than that many each [`HANDSHAKE`] (a bucket that
+//!   refills at that rate). Loopback is excepted: the server's own agents connect from it.
+//! - **A ceiling.** At most [`Limits::connections`] in all, counted by the passes here; and at most
+//!   [`Limits::quic_connections`] that QUIC really holds (the accept loop, `endpoint.rs`), so a
+//!   connection that outlives its pass can't pile up unseen. QUIC keeps a closed connection for
+//!   three probe timeouts after its pass is given back, which a peer can stretch to most of a
+//!   minute (its `max_ack_delay`): the opening rate is what keeps one address from filling that
+//!   count with connections it opens and closes, at most about
+//!   `per_address × (1 + 49 s / HANDSHAKE)` of them, and the ceiling has room over the passes'
+//!   for those that close in the ordinary way.
 //! - **A deadline.** A handshake, QUIC's and WebTransport's, finishes within [`HANDSHAKE`].
 //!
 //! What a session may do once it's in is limited where it's read (`session.rs`: inputs, the
@@ -20,17 +26,24 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How long a connection's handshakes may take, QUIC's and then WebTransport's.
 pub const HANDSHAKE: Duration = Duration::from_secs(5);
+
+/// How many times the passes' ceiling QUIC may hold ([`Limits::quic_connections`]): room for the
+/// connections closing (a few per address that comes and goes, and at most
+/// `per_address × (1 + 49 s / HANDSHAKE)` from one that opens and closes as fast as it's let).
+pub const QUIC_HEADROOM: u32 = 4;
 
 /// How many connections the server takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limits {
     /// Connections in all, handshaking or open.
     pub connections: u32,
-    /// Connections from one address...
+    /// Connections QUIC holds in all, closing ones included: past this a new one is refused.
+    pub quic_connections: u32,
+    /// Connections from one address, and how many it may open each [`HANDSHAKE`]...
     pub per_address: u32,
     /// ...but loopback's, where the server's own agents connect from.
     pub loopback_excepted: bool,
@@ -41,7 +54,14 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         // A sector takes 64 pilots; a household or a campus behind one address brings a few.
-        Self { connections: 512, per_address: 8, loopback_excepted: true, retry_above: 32 }
+        let connections = 512;
+        Self {
+            connections,
+            quic_connections: connections * QUIC_HEADROOM,
+            per_address: 8,
+            loopback_excepted: true,
+            retry_above: 32,
+        }
     }
 }
 
@@ -60,15 +80,49 @@ pub enum Verdict {
 pub enum Refusal {
     /// The server has all the connections it takes.
     Full,
-    /// Its address has its share.
+    /// Its address has its share, or has opened its share this [`HANDSHAKE`].
     Address,
+}
+
+/// What one address holds, and how many more it may open now.
+#[derive(Debug)]
+struct Holder {
+    held: u32,
+    /// Connections it may open now (a bucket of `per_address` refilling at `per_address` a
+    /// [`HANDSHAKE`]), as of `at`.
+    opens: f64,
+    at: Instant,
+}
+
+impl Holder {
+    /// Its bucket refilled to `now`.
+    fn refill(&mut self, now: Instant, per_address: u32) {
+        let rate = f64::from(per_address) / HANDSHAKE.as_secs_f64();
+        let gap = now.saturating_duration_since(self.at).as_secs_f64();
+        self.opens = (self.opens + gap * rate).min(f64::from(per_address));
+        self.at = self.at.max(now);
+    }
+
+    /// Holds nothing and could open its whole share: no need to remember it.
+    fn idle(&self, now: Instant, per_address: u32) -> bool {
+        let rate = f64::from(per_address) / HANDSHAKE.as_secs_f64();
+        let gap = now.saturating_duration_since(self.at).as_secs_f64();
+        self.held == 0 && self.opens + gap * rate >= f64::from(per_address)
+    }
+}
+
+/// The addresses heard from, and when those holding nothing were last forgotten.
+#[derive(Debug)]
+struct Addresses {
+    by_ip: HashMap<IpAddr, Holder>,
+    swept: Instant,
 }
 
 /// The connections the server holds, in all and by address.
 #[derive(Debug)]
 pub struct Admission {
     limits: Limits,
-    by_address: Mutex<HashMap<IpAddr, u32>>,
+    by_address: Mutex<Addresses>,
     open: AtomicU32,
     handshaking: AtomicU32,
 }
@@ -77,7 +131,7 @@ impl Admission {
     pub fn new(limits: Limits) -> Arc<Self> {
         Arc::new(Self {
             limits,
-            by_address: Mutex::new(HashMap::new()),
+            by_address: Mutex::new(Addresses { by_ip: HashMap::new(), swept: Instant::now() }),
             open: AtomicU32::new(0),
             handshaking: AtomicU32::new(0),
         })
@@ -85,24 +139,44 @@ impl Admission {
 
     /// A connection attempt from `ip`; `validated`: it has proved it hears back at that address.
     pub fn admit(self: &Arc<Self>, ip: IpAddr, validated: bool) -> Verdict {
+        self.admit_at(ip, validated, Instant::now())
+    }
+
+    fn admit_at(self: &Arc<Self>, ip: IpAddr, validated: bool, now: Instant) -> Verdict {
         let ip = ip.to_canonical();
         let local = ip.is_loopback() && self.limits.loopback_excepted;
         let ip = whose(ip);
-        let mut by_address = self.by_address.lock().unwrap_or_else(|e| e.into_inner());
+        let per_address = self.limits.per_address;
+        let mut addresses = self.by_address.lock().unwrap_or_else(|e| e.into_inner());
+        // Those holding nothing are forgotten once their buckets are full again.
+        if now.saturating_duration_since(addresses.swept) >= HANDSHAKE {
+            addresses.swept = now;
+            addresses.by_ip.retain(|_, h| !h.idle(now, per_address));
+        }
         if self.open.load(Ordering::Relaxed) >= self.limits.connections {
             return Verdict::Refuse(Refusal::Full);
         }
-        let held = by_address.get(&ip).copied().unwrap_or(0);
-        if !local && held >= self.limits.per_address {
-            return Verdict::Refuse(Refusal::Address);
+        let mut holder =
+            addresses.by_ip.remove(&ip).unwrap_or(Holder { held: 0, opens: f64::from(per_address), at: now });
+        holder.refill(now, per_address);
+        let verdict = if !local && (holder.held >= per_address || holder.opens < 1.0) {
+            Verdict::Refuse(Refusal::Address)
+        } else if !validated && self.handshaking.load(Ordering::Relaxed) >= self.limits.retry_above {
+            Verdict::Retry
+        } else {
+            holder.held += 1;
+            if !local {
+                holder.opens -= 1.0;
+            }
+            self.open.fetch_add(1, Ordering::Relaxed);
+            self.handshaking.fetch_add(1, Ordering::Relaxed);
+            Verdict::Admit(Pass { admission: self.clone(), ip, handshaking: true })
+        };
+        // An address heard from but holding nothing is kept only while its bucket isn't full.
+        if !holder.idle(now, per_address) {
+            addresses.by_ip.insert(ip, holder);
         }
-        if !validated && self.handshaking.load(Ordering::Relaxed) >= self.limits.retry_above {
-            return Verdict::Retry;
-        }
-        by_address.insert(ip, held + 1);
-        self.open.fetch_add(1, Ordering::Relaxed);
-        self.handshaking.fetch_add(1, Ordering::Relaxed);
-        Verdict::Admit(Pass { admission: self.clone(), ip, handshaking: true })
+        verdict
     }
 
     /// What it takes.
@@ -122,7 +196,7 @@ impl Admission {
 
     /// Distinct addresses holding connections.
     pub fn addresses(&self) -> usize {
-        self.by_address.lock().map_or(0, |m| m.len())
+        self.by_address.lock().map_or(0, |a| a.by_ip.values().filter(|h| h.held > 0).count())
     }
 }
 
@@ -157,11 +231,12 @@ impl Drop for Pass {
         self.established();
         let a = &self.admission;
         a.open.fetch_sub(1, Ordering::Relaxed);
-        let mut by_address = a.by_address.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(n) = by_address.get_mut(&self.ip) {
-            *n -= 1;
-            if *n == 0 {
-                by_address.remove(&self.ip);
+        let mut addresses = a.by_address.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(h) = addresses.by_ip.get_mut(&self.ip) {
+            h.held = h.held.saturating_sub(1);
+            // Its bucket stays until it's full again: closing doesn't give back what opening took.
+            if h.idle(Instant::now(), a.limits.per_address) {
+                addresses.by_ip.remove(&self.ip);
             }
         }
     }
@@ -240,11 +315,59 @@ mod tests {
         // Another address is let in.
         let other = admit(&a, ip(2)).unwrap();
         assert_eq!((a.open(), a.addresses()), (4, 2));
-        // A connection closing makes room for its address again.
+        // A connection closing makes room for its address again, once it may open another.
         held.pop();
-        assert!(admit(&a, ip(1)).is_some());
+        let later = Instant::now() + HANDSHAKE;
+        assert!(matches!(a.admit_at(ip(1), true, later), Verdict::Admit(_)));
         drop(other);
         assert_eq!(a.addresses(), 1);
+    }
+
+    #[test]
+    fn an_address_opens_its_share_a_handshake_and_no_faster() {
+        let a = Admission::new(Limits {
+            connections: 100,
+            per_address: 2,
+            loopback_excepted: true,
+            retry_above: 100,
+            ..Limits::default()
+        });
+        let t0 = Instant::now();
+        let opens = |at: Duration| match a.admit_at(ip(1), true, t0 + at) {
+            Verdict::Admit(p) => drop(p),
+            Verdict::Refuse(why) => panic!("refused {why:?} at {at:?}"),
+            Verdict::Retry => panic!("retry"),
+        };
+        let refused =
+            |at: Duration| matches!(a.admit_at(ip(1), true, t0 + at), Verdict::Refuse(Refusal::Address));
+        // Opening and closing at once, as fast as it can: its share, then no more...
+        opens(Duration::ZERO);
+        opens(Duration::ZERO);
+        assert!(refused(Duration::ZERO), "a third went through the same instant");
+        // ...but one more each half of a handshake (two a handshake).
+        assert!(refused(HANDSHAKE / 4));
+        opens(HANDSHAKE / 2);
+        assert!(refused(HANDSHAKE / 2));
+        opens(HANDSHAKE);
+        // Over a minute flat out, at most its share each handshake: what one address can leave
+        // in QUIC's count while its closed connections drain.
+        let mut n = 0;
+        for ms in (5_000..65_000).step_by(10) {
+            if let Verdict::Admit(p) = a.admit_at(ip(1), true, t0 + Duration::from_millis(ms)) {
+                n += 1;
+                drop(p);
+            }
+        }
+        assert!(n <= 2 * 60 / HANDSHAKE.as_secs() as u32 + 2, "{n} opened in a minute");
+        // Loopback, where the server's own agents connect from, has no rate.
+        for _ in 0..10 {
+            assert!(matches!(a.admit_at(IpAddr::from([127, 0, 0, 1]), true, t0), Verdict::Admit(_)));
+        }
+        // An address that went quiet is forgotten once its share is whole again.
+        let quiet = t0 + Duration::from_secs(80);
+        assert!(matches!(a.admit_at(ip(2), true, quiet), Verdict::Admit(_)));
+        let remembered: Vec<IpAddr> = a.by_address.lock().unwrap().by_ip.keys().copied().collect();
+        assert_eq!(remembered, [ip(2)], "addresses holding nothing, their share whole, are still remembered");
     }
 
     #[test]

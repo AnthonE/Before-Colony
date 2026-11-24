@@ -1,5 +1,6 @@
 //! The server under abuse, over real WebTransport (`net::admit`; `docs/ARCHITECTURE.md`, "Under
-//! abuse"): an address past its share is refused at the door and let in again once it has room;
+//! abuse"): an address past its share is refused at the door and let in again once it has room
+//! (and may open another);
 //! under load a client proves its address (a QUIC Retry) and comes in all the same; a session
 //! flooding its hangar with requests is refused and then ended; `/status` counts it all.
 
@@ -8,7 +9,7 @@ use std::time::{Duration, Instant};
 use bc_bot::{BotClient, BotConfig};
 use bc_econ::wire::Request;
 use bc_proto::{Faction, FrameId};
-use bc_server::net::admit::{Limits, Requests};
+use bc_server::net::admit::{HANDSHAKE, Limits, Requests};
 use bc_server::{Config, Mode, Ruleset};
 
 fn config(limits: Limits) -> anyhow::Result<Config> {
@@ -56,9 +57,9 @@ async fn an_address_past_its_share_is_refused_until_it_has_room() -> anyhow::Res
     assert!(flying(&mut kai, 3.0).await?, "the first never got its suit");
     assert!(pilot(&http, "Nico").await.is_err(), "a second connection from the address got in");
     assert_eq!(server.status()["net"]["refused_address"], 1);
-    // Kai goes: the address has room again.
+    // Kai goes: the address has room again, once it may open another (one a handshake).
     drop(kai);
-    let end = Instant::now() + Duration::from_secs(5);
+    let end = Instant::now() + HANDSHAKE + Duration::from_secs(5);
     let mut nico = loop {
         match pilot(&http, "Nico").await {
             Ok(bot) => break bot,

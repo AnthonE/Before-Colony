@@ -103,10 +103,11 @@ struct Args {
     /// spoke's lift; or in their bay, as agents always do.
     #[arg(long, value_enum, default_value_t = bc_server::config::Start::Town)]
     start: bc_server::config::Start,
-    /// Connections taken in all, handshaking or open.
+    /// Connections taken in all, handshaking or open (QUIC may hold four times this, closing ones
+    /// included).
     #[arg(long, default_value_t = bc_server::net::admit::Limits::default().connections)]
     max_connections: u32,
-    /// Connections taken from one address (loopback excepted).
+    /// Connections taken from one address, and opened by it each 5 s (loopback excepted).
     #[arg(long, default_value_t = bc_server::net::admit::Limits::default().per_address)]
     per_address: u32,
     /// The dev HTTP's hooks for tests and playtests (`/dev/incident`). Never in a deployment.
@@ -173,6 +174,10 @@ fn main() -> anyhow::Result<()> {
         ),
         limits: bc_server::net::admit::Limits {
             connections: args.max_connections.max(1),
+            quic_connections: args
+                .max_connections
+                .max(1)
+                .saturating_mul(bc_server::net::admit::QUIC_HEADROOM),
             per_address: args.per_address.max(1),
             ..bc_server::net::admit::Limits::default()
         },

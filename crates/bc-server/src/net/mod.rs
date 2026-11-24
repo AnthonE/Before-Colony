@@ -31,8 +31,8 @@ pub struct NetStats {
     pub handshake_timeouts: AtomicU64,
     /// The connections QUIC really holds (`Endpoint::open_connections`, published by the accept
     /// loop as it goes round and every half second): whatever the admission's bookkeeping says, a
-    /// connection that outlived its pass is counted here. Past [`admit::Limits::connections`] a new
-    /// one is refused (`refused_open`).
+    /// connection that outlived its pass (closing, or stuck) is counted here. Past
+    /// [`admit::Limits::quic_connections`] a new one is refused (`refused_open`).
     pub open_connections: AtomicU64,
     pub refused_open: AtomicU64,
     /// Hangar requests refused for coming too fast, and sessions ended for it.

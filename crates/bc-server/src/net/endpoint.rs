@@ -66,7 +66,8 @@ const GAUGE_EVERY: Duration = Duration::from_millis(500);
 ///
 /// What QUIC really holds is counted apart from the admission's passes: a connection whose task
 /// gave its pass back but which lives on (a driver stuck in its handshake, as wtransport's was
-/// before upstream 1df1c05) still counts against the ceiling, and `/status` shows it
+/// before upstream 1df1c05, or one closing, for three probe timeouts) still counts against
+/// [`Limits::quic_connections`](super::admit::Limits::quic_connections), and `/status` shows it
 /// (`open_connections`, `refused_open`).
 pub async fn accept_loop(
     endpoint: Endpoint<Server>,
@@ -76,7 +77,7 @@ pub async fn accept_loop(
     admission: Arc<Admission>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
-    let ceiling = admission.limits().connections as usize;
+    let ceiling = admission.limits().quic_connections as usize;
     let mut gauge = tokio::time::interval(GAUGE_EVERY);
     gauge.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
