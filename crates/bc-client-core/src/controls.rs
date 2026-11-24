@@ -271,6 +271,11 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::System, "F10 / O", "Graphics quality"),
     b(
         Group::System,
+        "F7 / the menu's REPORT A BUG",
+        "Report a bug: say what's wrong in a line; the build, where you are and a picture of the screen go with it",
+    ),
+    b(
+        Group::System,
         "1 - 6",
         "Arcade rules, when destroyed: relaunch as Argo, Altair, Antares, Algol, Canopus, Thuban",
     ),
@@ -324,6 +329,8 @@ mod tests {
         }
         let system = |k: &str| BINDINGS.iter().any(|b| b.group == Group::System && b.keys == k);
         assert!(system("F1 / ?") && system("F10 / O"));
+        // F7's second way is a button: the pause menu's, and the controls sheet's.
+        assert!(system("F7 / the menu's REPORT A BUG"));
     }
 
     /// Enter is flight's (it docks where there's docking, and is the radio's elsewhere), and the

@@ -144,6 +144,7 @@
       <button data-cmd="resume" class="primary">RESUME</button>
       <button data-cmd="controls">CONTROLS</button>
       <button data-cmd="settings">SETTINGS</button>
+      <button type="button" data-report>REPORT A BUG</button>
       <button data-cmd="disconnect" id="disconnect-button" class="danger">DISCONNECT</button>
       <div class="note" id="pause-who"></div>
       <div class="note">The sector keeps running while this menu is open.</div>
@@ -155,7 +156,8 @@
     <div class="card wide">
       <h2>CONTROLS</h2>
       <div id="controls-list" class="controls"></div>
-      <div class="row"><button data-cmd="help-close">CLOSE</button><span class="note">F1, ? or Esc</span></div>
+      <div class="row"><button data-cmd="help-close">CLOSE</button><span class="note">F1, ? or Esc</span>
+        <button type="button" data-report>REPORT A BUG</button><span class="note">F7</span></div>
     </div>
   </div>
 
@@ -235,6 +237,28 @@
     <div class="sub">Esc menu · F1 or ? controls</div>
   </div>
   <div id="toast" class="toast hidden"></div>
+
+  <!-- F7, or REPORT A BUG on the menu and the controls sheet: a line of what's wrong, and what kind
+       of thing it is (ui.js, "Reports"). The build, where you are and a picture of the screen go
+       with it; who you are doesn't. -->
+  <div id="report" class="report hidden" role="dialog" aria-labelledby="report-title">
+    <div class="report-head"><span id="report-title">REPORT A BUG</span><span class="note">Enter sends · Tab the kind · Esc closes</span></div>
+    <div id="report-kinds" class="report-kinds" role="radiogroup" aria-label="What kind of thing">
+      <button type="button" role="radio" data-kind="look">LOOKS WRONG</button>
+      <button type="button" role="radio" data-kind="world">THE WORLD</button>
+      <button type="button" role="radio" data-kind="verb">CONTROLS</button>
+      <button type="button" role="radio" data-kind="net">LAG</button>
+      <button type="button" role="radio" data-kind="numbers">NUMBERS</button>
+      <button type="button" role="radio" data-kind="other">OTHER</button>
+    </div>
+    <input id="report-input" class="report-input" maxlength="4000" autocomplete="off"
+      placeholder="What happened? A line is plenty. Your words go to the developers as you type them.">
+    <div class="row">
+      <button type="button" id="report-send" class="primary">SEND</button>
+      <button type="button" id="report-close">CLOSE</button>
+      <span id="report-note" class="note"></span>
+    </div>
+  </div>
 
   <!-- Which wallet, when the browser has several (ui.js, the wallet). -->
   <dialog id="wallet-pick" class="card">

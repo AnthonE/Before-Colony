@@ -143,6 +143,9 @@ pub struct Ui {
     debrief_net: i64,
     /// The colony radio's line is open: the pilot is typing (no keys reach the suit).
     pub chat: bool,
+    /// The page's report composer (F7) is up: the pilot is typing (no keys reach the suit). The
+    /// page owns it, so it works while the game doesn't; it only tells (`UiCmd::Report`).
+    pub report: bool,
     /// The radio's latest lines, who and what, and how many have been heard (`chat.rs`).
     pub radio: Vec<(String, String)>,
     pub radio_seq: u32,
@@ -153,9 +156,10 @@ impl Ui {
         self.screen == Screen::Playing
     }
 
-    /// A panel is up, or the radio's line is open: either way the keys aren't the suit's.
+    /// A panel is up, or the radio's line or the report composer is open: either way the keys
+    /// aren't the suit's.
     pub fn panel_open(&self) -> bool {
-        self.panel != Panel::None || self.chat
+        self.panel != Panel::None || self.chat || self.report
     }
 
     pub fn open_pause(&mut self) {
@@ -283,6 +287,7 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crat
                 ui.help = false;
             }
             UiCmd::Help { show } => ui.help = show.unwrap_or(!ui.help),
+            UiCmd::Report { open, .. } => ui.report = *open,
             UiCmd::Settings { show: true } => {
                 let from_pause = ui.panel == Panel::Pause;
                 ui.panel = Panel::Settings { from_pause };

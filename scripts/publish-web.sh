@@ -7,6 +7,8 @@
 #   scripts/publish-web.sh --host morr     # the origin's ssh alias (default: morr; `local`: this box)
 #   scripts/publish-web.sh --strand        # publish a page the live server will refuse
 #   scripts/publish-web.sh --server game.elopros.com:61240 --http https://game.elopros.com/before-colony/
+#   scripts/publish-web.sh --reports https://elopros.com/api/bugs   # where F7's and crashes' reports go
+#                                          # (default: the game server's own `bugs`, under --http)
 #
 # Env: BC_WEB_VARIANTS (default "webgl2"; "webgl2 webgpu" ships both), STATUS_URL (the live
 # server's /status.json, for the wire check), OUT (the staging directory, default target/webpub).
@@ -29,6 +31,7 @@ HOST="morr"
 ROOT="/data/apps/scry-data/before-colony-web"
 SERVER="game.elopros.com:61240"
 HTTP="https://game.elopros.com/before-colony/"
+REPORTS=""
 BUILD=1
 DRY=0
 STRAND=0
@@ -40,6 +43,7 @@ while [ $# -gt 0 ]; do
     --root) ROOT="$2"; shift ;;
     --server) SERVER="$2"; shift ;;
     --http) HTTP="$2"; shift ;;
+    --reports) REPORTS="$2"; shift ;;
     --strand) STRAND=1 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -103,7 +107,7 @@ fi
 cat > "$OUT/config.js" <<JS
 // Written by scripts/publish-web.sh (build ${ID}): this page is served from another site than the
 // game server, so it names it. \`?server=host:port\` and \`?http=url\` still override it.
-window.BC_SERVER = window.BC_SERVER || { wt: "${SERVER}", http: "${HTTP}" };
+window.BC_SERVER = window.BC_SERVER || { wt: "${SERVER}", http: "${HTTP}"${REPORTS:+, reports: \"${REPORTS}\"} };
 // What this page was built from: a player's report names it (ui.js, boot.js).
 window.BC_BUILD = { version: "${version}", commit: "${commit}" };
 JS

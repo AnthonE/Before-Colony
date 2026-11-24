@@ -166,6 +166,8 @@ pub fn run() {
             .add_plugins(crate::audio::AudioPlugin)
             .add_systems(First, crate::audio::build_bank)
             .add_systems(Update, crate::audio::play_sound.in_set(Vis::Audio))
+            // F7's picture of the frame, for the page's report.
+            .add_systems(Update, crate::report::shoot)
             .add_systems(
                 Update,
                 (
