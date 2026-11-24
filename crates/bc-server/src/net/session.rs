@@ -68,11 +68,9 @@ pub(super) struct Who {
     pub faction: Faction,
     pub name: Name,
     pub address: Option<PlayerId>,
-    /// Their wallet holds the Pill (read at sign-in; cosmetic).
-    pub pill: bool,
-    /// The cosmetics their wallet holds, the Pill among them (read at sign-in: nothing if it
-    /// couldn't be).
-    pub cosmetics: bc_sim::content::cosmetics::Owned,
+    /// What their wallet holds of the title's cosmetics, the Pill among them, as Elo Pros said at
+    /// sign-in: none if it didn't (no wallet, or no answer in time).
+    pub holdings: Option<crate::elo::Holdings>,
 }
 
 /// How often the session looks at its suit's reports, its stations and the market.
@@ -136,8 +134,8 @@ pub(super) async fn run(
         faction: who.faction,
         callsign,
         address: who.address,
-        pill: who.pill,
-        cosmetics: who.cosmetics,
+        pill: who.holdings.is_some_and(|h| h.pill),
+        cosmetics: who.holdings.map(|h| h.cosmetics),
         record,
         max_datagram: conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16,
         suit: None,
@@ -213,7 +211,9 @@ struct Session<'a> {
     callsign: String,
     address: Option<PlayerId>,
     pill: bool,
-    cosmetics: bc_sim::content::cosmetics::Owned,
+    /// The cosmetics their wallet holds, if Elo Pros said as they signed in (none: as last read,
+    /// the hangar's).
+    cosmetics: Option<bc_sim::content::cosmetics::Owned>,
     record: Option<PilotRecord>,
     max_datagram: u16,
     /// The suit flown, while the pilot is in the sector: (entity slot, generation).
@@ -437,8 +437,12 @@ impl Session<'_> {
                 Hangar::starter()
             });
             // What they may paint their suit in, and what it shows: the wallet's word as they came
-            // in, never the client's.
-            self.hangar.cosmetics = self.cosmetics.0;
+            // in, never the client's. No word (Elo Pros didn't answer, or not in time): what it
+            // held when last read stands, the Pill too.
+            match self.cosmetics {
+                Some(owned) => self.hangar.cosmetics = owned.0,
+                None => self.pill = self.hangar.owned().has(bc_sim::content::cosmetics::Cosmetic::Pill),
+            }
             // Out in the sector, asleep: wake in it, if it's still there (on a flight slot: space
             // full, the pilot is turned away, and their suit sleeps on).
             if matches!(self.hangar.bay, Bay::Out { .. }) {

@@ -1191,22 +1191,15 @@ async fn session(
     };
     // On the store's roster (`/online.json`) while this session holds the pilot.
     let _here = held.map(|(a, s)| game.online.enter(a, s, name.as_str(), pilot != PilotKind::Human));
-    // Their items, read once as they come in. Never in the way: no answer in time costs the look.
+    // Their items, read once as they come in. Never in the way: no answer in time is no answer,
+    // and the session keeps what their wallet held when it was last read.
     let holdings = match (&game.elo, address) {
         (Some(elo), Some(a)) if a.is_wallet() => {
-            tokio::time::timeout(crate::elo::READ_WAIT, elo.read(&a)).await.unwrap_or_default()
+            tokio::time::timeout(crate::elo::READ_WAIT, elo.read(&a)).await.ok().flatten()
         }
-        _ => crate::elo::Holdings::default(),
+        _ => None,
     };
-    let who = super::session::Who {
-        pilot,
-        frame,
-        faction,
-        name,
-        address,
-        pill: holdings.pill,
-        cosmetics: holdings.cosmetics,
-    };
+    let who = super::session::Who { pilot, frame, faction, name, address, holdings };
     let result = super::session::run(conn, &game, &stats, &mut tx, &mut rx, pending, who, kicked).await;
     if let Some((address, session)) = held {
         // What was said of their suit in a hide spot while they flew, now that the session has

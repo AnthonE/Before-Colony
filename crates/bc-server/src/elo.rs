@@ -113,28 +113,30 @@ impl Items {
         Some(Self { http, origin })
     }
 
-    /// What `wallet` holds of this title's cosmetics, the Pill among them. Nothing when Elo Pros
-    /// can't be asked: it's cosmetic, so not knowing costs the look, never the game.
-    pub async fn read(&self, wallet: &PlayerId) -> Holdings {
+    /// What `wallet` holds of this title's cosmetics, the Pill among them, if Elo Pros said: none
+    /// when it couldn't be asked or couldn't look, which the session takes as "as last read" (it's
+    /// cosmetic, so not knowing costs at most the look, never the game).
+    pub async fn read(&self, wallet: &PlayerId) -> Option<Holdings> {
         let url = format!("{}/api/items/sol/of/{wallet}", self.origin);
-        let read = async {
-            let res = self.http.get(&url).send().await.ok()?.error_for_status().ok()?;
-            res.json::<serde_json::Value>().await.ok()
-        };
-        read.await.map(|doc| holdings(&doc, bc_auth::GAME)).unwrap_or_default()
+        let res = self.http.get(&url).send().await.ok()?.error_for_status().ok()?;
+        holdings(&res.json::<serde_json::Value>().await.ok()?, bc_auth::GAME)
     }
 }
 
 /// What a `/api/items/sol/of` answer lists of title `slug`'s cosmetics (any number of them; an item
-/// this build doesn't know is passed over).
-pub fn holdings(doc: &serde_json::Value, slug: &str) -> Holdings {
+/// this build doesn't know is passed over). None when it isn't an answer: Elo Pros couldn't look
+/// (`reachable: false`), or there's no list of items.
+pub fn holdings(doc: &serde_json::Value, slug: &str) -> Option<Holdings> {
+    if doc["reachable"] == false {
+        return None;
+    }
     let mut cosmetics = Owned::NONE;
-    for row in doc["items"].as_array().into_iter().flatten().filter(|r| r["title"] == slug) {
+    for row in doc["items"].as_array()?.iter().filter(|r| r["title"] == slug) {
         if let Some(c) = row["item"].as_str().and_then(Cosmetic::from_key) {
             cosmetics = cosmetics.with(c);
         }
     }
-    Holdings { pill: cosmetics.has(Cosmetic::Pill), cosmetics }
+    Some(Holdings { pill: cosmetics.has(Cosmetic::Pill), cosmetics })
 }
 
 /// Whether a `/api/items/sol/of` answer lists `item` from title `slug`.
@@ -219,22 +221,25 @@ mod tests {
                 {"title": "gates", "item": "albireo"},
             ],
         });
-        let h = holdings(&doc, "before-colony");
+        let h = holdings(&doc, "before-colony").unwrap();
         assert!(h.pill);
         assert_eq!(
             h.cosmetics,
             Owned::NONE.with(Cosmetic::Pill).with(Cosmetic::Coalsack).with(Cosmetic::CruxDecal)
         );
-        assert_eq!(holdings(&doc, "oneshot"), Holdings::default());
-        assert_eq!(
-            holdings(&serde_json::json!({"reachable": false, "items": []}), "before-colony"),
-            Holdings::default()
-        );
-        assert_eq!(holdings(&serde_json::json!({"items": "nope"}), "before-colony"), Holdings::default());
+        assert_eq!(holdings(&doc, "oneshot"), Some(Holdings::default()));
         let only = serde_json::json!({"items": [{"title": "before-colony", "item": "pleiades"}]});
         assert_eq!(
             holdings(&only, "before-colony"),
-            Holdings { pill: false, cosmetics: Owned::NONE.with(Cosmetic::Pleiades) }
+            Some(Holdings { pill: false, cosmetics: Owned::NONE.with(Cosmetic::Pleiades) })
         );
+        // Holding nothing is an answer; Elo Pros not able to look, or no list, isn't one.
+        assert_eq!(
+            holdings(&serde_json::json!({"reachable": true, "items": []}), "before-colony"),
+            Some(Holdings::default())
+        );
+        assert_eq!(holdings(&serde_json::json!({"reachable": false, "items": []}), "before-colony"), None);
+        assert_eq!(holdings(&serde_json::json!({"items": "nope"}), "before-colony"), None);
+        assert_eq!(holdings(&serde_json::json!({}), "before-colony"), None);
     }
 }
