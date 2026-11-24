@@ -9,10 +9,10 @@
 //! - **On foot** (a city strip, the base's deck, the ring's town): the people on the talker's floor
 //!   within [`FOOT_M`] ([`crate::plaza::Plaza::near`]), through the air. The talker is named by their
 //!   plaza id (their session's), which the people near already know them by.
-//! - **In space**: the suits within the talker's sensor range (its frame's, before tuning) whose
-//!   pilots are at the controls, over the radio. The talker is named by their suit's entity slot, as
-//!   the roster does, never by a session's id; no position goes with it. Nothing goes out from, or
-//!   to, a wreck, an ejected pilot or a suit asleep.
+//! - **In space**: the suits within the talker's sensor range (as tuned: its sensors' upgrades and
+//!   damage, `bc_sim::tuning`) whose pilots are at the controls, over the radio. The talker is
+//!   named by their suit's entity slot, as the roster does, never by a session's id; no position
+//!   goes with it. Nothing goes out from, or to, a wreck, an ejected pilot or a suit asleep.
 //! - In the hangar bay, and flying inside the colony: nobody is heard, and nobody hears (not yet).
 //!
 //! Each listener hears at most [`LANES`] talkers at once; a lane is a talker's until their last
@@ -27,9 +27,9 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use bc_proto::PilotKind;
 use bc_proto::control::roster_flags;
 use bc_proto::voice::{VOICE_DOWN_MAX, Via, VoiceFrame, is_one_frame};
-use bc_proto::{FrameId, PilotKind};
 use bc_sector::Metrics;
 use wtransport::Connection;
 
@@ -74,7 +74,8 @@ pub fn live_suit(metrics: &Metrics, flight: u16) -> Option<u16> {
 }
 
 /// Who might hear the pilot flying flight slot `talker` over the radio: the other flight slots with
-/// a live suit in range whose roster entry has a session at the controls (not asleep), as
+/// a live suit within its radio's range (its sensors' tuned reach, as the sector last published it)
+/// whose roster entry has a session at the controls (not asleep), as
 /// `(session, flight slot)`; and the talker's suit's entity slot (`None`: no live suit in that
 /// slot). Flight slots are the sector's (`metrics.pilots`) and suits the roster's (entity slots):
 /// `suit - 1` joins them.
@@ -87,9 +88,7 @@ pub fn radio_listeners(
     out.clear();
     let suit = live_suit(metrics, talker)?;
     let me = &metrics.pilots[talker as usize];
-    let frame = FrameId::from_bits(Metrics::load(&me.frame) as u32).unwrap_or(FrameId::Argo);
-    let range = bc_sim::content::frame(frame).sensor_range;
-    let at = me.pos();
+    let (at, range) = (me.pos(), me.reach());
     for (s, p) in metrics.pilots.iter().enumerate() {
         let Some(theirs) = live_suit(metrics, s as u16) else { continue };
         if s == talker as usize || !radio_reach(at, range, p.pos()) {
@@ -394,6 +393,7 @@ impl Mouth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bc_proto::FrameId;
     use glam::Vec3;
 
     #[test]
@@ -468,13 +468,15 @@ mod tests {
     #[test]
     fn the_radio_bridges_flight_slots_to_the_roster_and_skips_sleepers_and_empty_slots() {
         let m = Metrics::new(4);
+        // A tuned reach (sensor upgrades, damage), not the frame's: the sector publishes it.
+        let range = 0.75 * bc_sim::content::frame(FrameId::Argo).sensor_range;
         let seat = |s: usize, suit: u64, at: Vec3| {
             Metrics::set(&m.pilots[s].suit, suit);
             Metrics::set(&m.pilots[s].alive, 1);
             Metrics::set(&m.pilots[s].frame, FrameId::Argo as u64);
             m.pilots[s].set_pos(at);
+            m.pilots[s].set_reach(range);
         };
-        let range = bc_sim::content::frame(FrameId::Argo).sensor_range;
         seat(0, 11, Vec3::ZERO); // the talker, in suit 10
         seat(1, 21, Vec3::X * (range - 10.0)); // suit 20, in range
         seat(2, 31, Vec3::Y * (range + 10.0)); // suit 30, out of range

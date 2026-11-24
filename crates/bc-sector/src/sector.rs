@@ -711,6 +711,7 @@ impl Sector {
             Metrics::set(&ps.credits, u64::from(self.sim.suits.credits[client.suit.idx()]));
             Metrics::set(&ps.alive, u64::from(self.sim.is_alive(client.suit.idx())));
             ps.set_pos(self.sim.suits.flight[client.suit.idx()].pos);
+            ps.set_reach(self.sim.sensor_reach(client.suit.idx()));
         }
     }
 
