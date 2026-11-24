@@ -35,3 +35,9 @@ The owner's decisions made before this page are in the area docs that asked for 
 | A coin of Before Colony's own | None: credits in the game, the store's coin for its items | `PHASES.md`, "The business" |
 | What's sold and what's only earned | Paint, palettes and decals sold; a suit's frame, parts, credits and anything with stats only earned | `PHASES.md`, "The business" |
 | Paying players from play | Reviewed season prizes from the boards (no wipes but the one at listing) | `PHASES.md`, "The business" |
+| Ducking into the colony's reach mid-fight | Safe at once: no engaged timer yet (Gates and Rust hold an attacker hostile for 5 minutes) | `docs/ROADMAP.md`, "PvP in space" |
+| PvP under arcade rules | Off: arcade spawns every side together for the combat suites (`--pvp` turns it on) | `crates/bc-server/src/config.rs` |
+| A fight on foot | 100 health, a blow 20 (twice from behind), 2 m reach; down 25 s, up with 30; a lethal hit within 60 s of getting up puts you out, and out wakes in the bay; 10 s of protection on arrival, lost by striking first; hitting back within 15 s is free of heat | `crates/bc-sim/src/colony/brawl.rs`, `docs/OPEN_CITY.md` |
+| Voice for agents and guests | Agents hear no one's voice (`--voice-agents` lets them); guests talk and hear like anyone | `crates/bc-server/src/voice.rs` |
+| Push to talk | Hold \` or the mouse's back button; a toggle in the settings; no open mic yet | `docs/CONTROLS.md` |
+| Reports from players | 5 a player's address each 10 minutes, kept under the server's data dir; the store's intake is the same shape | `crates/bc-server/src/bugs.rs` |
