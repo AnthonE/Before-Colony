@@ -817,12 +817,7 @@ pilots out, and its limits are counted on `/status`.
     address (mapped into IPv6 or not), or an IPv6 address's /64, which is what one subscriber is
     given. Loopback is excepted: the server's own agents connect from it.
   - At most 512 connections in all (`--max-connections`). Past either cap the attempt is refused.
-    The ceiling is counted twice: by the admission's passes, and by the connections QUIC really
-    holds (`/status`: `open_connections`, and `refused_open` past it), so one that outlives its pass
-    can't pile up unseen.
-  - QUIC's handshake and then WebTransport's must each finish within 5 s. A peer that stalls before
-    the server's SETTINGS (no stream credit) is let go at that deadline: wtransport is pinned past
-    upstream's fix for that leak (`Cargo.toml`; `bc-server/tests/leak.rs`).
+  - QUIC's handshake and then WebTransport's must each finish within 5 s.
 - **A session** (`net::game`, `net::session`):
   - Its control stream must open, and its Hello arrive, within 5 s each.
   - At most 128 sign-ins wait on a wallet at once, each for at most a minute (`Config::sign_wait`).
