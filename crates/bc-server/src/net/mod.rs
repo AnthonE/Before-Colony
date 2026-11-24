@@ -36,6 +36,13 @@ pub struct NetStats {
     /// the store's player count, `/status.json`).
     pub humans_active: AtomicU64,
     pub agents_active: AtomicU64,
+    /// Signed calls to Elo Pros (`crate::serverkey`): taken, refused (a 4xx it meant), never got
+    /// through after every try; and the sessions' stats rows dropped for a full queue
+    /// (`crate::gamestats`).
+    pub elo_sent: AtomicU64,
+    pub elo_refused: AtomicU64,
+    pub elo_failed: AtomicU64,
+    pub elo_dropped: AtomicU64,
 }
 
 impl NetStats {
@@ -65,6 +72,10 @@ pub fn status_json(stats: &NetStats, game: Option<&game::StatusView>) -> serde_j
         "flooders_ended": r(&stats.flooders_ended),
         "humans_active": r(&stats.humans_active),
         "agents_active": r(&stats.agents_active),
+        "elo_sent": r(&stats.elo_sent),
+        "elo_refused": r(&stats.elo_refused),
+        "elo_failed": r(&stats.elo_failed),
+        "elo_dropped": r(&stats.elo_dropped),
     });
     match game {
         Some(view) => serde_json::json!({ "mode": "game", "net": net, "game": view.json() }),

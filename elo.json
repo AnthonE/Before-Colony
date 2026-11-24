@@ -1,0 +1,239 @@
+{
+  "elo": 1,
+  "game": "before-colony",
+  "version": "0.1.0",
+  "terms": "2026-10-27",
+  "multiplayer": "persistent",
+  "_note": "server_keys is left out on purpose until the operator's real key exists: an empty list revokes every key (meter/serverkeys.py)",
+  "stats": {
+    "stats": [
+      {
+        "id": "sorties",
+        "name": "Sorties flown",
+        "agg": "sum"
+      },
+      {
+        "id": "sorties_home",
+        "name": "Sorties brought home",
+        "agg": "sum"
+      },
+      {
+        "id": "ore_kg",
+        "name": "Ore brought home, kg",
+        "agg": "sum"
+      },
+      {
+        "id": "best_haul_kg",
+        "name": "Most ore from one sortie, kg",
+        "agg": "max"
+      },
+      {
+        "id": "salvage",
+        "name": "Salvage brought home",
+        "agg": "sum"
+      },
+      {
+        "id": "deliveries",
+        "name": "Charter deliveries",
+        "agg": "sum"
+      },
+      {
+        "id": "aces_downed",
+        "name": "Aces downed",
+        "agg": "sum"
+      },
+      {
+        "id": "fills",
+        "name": "Exchange fills",
+        "agg": "sum"
+      }
+    ],
+    "achievements": [
+      {
+        "id": "FIRST_SORTIE",
+        "name": "Off the rail",
+        "desc": "Launch from your bay",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "sorties",
+          "max": 1
+        }
+      },
+      {
+        "id": "SORTIES_25",
+        "name": "Regular on the rail",
+        "desc": "Fly 25 sorties",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "sorties",
+          "max": 25
+        }
+      },
+      {
+        "id": "SORTIES_100",
+        "name": "Old hand",
+        "desc": "Fly 100 sorties",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "sorties",
+          "max": 100
+        }
+      },
+      {
+        "id": "FIRST_HOME",
+        "name": "Home again",
+        "desc": "Bring your suit home and dock it",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "sorties_home",
+          "max": 1
+        }
+      },
+      {
+        "id": "HOME_50",
+        "name": "Safe pair of hands",
+        "desc": "Bring 50 sorties home",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "sorties_home",
+          "max": 50
+        }
+      },
+      {
+        "id": "ORE_1T",
+        "name": "A tonne of rock",
+        "desc": "Bring home 1,000 kg of ore",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "ore_kg",
+          "max": 1000
+        }
+      },
+      {
+        "id": "ORE_100T",
+        "name": "Prospector",
+        "desc": "Bring home 100 tonnes of ore",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "ore_kg",
+          "max": 100000
+        }
+      },
+      {
+        "id": "HAUL_3T",
+        "name": "Full hold",
+        "desc": "Bring home 3,000 kg of ore from one sortie",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "best_haul_kg",
+          "max": 3000
+        }
+      },
+      {
+        "id": "FIRST_SALVAGE",
+        "name": "Scrapper",
+        "desc": "Bring home a piece of an Almagest wreck",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "salvage",
+          "max": 1
+        }
+      },
+      {
+        "id": "SALVAGE_50",
+        "name": "Breaker's yard",
+        "desc": "Bring home 50 pieces of Almagest wrecks",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "salvage",
+          "max": 50
+        }
+      },
+      {
+        "id": "FIRST_DELIVERY",
+        "name": "On contract",
+        "desc": "Deliver to one of the colony's contracts or great works",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "deliveries",
+          "max": 1
+        }
+      },
+      {
+        "id": "DELIVERIES_50",
+        "name": "The colony's supplier",
+        "desc": "Make 50 Charter deliveries",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "deliveries",
+          "max": 50
+        }
+      },
+      {
+        "id": "FIRST_ACE",
+        "name": "Most Wanted",
+        "desc": "Down one of the Almagest's aces",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "aces_downed",
+          "max": 1
+        }
+      },
+      {
+        "id": "ACES_9",
+        "name": "Every name on the list",
+        "desc": "Down nine of the Almagest's aces",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "aces_downed",
+          "max": 9
+        }
+      },
+      {
+        "id": "FIRST_FILL",
+        "name": "On the books",
+        "desc": "Trade on the Colony Exchange",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "fills",
+          "max": 1
+        }
+      },
+      {
+        "id": "FILLS_100",
+        "name": "A name on the floor",
+        "desc": "Fill 100 trades on the Colony Exchange",
+        "hidden": false,
+        "icon": null,
+        "progress": {
+          "stat": "fills",
+          "max": 100
+        }
+      }
+    ],
+    "boards": [
+      {
+        "id": "haul_kg",
+        "name": "Biggest ore haul, kg",
+        "sort": "desc",
+        "keep": "best",
+        "format": "number"
+      }
+    ]
+  }
+}

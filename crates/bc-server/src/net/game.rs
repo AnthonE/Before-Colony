@@ -161,6 +161,9 @@ pub struct GameShared {
     pub online: Arc<crate::online::Online>,
     /// Where a wallet's items are read (`Config::elo_origin`; off: nobody shows any).
     pub(super) elo: Option<Arc<crate::elo::Items>>,
+    /// Where what signed-in pilots do goes, for Elo Pros' stats (`crate::gamestats`; off without
+    /// the server's key).
+    pub(super) reporter: Option<Arc<crate::gamestats::Reporter>>,
     /// The suits left in hide spots have been put back (or let go): a suit the sector puts back
     /// from now on came too late, and goes again ([`process_notes`]).
     restore_over: Arc<AtomicBool>,
@@ -342,6 +345,8 @@ pub struct GameRuntime {
     shared: GameShared,
     oracle: &'static str,
     _oracle_worker: Option<bc_orrery::WorkerHandle>,
+    /// Tells the stats' reporter to post what it holds, and stop.
+    reporter_stop: tokio::sync::watch::Sender<bool>,
 }
 
 impl GameRuntime {
@@ -453,6 +458,19 @@ impl GameRuntime {
         let homes =
             Arc::new(crate::homes::HomeRegister::open(cfg.data_dir.as_ref().map(|d| d.join("homes.json"))));
         let watch = Arc::new(crate::watch::Watch::default());
+        // Stats for Elo Pros: only with the server's key, and somewhere to send them.
+        let (reporter_stop, stop_rx) = tokio::sync::watch::channel(false);
+        let reporter = match (&cfg.elo_key, &cfg.elo_origin) {
+            (Some(key), Some(origin)) => crate::serverkey::Signed::new(origin, key.clone(), stats.clone()).map(|s| {
+                tracing::info!(who = %key.who(), public = %key.public_b64(), "stats reported to Elo Pros, signed");
+                Arc::new(crate::gamestats::Reporter::start(s, stats.clone(), cfg.elo_flush, stop_rx))
+            }),
+            (Some(_), None) => {
+                tracing::warn!("a server key, and no Elo Pros to report to (--elo-origin none): nothing is reported");
+                None
+            }
+            (None, _) => None,
+        };
         let game = GameShared {
             sector: shared,
             egress: queue,
@@ -469,6 +487,7 @@ impl GameRuntime {
                 nonces: Arc::new(crate::elo::Nonces::default()),
             },
             elo: cfg.elo_origin.clone().and_then(crate::elo::Items::new).map(Arc::new),
+            reporter,
             idle: cfg.idle_timeout,
             survival,
             colony: survival && cfg.colony,
@@ -563,6 +582,7 @@ impl GameRuntime {
             shared: game,
             oracle,
             _oracle_worker: oracle_worker,
+            reporter_stop,
         })
     }
 
@@ -595,6 +615,8 @@ impl GameRuntime {
     }
 
     pub fn stop(mut self) {
+        // What the sessions handed over goes to Elo Pros.
+        let _ = self.reporter_stop.send(true);
         if let Some(s) = self.sector.take() {
             s.stop();
         }

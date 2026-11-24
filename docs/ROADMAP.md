@@ -43,6 +43,7 @@ the bay, space, home).
 | The open city (`OPEN_CITY.md`): homes not instanced (H0 to H3), the street in the tick, cars you own, heat and the Watch, intrusion, raids, businesses | homes built (the cylinder's, on hold); heat and the Watch built in the ring's town; the street in the tick begun; the rest designed |
 | Free roam (`FREE_ROAM.md`): the ring at 3 km, the town's plan, its look, its crowd and traffic, the Watch's infrastructure, a new pilot waking in it | F1, T1, V1, P1, W1, O1 built; P2 built off the tick; the floating origin, the Watch's patrols and the district sectors (D1) to do |
 | Sign-in: a wallet (SIWE, and its Solana form) or an Elo Pros pass (`PROTOCOL.md`) | built |
+| Elo Pros' side of the game: `/status.json` counts agents among its players, `/online.json` carries each pilot's line of what they're doing (in the colony, flying, at the Exchange; never where), a server key and signed calls (`--elo-key`), `elo.json`, and stats, achievements and a board from PvE play only (no pilot kills) | built, off until the operator names the server's key; the copy door, bans, season prizes and the shop to do |
 | P1's rest, P2 below, the loose ends left | planned |
 
 ## The loop's loose ends

@@ -60,9 +60,19 @@ struct Args {
     /// in with an Elo Pros pass: any login, or a wallet on either chain. Without it, wallets only.
     #[arg(long)]
     elo_pubkey: Option<String>,
-    /// Where a wallet's items are read at sign-in (`none`: nobody shows any).
+    /// Where a wallet's items are read at sign-in, and stats reported (`none`: nobody shows any,
+    /// and nothing is reported).
     #[arg(long, default_value = bc_server::config::STORE_ORIGIN)]
     elo_origin: String,
+    /// This server's Ed25519 key on Elo Pros: a PKCS#8 PEM file on this box (`openssl genpkey
+    /// -algorithm ed25519 -out server.key`), never in the repo. With it, what signed-in pilots do
+    /// is reported to the game's stats, achievements and boards, signed; without it, nothing is.
+    /// Its public half is in the log as the server starts, to name in `elo.json`'s `server_keys`.
+    #[arg(long)]
+    elo_key: Option<PathBuf>,
+    /// The id the key is named under on Elo Pros (`server_keys`' `id`).
+    #[arg(long, default_value = "sector-1")]
+    elo_key_id: String,
     /// Origins whose pages may read /status, /status.json and /cert-hash from another site (CORS).
     /// Repeat it or separate with commas.
     #[arg(long, default_value = bc_server::config::STORE_ORIGIN)]
@@ -127,6 +137,21 @@ fn floor_visitors(flag: Option<&str>, siwe_domains: &[String]) -> Option<String>
     }
 }
 
+/// The server's key from its file (`--elo-key`). Why not, never quoting the file.
+fn load_key(path: &std::path::Path, id: &str) -> Result<bc_server::serverkey::ServerKey, String> {
+    let pem = std::fs::read_to_string(path).map_err(|e| format!("can't be read ({})", e.kind()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(path)
+            && meta.permissions().mode() & 0o077 != 0
+        {
+            tracing::warn!("--elo-key {}: others on this box can read it (chmod 600 it)", path.display());
+        }
+    }
+    bc_server::serverkey::ServerKey::from_pem(bc_auth::GAME, id, &pem)
+}
+
 fn main() -> anyhow::Result<()> {
     bc_server::telemetry::init();
     let args = Args::parse();
@@ -158,6 +183,12 @@ fn main() -> anyhow::Result<()> {
             })
         }),
         elo_origin: (args.elo_origin != "none").then(|| args.elo_origin.clone()),
+        elo_key: args.elo_key.as_deref().map(|path| {
+            load_key(path, &args.elo_key_id).map(std::sync::Arc::new).unwrap_or_else(|why| {
+                eprintln!("--elo-key {}: {why}", path.display());
+                std::process::exit(2);
+            })
+        }),
         tls: args.cert.zip(args.key),
         cors_origins: bc_server::config::split_list(&args.cors_origin),
         require_auth: args.require_auth,
@@ -239,6 +270,21 @@ mod tests {
         let a = Args::parse_from(["bc-server"]);
         assert!(a.siwe_domain.is_empty());
         assert_eq!(a.cors_origin, [bc_server::config::STORE_ORIGIN]);
+    }
+
+    #[test]
+    fn the_server_key_is_off_unless_a_file_is_named() {
+        let a = Args::parse_from(["bc-server"]);
+        assert!(a.elo_key.is_none());
+        assert_eq!(a.elo_key_id, "sector-1");
+        let a = Args::parse_from(["bc-server", "--elo-key", "/etc/bc/server.key", "--elo-key-id", "eu-1"]);
+        assert_eq!(
+            (a.elo_key.as_deref(), a.elo_key_id.as_str()),
+            (Some(std::path::Path::new("/etc/bc/server.key")), "eu-1")
+        );
+        // A file that isn't there, or isn't a key, says so without quoting it.
+        let missing = load_key(std::path::Path::new("/nonexistent/bc-server.key"), "sector-1").unwrap_err();
+        assert!(missing.contains("can't be read"), "{missing}");
     }
 
     #[test]
