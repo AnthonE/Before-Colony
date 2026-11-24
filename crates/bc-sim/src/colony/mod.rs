@@ -11,6 +11,8 @@
 //! and the people on its streets (`walkers`), on the tick's clock; the Proving Ground's course
 //! through its air (`course`) and its Blast Hall's live fire (`hall`); and the homes inside its
 //! buildings (`homes`: lobbies, stairs, corridors, flats and houses, each at its own address).
+//! Round it all, its reach (`reach`): where pilots' weapons are safe on one another, and the law
+//! that says who harms whom.
 //!
 //! To suits and shots the colony is `world`'s solid ring and the hub's landmark; this is the rest of
 //! it. Like
@@ -30,6 +32,7 @@ pub mod hub;
 pub mod interior;
 pub mod louvres;
 pub mod pools;
+pub mod reach;
 pub mod roads;
 pub mod street;
 pub mod time;

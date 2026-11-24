@@ -384,7 +384,16 @@ fn suit_about(world: &World, slot: u16) -> String {
         return String::new();
     };
     let e = &tr.latest;
-    let side = if e.faction == world.faction { "Friendly" } else { "Hostile" };
+    // By the sector's law, from where the pilot is now (`World::foe`).
+    let t = f64::from(world.tick);
+    let side = match world.own.map(|o| o.pos) {
+        Some(from) if world.open_foe(slot, from, t) => "In open space with you: fair game, and you to them",
+        Some(from) if e.faction != world.faction && !world.foe(slot, from, t) => {
+            "Of another side, but the colony's reach stands between you"
+        }
+        _ if e.faction != world.faction => "Hostile",
+        _ => "Friendly",
+    };
     let who = match e.pilot {
         PilotKind::Drone => "no pilot: a drone",
         PilotKind::Agent => "flown by an Arrival without a body (DR)",

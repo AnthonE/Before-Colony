@@ -644,7 +644,14 @@ impl Session<'_> {
                 flags |= welcome_flags::INTERIOR;
                 (&inside.sector, 2)
             }
-            _ => (&self.game.sector, 1),
+            _ => {
+                // Space keeps the law the server was started with (the colony's inside harms
+                // nobody).
+                if self.game.pvp {
+                    flags |= welcome_flags::OPEN_SPACE;
+                }
+                (&self.game.sector, 1)
+            }
         };
         send_control(
             self.tx,

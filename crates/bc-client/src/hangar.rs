@@ -737,6 +737,7 @@ fn drive_bay(
             pill: false,
             doomed: false,
             staggered: false,
+            foe: false,
         });
         return;
     }

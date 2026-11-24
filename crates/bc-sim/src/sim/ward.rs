@@ -5,12 +5,12 @@
 //! who has closed in), and solid rounds, missiles, blades and flame go through: the field is
 //! energy against energy.
 
-use bc_proto::Faction;
 use bc_proto::buttons::MODE;
 use glam::Vec3;
 
 use super::Sim;
 use crate::collide::sphere_entry;
+use crate::colony::reach::{Party, hostile};
 use crate::config::DT;
 use crate::content::{SpecialKind, frame};
 
@@ -87,20 +87,21 @@ impl Sim {
         }
     }
 
-    /// The first field hostile to `faction` that a beam moving from `a` to `b` would cross into
-    /// from outside: how far along (0..1), and whose. With `when` (a tick and a fraction of the
+    /// The first field hostile to a beam's shooter (`by`, to the law: a field stops the beams of
+    /// whoever may set its sights on its suit, `colony::reach::hostile`, friendly fire or not) that
+    /// a beam moving from `a` to `b` would cross into from outside: how far along (0..1), and whose. With `when` (a tick and a fraction of the
     /// next), each field stands where its suit was then (lag compensation).
     pub(super) fn ward_sweep(
         &self,
         a: Vec3,
         b: Vec3,
-        faction: Faction,
+        by: Party,
         when: Option<(u32, f32)>,
     ) -> Option<(f32, usize)> {
         let mut first: Option<(f32, usize)> = None;
         for &j in &self.wards.suit[..usize::from(self.wards.n)] {
             let j = usize::from(j);
-            if self.suits.faction[j] == faction {
+            if !hostile(self.cfg.law, by, self.suits.party(j)) {
                 continue;
             }
             // (It may have fallen since the list was made.)

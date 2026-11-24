@@ -12,6 +12,7 @@ use bc_sim::TICK_HZ;
 use bc_sim::bodies::{Bodies, Body};
 use bc_sim::chunks::{self, held_pose, segment_pos, segment_rot};
 use bc_sim::colony::hall::{Drill, DrillEvent};
+use bc_sim::colony::reach::{Law, Party, hostile};
 use bc_sim::content::{SpecialKind, WeaponClass, frame, frame_name, weapon};
 use bc_sim::flight::FlightState;
 use bc_sim::ground::{Anchor, derive};
@@ -380,8 +381,12 @@ pub struct World {
     pub drill_news: Vec<DrillEvent>,
     seen: VecDeque<u16>,
     /// The side the pilot flies for, as the Welcome says (friends and foes, and lock-on targets,
-    /// go by it).
+    /// go by it, and by [`law`](Self::law)).
     pub faction: Faction,
+    /// The sector's law, as the Welcome says (`bc_sim::colony::reach`): by side, or pilots against
+    /// pilots out in open space. Who is fair game goes by it ([`World::foe`]), as the server's
+    /// hits and locks do.
+    pub law: Law,
     pub my_hits: u32,
     pub my_kills: u32,
     /// Of them, drones (as last seen).
@@ -427,6 +432,7 @@ impl World {
             drill_news: Vec::new(),
             seen: VecDeque::new(),
             faction,
+            law: Law::Sides,
             my_hits: 0,
             my_kills: 0,
             drone_kills: 0,
@@ -473,13 +479,87 @@ impl World {
         self.entities.get(slot as usize).and_then(Option::as_ref)
     }
 
+    /// Suit `slot` to the law at time `t` (ticks): its side and pilot as replicated, and whether
+    /// it's out in open space where it's drawn then (`bc_sim::colony::reach::Party`).
+    pub fn party_of(&self, slot: u16, t: f64) -> Option<Party> {
+        let track = self.entity(slot)?;
+        let e = &track.latest;
+        Some(Party::at(e.faction, e.pilot, track.sample(t, &self.bodies).pos))
+    }
+
+    /// The pilot's own suit to the law, at `pos`.
+    pub fn my_party(&self, pos: Vec3) -> Party {
+        Party::at(self.faction, PilotKind::Human, pos)
+    }
+
+    /// Whether the pilot at `from` and suit `slot` are fair game to each other at time `t`: of
+    /// another side, or both pilots out in open space under `Law::OpenSpace`
+    /// (`bc_sim::colony::reach::hostile`). The lock, the brackets, the radar and the chart go by it,
+    /// as the server's designation and its hits do.
+    pub fn foe(&self, slot: u16, from: Vec3, t: f64) -> bool {
+        self.party_of(slot, t).is_some_and(|p| hostile(self.law, self.my_party(from), p))
+    }
+
+    /// Of the pilot's own side, yet fair game: a pilot out in open space with them
+    /// (`Law::OpenSpace`). The HUD marks it so.
+    pub fn open_foe(&self, slot: u16, from: Vec3, t: f64) -> bool {
+        self.entity(slot).is_some_and(|tr| tr.latest.faction == self.faction) && self.foe(slot, from, t)
+    }
+
+    /// Whether a pilot of the agent's own side, out in open space with it (so its rounds would land
+    /// on them: `Law::OpenSpace`), is within `cone` (rad) of `aim` from `from` and nearer than
+    /// `range` at time `t`: an agent's brain holds its fire rather than hit someone by accident.
+    pub fn friend_in_line(&self, from: Vec3, aim: Vec3, range: f32, cone: f32, t: f64) -> bool {
+        self.law == Law::OpenSpace
+            && (0..self.entities.len() as u16).any(|slot| {
+                let Some(track) = self.entity(slot) else { return false };
+                let e = &track.latest;
+                if e.pilot == PilotKind::Drone
+                    || e.flags & ent_flags::WRECK != 0
+                    || self.own_slot() == Some(slot)
+                {
+                    return false;
+                }
+                let to = track.sample(t, &self.bodies).pos - from;
+                to.length() < range && aim.angle_between(to) <= cone && self.open_foe(slot, from, t)
+            })
+    }
+
+    /// A pilot within [`LOCK_PICK`] of the reticle (seen from `from` along `aim` at time `t`) whom
+    /// the colony's reach shelters from the pilot's fire, or the pilot's from theirs: one a shot
+    /// would pass by under `Law::OpenSpace` (another side's included). `None` under sides, where
+    /// a friend is a friend.
+    pub fn sheltered_under(&self, from: Vec3, aim: Vec3, t: f64) -> Option<u16> {
+        if self.law != Law::OpenSpace {
+            return None;
+        }
+        let me = self.my_party(from);
+        (0..self.entities.len() as u16)
+            .filter_map(|slot| {
+                let track = self.entity(slot)?;
+                let e = &track.latest;
+                if e.pilot == PilotKind::Drone
+                    || e.flags & ent_flags::WRECK != 0
+                    || self.own_slot() == Some(slot)
+                {
+                    return None;
+                }
+                let at = track.sample(t, &self.bodies).pos;
+                let shielded = !hostile(self.law, me, Party::at(e.faction, e.pilot, at));
+                let a = aim.angle_between(at - from);
+                (shielded && a <= LOCK_PICK).then_some((a, slot))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, slot)| slot)
+    }
+
     /// Lock assist: the hostile the pilot is pointing at, seen from `from` along `aim` at time `t`
     /// (ticks): the one nearest the reticle within [`LOCK_PICK`], kept while within [`LOCK_KEEP`].
     pub fn lock_assist(&self, from: Vec3, aim: Vec3, current: Option<u16>, t: f64) -> Option<u16> {
         let off = |slot: u16| {
             let track = self.entity(slot)?;
             let e = &track.latest;
-            if e.faction == self.faction || e.flags & ent_flags::WRECK != 0 {
+            if !self.foe(slot, from, t) || e.flags & ent_flags::WRECK != 0 {
                 return None;
             }
             let to = track.sample(t, &self.bodies).pos - from;
@@ -1027,7 +1107,10 @@ impl World {
                 firing: e.flags & (ent_flags::FIRING_PRIMARY | ent_flags::FIRING_SECONDARY) != 0,
                 aiming_at_me: pose.aim.dot(to_me) > 0.9986,
                 locked_on_me: e.flags & ent_flags::LOCKED_ON_YOU != 0,
+                // What a brain targets goes by side (bots don't turn on people); what can harm
+                // the pilot goes by the law, and the Orrery weighs it.
                 hostile: e.faction != self.faction,
+                threat: hostile(self.law, Party::at(e.faction, e.pilot, pose.pos), self.my_party(s.pos)),
                 // Standing on a body (not in the air over one): which way is up off it.
                 surface_n: pose.ground.filter(|g| !g.aloft).map_or(Vec3::ZERO, |g| g.up),
             });
@@ -1278,5 +1361,50 @@ mod tests {
         // Friends and wrecks aren't locked.
         world.faction = Faction::Almagest;
         assert_eq!(world.lock_assist(Vec3::ZERO, Vec3::Z, None, 10.0), None);
+    }
+
+    /// Under open space a pilot of the pilot's own side is fair game out past the colony's reach,
+    /// and nobody's in it or from it; a drone is a foe anywhere; under sides a friend is a friend.
+    #[test]
+    fn open_space_makes_a_friend_fair_game_only_past_the_reach() {
+        use bc_sim::colony::reach::Law;
+        use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS};
+        let mut world = World::new(Faction::Colonies);
+        let out = Vec3::new(0.0, 1_000.0, 0.0);
+        let inside = COLONY_CENTER - Vec3::Z * (COLONY_RADIUS + 1_500.0);
+        let suit = |slot: u16, faction, pilot, pos| EntityState {
+            slot,
+            faction,
+            pilot,
+            pos,
+            ..EntityState::default()
+        };
+        let mut put = |e: EntityState| world.entities[usize::from(e.slot)] = Some(EntityTrack::new(10, e));
+        put(suit(1, Faction::Colonies, PilotKind::Human, out + Vec3::Z * 500.0));
+        put(suit(2, Faction::Colonies, PilotKind::Agent, inside + Vec3::Z * 500.0));
+        put(suit(3, Faction::Almagest, PilotKind::Drone, inside + Vec3::X * 500.0));
+        put(suit(4, Faction::Alliance, PilotKind::Agent, inside - Vec3::Z * 500.0));
+        let t = 10.0;
+        assert!(!world.foe(1, out, t), "sides: a friend");
+        assert!(world.foe(3, inside, t) && world.foe(4, inside, t), "sides: another side, anywhere");
+        assert_eq!(world.sheltered_under(inside, Vec3::Z, t), None, "sides: nothing sheltered");
+        assert!(!world.friend_in_line(out, Vec3::Z, 1_000.0, 0.07, t), "sides: a friend's never hit");
+        world.law = Law::OpenSpace;
+        // An agent holds its fire with a friend in the line out in open space, not past its rounds'
+        // carry, nor off the line.
+        assert!(world.friend_in_line(out, Vec3::Z, 1_000.0, 0.07, t));
+        assert!(!world.friend_in_line(out, Vec3::Z, 400.0, 0.07, t));
+        assert!(!world.friend_in_line(out, Vec3::X, 1_000.0, 0.07, t));
+        assert!(world.foe(1, out, t) && world.open_foe(1, out, t), "out in open space together");
+        assert!(!world.foe(1, inside, t), "from the reach, nobody");
+        assert!(!world.foe(2, inside, t) && !world.foe(4, inside, t), "in it, no pilot of any side");
+        assert!(world.foe(3, inside, t) && !world.open_foe(3, inside, t), "a drone, anywhere");
+        // The lock picks the pilot out in open space, never one sheltered; and a trigger pulled on
+        // one sheltered is told why.
+        assert_eq!(world.lock_assist(out, Vec3::Z, None, t), Some(1));
+        assert_eq!(world.lock_assist(inside, Vec3::Z, None, t), None);
+        assert_eq!(world.sheltered_under(inside, Vec3::Z, t), Some(2));
+        assert_eq!(world.sheltered_under(inside, -Vec3::Z, t), Some(4));
+        assert_eq!(world.sheltered_under(out, Vec3::Z, t), None);
     }
 }

@@ -292,6 +292,9 @@ pub struct Suits {
     pub parkable: Box<[Body]>,
     /// Suits that stand still, for replication's priorities.
     pub still: BitSet,
+    /// Suits out in open space, past the colony's reach (`colony::reach`), as of this tick's
+    /// flight: who a pilot may harm under `Law::OpenSpace` (`Sim::party`).
+    pub open: BitSet,
     /// The Charter Board's trainers, boarded at the Blast Hall's gantry (`sim::launch`): they dock
     /// back there, not at the inner gate.
     pub trainer: BitSet,
@@ -364,12 +367,24 @@ impl Suits {
             hide_spot: boxed(cap, NO_SPOT),
             parkable: boxed(cap, Body::None),
             still: BitSet::new(cap),
+            open: BitSet::new(cap),
             trainer: BitSet::new(cap),
             doom: boxed(cap, crate::sim::Doom::NONE),
             blown: BitSet::new(cap),
             impact: boxed(cap, 0.0f32),
             stagger: boxed(cap, 0u8),
             free: FreeList::full(cap),
+        }
+    }
+
+    /// Suit `j` to the law (`colony::reach`): its side, whether a drone flies it, and whether it's
+    /// out in open space as of this tick's flight.
+    #[inline]
+    pub fn party(&self, j: usize) -> crate::colony::reach::Party {
+        crate::colony::reach::Party {
+            faction: self.faction[j],
+            drone: self.pilot[j] == PilotKind::Drone,
+            open: self.open.get(j),
         }
     }
 
@@ -393,6 +408,7 @@ impl Suits {
         self.reset_ground(idx);
         self.parkable[idx] = Body::None;
         self.ace[idx] = crate::content::aces::NO_ACE;
+        self.open.set(idx, false);
         Some(SuitId(Handle { idx: idx as u16, generation: self.generation[idx] }))
     }
 

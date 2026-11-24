@@ -1664,7 +1664,7 @@ fn missile_seekers_drop_parked_and_hidden_targets_but_not_ones_in_the_open() {
             sim.missiles.spawn(
                 WeaponKind::HomingMissile,
                 ha.idx() as u16,
-                Faction::Almagest,
+                bc_sim::colony::reach::Party::pilot(Faction::Almagest),
                 target,
                 pos,
                 vel,

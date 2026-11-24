@@ -120,13 +120,13 @@ pub fn aim_hook(
     };
     let t = core.render_tick(crate::net::now_s());
     let w = &core.world;
+    // The nearest foe by the sector's law (`World::foe`).
     let nearest = w
         .entities
         .iter()
-        .flatten()
-        .filter(|tr| {
-            tr.latest.faction != w.faction && tr.latest.flags & bc_proto::snapshot::ent_flags::WRECK == 0
-        })
+        .enumerate()
+        .filter_map(|(slot, tr)| tr.as_ref().filter(|_| w.foe(slot as u16, me.pos, t)))
+        .filter(|tr| tr.latest.flags & bc_proto::snapshot::ent_flags::WRECK == 0)
         .map(|tr| tr.sample(t, &w.bodies).pos - me.pos)
         .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
     dev.set("hostile_range", nearest.map_or(-1.0, |r| f64::from(r.length())));

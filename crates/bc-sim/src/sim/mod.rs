@@ -40,7 +40,7 @@ mod stagger;
 mod ward;
 mod wire;
 
-use bc_proto::buttons::{GRAB, GRIP, MODE, ORRERY};
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, GRAB, GRIP, MELEE, MODE, ORRERY, SPECIAL};
 use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind};
 use glam::{Quat, Vec3};
@@ -104,6 +104,12 @@ const SQUAD_SIZE: u8 = 4;
 /// within this of the surface, m (`keep_off_landmarks`).
 const PUSH_REACH: f32 = 200.0;
 const PUSH_HEIGHT: f32 = 150.0;
+/// A seized suit's autopilot in open space holds its fire while a pilot of its own side is within
+/// about 4° of its aim (cos 0.07 rad), or within this in any direction, m (`Sim::friend_in_line`);
+/// and the triggers it lets go of: guns, blade, and the specials that strike.
+const HOLD_FIRE_COS: f32 = 0.997_551;
+const HOLD_FIRE_CLOSE: f32 = 100.0;
+const HOLD_TRIGGERS: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE | SPECIAL;
 
 #[derive(Clone, Copy, Debug)]
 struct Squad {
@@ -369,6 +375,41 @@ impl Sim {
         self.suits.used.iter().any(|i| self.in_bay(i) && self.suits.anchor[i].body == Body::Bay(n))
     }
 
+    /// Who's out in open space this tick, past the colony's reach (`colony::reach`), from where the
+    /// tick's flight left them: every hit and lock after it asks [`party`](Self::party). (Inside
+    /// the colony nobody is: nothing there strikes a suit anyway.)
+    fn reach_step(&mut self) {
+        if self.interior() {
+            return;
+        }
+        let s = &mut self.suits;
+        for i in s.used.iter() {
+            let open = s.alive.get(i) && !crate::colony::reach::in_reach(s.flight[i].pos);
+            s.open.set(i, open);
+        }
+    }
+
+    /// Suit `i` to the law (`colony::reach`): its side, whether a drone flies it, and whether it's
+    /// out in open space this tick.
+    #[inline]
+    pub fn party(&self, i: usize) -> crate::colony::reach::Party {
+        self.suits.party(i)
+    }
+
+    /// Whether `by` may set its sights on `on` (lock it, count it a threat, have a ward stop its
+    /// beams) under the sector's law (`colony::reach::hostile`).
+    #[inline]
+    pub fn hostile_to(&self, by: usize, on: usize) -> bool {
+        crate::colony::reach::hostile(self.cfg.law, self.party(by), self.party(on))
+    }
+
+    /// Whether a blow `by` strikes lands on `on` under the sector's law and its friendly fire
+    /// (`colony::reach::harms`).
+    #[inline]
+    pub fn harms(&self, by: usize, on: usize) -> bool {
+        crate::colony::reach::harms(self.cfg.law, self.cfg.friendly_fire, self.party(by), self.party(on))
+    }
+
     /// This sector is the colony's inside (`colony::interior`).
     #[inline]
     pub fn interior(&self) -> bool {
@@ -421,6 +462,7 @@ impl Sim {
         self.wrecks_follow_hulks();
         self.spatial_rebuild();
         self.record_history(t);
+        self.reach_step();
         self.cover_step(t);
         self.lock_step();
         self.weapons_step(t);
@@ -611,6 +653,7 @@ impl Sim {
             aiming_at_me: s.aim[j].dot(to_me) > COS_3_DEG,
             locked_on_me: s.input[j].lock_target == i as u16,
             hostile: s.faction[j] != s.faction[i],
+            threat: self.hostile_to(j, i),
             surface_n: self.surface_n(j),
         }
     }
@@ -674,12 +717,40 @@ impl Sim {
                 // in hand and on the ground, and the frame's mode (a seizure neither transforms the
                 // suit, drops its jammer, nor lets go of the surface it stands on).
                 cmd.buttons |= ORRERY | (self.suits.input[i].buttons & (GRAB | MODE | GRIP));
+                // It hunts by side, and in open space lets go of its triggers rather than strike
+                // a pilot of its own side by accident.
+                let reach = target.as_ref().map_or(range, |c| (c.dist + 150.0).max(range));
+                if cmd.buttons & HOLD_TRIGGERS != 0 && self.friend_in_line(i, cmd.aim, reach) {
+                    cmd.buttons &= !HOLD_TRIGGERS;
+                }
             }
             self.suits.ai[i] = ai_state;
             self.suits.input[i] = cmd;
         }
         self.iter_bits = alive;
         self.scratch = scratch;
+    }
+
+    /// Whether a pilot of suit `i`'s own side whom its blows would harm (both out in open space
+    /// under `Law::OpenSpace`, by this tick's flight or the last) is in the line of `aim` nearer
+    /// than `reach`, or anywhere within [`HOLD_FIRE_CLOSE`]: a seized suit's autopilot holds its
+    /// fire then, as agents' brains do (`bc_client_core::brains`). Never under sides.
+    fn friend_in_line(&self, i: usize, aim: Vec3, reach: f32) -> bool {
+        use crate::colony::reach::{Law, in_reach};
+        let s = &self.suits;
+        let out = |j: usize| s.open.get(j) || !in_reach(s.flight[j].pos);
+        if self.cfg.law != Law::OpenSpace || !out(i) {
+            return false;
+        }
+        let (from, aim) = (s.flight[i].pos, normalize_or(aim, Vec3::Z));
+        s.alive.iter().any(|j| {
+            if j == i || s.pilot[j] == PilotKind::Drone || s.faction[j] != s.faction[i] || !out(j) {
+                return false;
+            }
+            let to = s.flight[j].pos - from;
+            let d = length(to);
+            d < HOLD_FIRE_CLOSE || (d < reach && aim.dot(to) > HOLD_FIRE_COS * d)
+        })
     }
 
     /// A brain's stick never flies its suit into a landmark: near one (its feet within

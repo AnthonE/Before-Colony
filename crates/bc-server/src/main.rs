@@ -123,6 +123,25 @@ struct Args {
     /// Send people's voices to agents' sessions too (off: voices are for people).
     #[arg(long)]
     voice_agents: bool,
+    /// Suits fight pilots away from the colony: past its reach (5 km from the ring's hull and the
+    /// hub) pilots harm pilots of any side, inside it none (`on`, or the flag alone); `off`: by
+    /// side. Default: on under survival rules, off under arcade's (which spawn every side's pilots
+    /// together in open space, for the combat suites and load tests).
+    #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "on")]
+    pvp: Option<Switch>,
+}
+
+/// A knob's word on the command line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+enum Switch {
+    On,
+    Off,
+}
+
+impl Switch {
+    fn on(self) -> bool {
+        self == Switch::On
+    }
 }
 
 /// The store's list of traders to stand on the Exchange floor: `--floor-visitors` as given (`none`:
@@ -198,10 +217,14 @@ fn main() -> anyhow::Result<()> {
         dev_hooks: args.dev_hooks,
         voice: !args.no_voice,
         voice_agents: args.voice_agents,
+        pvp: args.pvp.map(Switch::on),
         ..Config::default()
     };
     if args.no_voice {
         tracing::warn!("--no-voice: proximity voice is off (every frame dropped)");
+    }
+    if cfg.pvp_on() {
+        tracing::info!("open space (--pvp): past the colony's reach pilots harm pilots of any side");
     }
     if cfg.dev_hooks {
         tracing::warn!(
@@ -269,6 +292,19 @@ mod tests {
     fn the_dev_hooks_are_off_unless_asked_for() {
         assert!(!Args::parse_from(["bc-server"]).dev_hooks);
         assert!(Args::parse_from(["bc-server", "--dev-hooks"]).dev_hooks);
+    }
+
+    #[test]
+    fn open_space_is_survivals_and_asked_for_under_arcade() {
+        let law = |argv: &[&str]| {
+            let a = Args::parse_from(argv);
+            Config { rules: a.rules, pvp: a.pvp.map(Switch::on), ..Config::default() }.pvp_on()
+        };
+        assert!(law(&["bc-server"]), "survival: on");
+        assert!(!law(&["bc-server", "--rules", "arcade"]), "arcade: off");
+        assert!(law(&["bc-server", "--rules", "arcade", "--pvp"]), "the flag alone: on");
+        assert!(law(&["bc-server", "--rules", "arcade", "--pvp", "on"]));
+        assert!(!law(&["bc-server", "--pvp", "off"]), "survival, turned off");
     }
 
     #[test]

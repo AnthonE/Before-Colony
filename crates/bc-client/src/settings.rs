@@ -178,9 +178,12 @@ pub fn update_hints(
         // A hostile within a couple of kilometres: something to lock on to.
         let from = g.core.own_view().map_or(g.core.predict.state.pos, |v| v.pos);
         let w = &g.core.world;
-        let hostile_near = w.entities.iter().flatten().any(|tr| {
+        // (Fair game by the sector's law: `World::foe`.)
+        let t = f64::from(w.tick);
+        let hostile_near = w.entities.iter().enumerate().any(|(slot, tr)| {
+            let Some(tr) = tr else { return false };
             let e = &tr.latest;
-            e.faction != w.faction
+            w.foe(slot as u16, from, t)
                 && e.flags & bc_proto::snapshot::ent_flags::WRECK == 0
                 && tr.latest.pos.distance(from) < 2_000.0
                 && e.on.is_none()

@@ -18,6 +18,7 @@ use bc_sector::{
     read_packet,
 };
 use bc_sim::SimConfig;
+use bc_sim::colony::reach::Law;
 use bc_sim::content::landmarks::LANDMARKS_VERSION;
 use bc_sim::sim::Gone;
 use crossbeam_queue::ArrayQueue;
@@ -142,6 +143,8 @@ pub struct GameShared {
     pub plaza: Arc<crate::plaza::Plaza>,
     /// Anime flight rules (else the simulator's).
     pub anime: bool,
+    /// Open space (`Config::pvp_on`): the space sector keeps `Law::OpenSpace`, and its Welcome says so.
+    pub pvp: bool,
     /// The Colony Exchange.
     pub market: Arc<Market>,
     /// The Charter Board: contracts and the colony's great works.
@@ -324,6 +327,7 @@ pub struct StatusView {
     watch: Arc<crate::watch::Watch>,
     dispatch: Arc<crate::dispatch::Dispatch>,
     anime: bool,
+    pvp: bool,
     market: Arc<Market>,
     charter: Arc<Charter>,
     proving: Arc<Proving>,
@@ -365,6 +369,9 @@ impl GameRuntime {
                 max_sleepers: cfg.max_sleepers,
                 survival,
                 flight: cfg.flight.rules(),
+                // Past the colony's reach, pilots against pilots (`colony::reach`); the colony's
+                // inside harms nobody anyway.
+                law: if cfg.pvp_on() { Law::OpenSpace } else { Law::Sides },
                 ..SimConfig::default()
             },
             max_clients: cfg.max_clients,
@@ -483,6 +490,7 @@ impl GameRuntime {
             inside,
             plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone()).with_watch(watch)),
             anime: cfg.flight == Flight::Anime,
+            pvp: cfg.pvp_on(),
             market,
             charter,
             proving,
@@ -587,6 +595,7 @@ impl GameRuntime {
             watch: self.shared.watch.clone(),
             dispatch: self.shared.dispatch.clone(),
             anime: self.shared.anime,
+            pvp: self.shared.pvp,
             market: self.shared.market.clone(),
             charter: self.shared.charter.clone(),
             proving: self.shared.proving.clone(),
@@ -829,6 +838,8 @@ impl StatusView {
                     .collect::<serde_json::Map<_, _>>(),
             },
             "flight": if self.anime { "anime" } else { "real" },
+            // Who harms whom in space (`bc_sim::colony::reach`).
+            "law": if self.pvp { "open_space" } else { "sides" },
             // Survival: pilots in their hangar bays (and out of them), the exchange's ledger, and
             // the Charter Board.
             "hangars": hangars,

@@ -209,7 +209,9 @@ pub fn think(p: &Perception, ai: &mut AiState, tick: u32, profile: &DroneProfile
     } else if length(p.me.pos - ai.anchor) > 4_000.0 {
         options[5].1 = 0.8;
     }
-    let incoming = p.hostiles().find(|c| c.aiming_at_me && c.firing && c.dist < 3_000.0);
+    // It dodges whoever can harm it (`Contact::threat`: in open space, a pilot of its own side
+    // too), though it hunts by side.
+    let incoming = p.threats().find(|c| c.aiming_at_me && c.firing && c.dist < 3_000.0);
     if let Some(att) = incoming
         && tick >= ai.evade_until
         && rng.next_f32() < 0.6

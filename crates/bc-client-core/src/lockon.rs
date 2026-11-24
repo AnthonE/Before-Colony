@@ -80,7 +80,7 @@ pub struct Lock {
     hold: Option<f32>,
 }
 
-/// One candidate for a lock: a live hostile, its angle off the aim, its range.
+/// One candidate for a lock: a live foe (`World::foe`), its angle off the aim, its range.
 struct Candidate {
     slot: u16,
     generation: u8,
@@ -92,7 +92,8 @@ fn candidates(world: &World, from: Vec3, aim: Vec3, t: f64) -> impl Iterator<Ite
     (0..world.entities.len() as u16).filter_map(move |slot| {
         let track = world.entity(slot)?;
         let e = &track.latest;
-        if e.faction == world.faction || e.flags & ent_flags::WRECK != 0 || world.own_slot() == Some(slot) {
+        // Fair game by the sector's law: another side's, or a pilot out in open space with us.
+        if !world.foe(slot, from, t) || e.flags & ent_flags::WRECK != 0 || world.own_slot() == Some(slot) {
             return None;
         }
         let to = track.sample(t, &world.bodies).pos - from;

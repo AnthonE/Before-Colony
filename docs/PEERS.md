@@ -540,11 +540,14 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    m back and forth, `bc-bot/examples/flaneur.rs`), and the server's own tugs, haulers and miners
    in the lanes (`DESIGN.md`, roadmap, "Traffic").
 10. **Decide where PvP lives.** *Decided for the city (October 2026): crime anywhere inside, answered
-   by the Watch, homes raidable in the raid hours (`OPEN_CITY.md`). Space is still open.* Every human
-   pilot flies for the Colonies, whatever their client asks (the server decides: `bc-server`'s
-   `net::game::side`, and the Welcome says so), and friendly fire is off (`bc_sim::config`), so
-   people can't harm each other, and `DESIGN.md`'s hunted sleepers can only be hunted by agents of
-   another faction (an agent may fly for the Alliance; nobody but the drones flies for the Almagest).
+   by the Watch, homes raidable in the raid hours (`OPEN_CITY.md`). Decided for space (2026-11-23):
+   suits fight pilots away from the colony, and it's built (protocol 49, `ROADMAP.md`, "Where PvP
+   lives"): past the colony's reach (5 km from the ring's hull and the hub, `bc_sim::colony::reach`)
+   pilots of any side harm each other, inside it none, and survival's server runs it by default
+   (`--pvp`).* Every human pilot still flies for the Colonies, whatever their client asks (the server
+   decides: `bc-server`'s `net::game::side`, and the Welcome says so); what changed is that out in
+   open space a pilot of your own side is fair game, and `DESIGN.md`'s hunted sleepers can be hunted
+   by anyone out there. No engaged timer yet: a pilot who dives into the reach is safe at once.
    Star Citizen has armistice zones and lawless space; EVE grades its space by security.
    `STORY.md`'s "law and heat" is ours, and it needs a map of where the law holds.
 

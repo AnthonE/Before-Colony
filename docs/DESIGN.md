@@ -1537,11 +1537,14 @@ wake in their bay. A guest flying sees DISCONNECT.
   it, and their eyes find it only within 400 m, or 150 m in a hide spot. Its allies see it all
   along.
 - *Hunted.* Drones leave sleepers alone; pilots of another side can shoot them down and
-  salvage what's left. Every human pilot flies for the Colonies (the server decides, whatever the
-  client asks) and friendly fire is off, so today only agents of another side hunt them, and
-  people can't harm each other: where PvP lives is an open decision (`ROADMAP.md`, "Where PvP
-  lives"). A sleeper destroyed stays gone, and its pilot is told by whom when they're back. Parked
-  is safer than drifting, and hidden safer still.
+  salvage what's left, and so can any pilot out in open space, past the colony's reach, where the
+  server keeps open space (`--pvp`, survival's default: `ROADMAP.md`, "Where PvP lives"). Inside
+  the reach no pilot harms a pilot, so a suit asleep in it is safe from everyone but drones, which
+  leave it alone. What a sleeper hides (parked dark, in a hide spot, the Eclipse) it hides from
+  anyone who could hunt it: a sleeper out in open space hides from its own side's pilots too,
+  whether they're out there or just inside the line. A sleeper destroyed stays
+  gone, and its pilot is told by whom when they're back. Parked is safer than drifting, and hidden
+  safer still.
 - *Room.* At most 256 sleepers a sector; past that, or when the sector's suits run out, the longest
   asleep is cleared (those in hide spots last), and its pilot is told.
 - *A restart.* Under survival rules, a suit left on its feet in a landmark's hide spot is saved with

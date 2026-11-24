@@ -31,6 +31,46 @@ fn golden_hash_wasm() {
     assert_eq!(scenario_hash(), GOLDEN);
 }
 
+/// Hash after 600 ticks of the reference scenario under `Law::OpenSpace`, crowded: its 24 Colonies
+/// pilots, out by the field past the colony's reach, hit one another as well as the drones
+/// (`colony::reach`). Update deliberately when the sim changes.
+const OPEN_SPACE_GOLDEN: u64 = 0xec56_7b6c_210c_3c68;
+
+fn open_space_hash() -> u64 {
+    use bc_proto::PilotKind;
+    use bc_proto::events::Event;
+
+    let (mut sim, players) = common::arena(24, 24, 42);
+    sim.cfg.law = bc_sim::colony::reach::Law::OpenSpace;
+    let mut pilot_hits = 0;
+    for _ in 0..600 {
+        let from = sim.events.next_seq();
+        common::run(&mut sim, &players, 1);
+        for s in from..sim.events.next_seq() {
+            if let Some(Event::Hit { shooter, target, .. }) = sim.events.get(s) {
+                let pilot = |i: u16| sim.suits.pilot[usize::from(i)] != PilotKind::Drone;
+                pilot_hits += usize::from(pilot(*shooter) && pilot(*target));
+            }
+        }
+    }
+    assert!(pilot_hits > 0, "no pilot hit a pilot in open space");
+    sim.state_hash()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn open_space_golden_native() {
+    let h = open_space_hash();
+    assert_eq!(h, open_space_hash(), "must be reproducible within a process");
+    assert_eq!(h, OPEN_SPACE_GOLDEN, "open space's hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn open_space_golden_wasm() {
+    assert_eq!(open_space_hash(), OPEN_SPACE_GOLDEN);
+}
+
 /// Hash after 450 ticks of the Lodestars duelling in pairs among drones: every blade, the
 /// Pincer Strike, the Talon, the flamethrower, the Eclipse, guided missiles, Full Salvo,
 /// Aquila and the Lodestars' guns (changes deliberately as their mechanics arrive).
