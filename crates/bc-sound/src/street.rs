@@ -25,8 +25,13 @@ pub const STRIDE: (f32, f32) = (0.6, 2.4);
 /// to [`STEP_QUIET`].
 pub const STEP_FULL: f32 = 7.0;
 pub const STEP_QUIET: f32 = 0.45;
-/// A frame's move farther than this is a cut (a lift's door, the ring's seam), not a walk, m.
+/// A frame's move farther than this, m, and quicker than [`CUT_SPEED`] m/s, is a cut (a lift's
+/// door, the ring's seam), not a walk. (A slow frame's long stride is still a walk: the walker catches up
+/// with up to 4 s of a guided walk in one frame, `bc-client`'s `GUIDE_CATCH_UP`.)
 pub const TELEPORT: f32 = 2.5;
+pub const CUT_SPEED: f32 = 15.0;
+/// The longest frame steps are paced over, s (a hidden tab's return is one frame of this).
+const LONGEST_FRAME: f64 = 4.0;
 
 /// A car going by is heard within this, m.
 pub const PASS_RADIUS: f32 = 60.0;
@@ -110,7 +115,7 @@ impl Steps {
         // Across the floor only: a stair's rise is no extra step.
         let (dx, dz) = (at[0] - last[0], at[2] - last[2]);
         let d = (dx * dx + dz * dz).sqrt();
-        if !grounded || d > TELEPORT {
+        if !grounded || d > TELEPORT.max(CUT_SPEED * dt) {
             // In the air, nothing banks (and landing releases no burst); a cut walks nowhere.
             self.banked = 0.0;
             return None;
@@ -174,7 +179,10 @@ impl Street {
     /// Steps once a frame: `cue` is called for every one-shot this frame starts, with its gain
     /// (0..1).
     pub fn frame(&mut self, now: f64, i: &StreetIn, cue: &mut dyn FnMut(Cue, f32)) -> StreetOut {
-        let dt = self.then.map_or(0.0, |t| (now - t).clamp(0.0, 0.25)) as f32;
+        // The frame's time: all of it for the steps (paced by the ground a slow frame covers), a
+        // quarter of a second at most for the loops' easing.
+        let frame = self.then.map_or(0.0, |t| (now - t).clamp(0.0, LONGEST_FRAME)) as f32;
+        let dt = frame.min(0.25);
         self.then = Some(now);
         if let Some(p) = self.prev {
             if i.rides > p.rides {
@@ -187,7 +195,7 @@ impl Street {
         }
         match i.feet {
             Some(at) => {
-                if let Some(gain) = self.steps.sample(at, i.grounded, dt) {
+                if let Some(gain) = self.steps.sample(at, i.grounded, frame) {
                     cue(Cue::StreetStep, gain);
                 }
             }
@@ -310,6 +318,25 @@ mod tests {
         };
         let (slow, fast) = (count(30.0), count(240.0));
         assert!(slow.abs_diff(fast) <= 1, "{slow} at 30 Hz, {fast} at 240 Hz");
+    }
+
+    #[test]
+    fn a_slow_machine_still_walks() {
+        // Two frames a second (the walker covers each frame's ground in one stride, 2.1 m at a
+        // walk): steps still come, fewer than at a smooth rate but never none.
+        let mut s = Street::default();
+        let mut n = 0;
+        for k in 0..20 {
+            let t = k as f64 * 0.5;
+            n += step(&mut s, t, walking([4.2 * t as f32, 0.0, 0.0])).1.len();
+        }
+        assert!((15..=28).contains(&n), "{n} steps in 10 s at 2 Hz");
+        // A guided walk catching up a whole second in a frame (4.2 m): a step, not a cut.
+        let (_, cues) = step(&mut s, 11.0, walking([4.2 * 11.0, 0.0, 0.0]));
+        assert!(cues.iter().any(|q| q.0 == Cue::StreetStep), "{cues:?}");
+        // But a lift's door is a cut however slow the frame.
+        let (_, cues) = step(&mut s, 11.7, walking([4.2 * 11.0, 0.0, 300.0]));
+        assert!(cues.is_empty(), "{cues:?}");
     }
 
     #[test]
