@@ -168,7 +168,7 @@ fn hangar(place: Place, colony: bool, home: Option<(u32, bool)>) -> Value {
         [("MADE 2 × STEEL".to_string(), true), ("not enough nickel-iron for 6 batches".to_string(), false)]
             .into_iter()
             .collect();
-    crate::terminal::hangar_json(&hangar_state(place), &log, colony, home)
+    crate::terminal::hangar_json(&hangar_state(place), &log, colony, home, bc_proto::Faction::Colonies)
 }
 
 /// The suit's console, open on `slot`, with the bay as `tweak` leaves it.
@@ -177,7 +177,7 @@ fn suit(name: &'static str, about: &'static str, slot: &'static str, tweak: fn(&
     let state = hangar_state_with(Place::Hangar, tweak);
     Scene {
         slot: Some(slot),
-        hangar: Some(crate::terminal::hangar_json(&state, &log, true, None)),
+        hangar: Some(crate::terminal::hangar_json(&state, &log, true, None, bc_proto::Faction::Colonies)),
         ..terminal(name, about, "hangar", "suit", None)
     }
 }
@@ -440,6 +440,23 @@ pub fn gallery() -> Gallery {
             "The suit's console on its service: propellant, wear, repair all.",
             "service",
             |_| {},
+        ),
+        suit(
+            "suit-paint",
+            "The suit's console on its paint: black glass and gunmetal (Coalsack, in the wallet), the Ring on its shoulder, and the swatches that come with the rest.",
+            "paint",
+            |h| {
+                use bc_sim::content::cosmetics::{Cosmetic, default_livery, paint};
+                h.cosmetics = Cosmetic::Coalsack.bit();
+                let own = default_livery(FrameId::Argo, bc_proto::Faction::Colonies);
+                let p = bc_econ::livery::Paint {
+                    body: paint::GLASS,
+                    trim: paint::GUNMETAL,
+                    decal: 1,
+                    ..bc_econ::livery::Paint::of(own, 0)
+                };
+                let _ = h.paint(p, own);
+            },
         ),
         suit("suit-empty", "The suit's console with the gantry empty.", "torso", |h| {
             let _ = h.dismantle();

@@ -2,8 +2,9 @@
 //! `model`), posed from its [`SuitDrive`]: the network's interpolated or predicted state, or a
 //! showcase script.
 
+use bc_model::Lod;
 use bc_model::rig::{self, BONES, Bone};
-use bc_model::{Lod, paint};
+use bc_proto::control::Look;
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{Faction, FrameId, Part, PilotKind, WeaponKind};
 use bc_sim::content::{SpecialKind, frame};
@@ -35,6 +36,8 @@ const SHADOW_HEIGHT: f32 = 30.0;
 pub struct SuitVisual {
     generation: u8,
     frame: FrameId,
+    /// What it was built wearing (a repaint rebuilds it).
+    look: Look,
     /// Bone entities, in [`Bone`] order.
     pub bones: [Entity; BONES],
     /// The livery, as every bone's hull tag (damage is applied on top: `damage`).
@@ -63,6 +66,8 @@ pub struct SuitVisual {
     shadow: Entity,
     /// The Pill on its shoulder (hidden unless its pilot's wallet holds it).
     decal: Option<Entity>,
+    /// The decal worn on its right shoulder, if it wears one.
+    worn: Option<Entity>,
 }
 
 impl SuitVisual {
@@ -92,27 +97,18 @@ pub struct BladeGlow {
 const IGNITE: f32 = 12.0;
 const RETRACT: f32 = 7.0;
 
-/// Eye colours (the hull shader's order).
-const EYE_GREEN: u8 = 0;
-const EYE_PINK: u8 = 1;
-
-/// Body, trim and accent paint, and eye colour, for a frame in a faction's livery.
+/// Body, trim and accent paint, and eye colour, for a frame in a faction's livery
+/// (`bc_sim::content::cosmetics::default_livery`): a suit nobody painted.
 pub fn livery(frame: FrameId, faction: Faction) -> (u8, u8, u8, u8) {
-    use paint::*;
-    match (frame, faction) {
-        (FrameId::Altair | FrameId::Aquila, _) => (WHITE, BLUE, RED, EYE_GREEN),
-        (FrameId::Antares, _) => (WHITE, RED, DARK, EYE_GREEN),
-        (FrameId::Algol, _) => (DARK, BLUE, RED, EYE_GREEN),
-        (FrameId::Canopus, _) => (ALLIANCE_TAN, WHITE, RED, EYE_GREEN),
-        (FrameId::Thuban, _) => (WHITE, ALMAGEST_GREEN, YELLOW, EYE_GREEN),
-        (FrameId::Corvus, _) => (CORVUS_WHITE, CORVUS_BLUE, RED, EYE_PINK),
-        (FrameId::Cetus, _) => (CETUS_OLIVE, ALMAGEST_GREY, DARK, EYE_PINK),
-        // The prototype pair, in the colours they were rolled out in: blue and red, grey vents.
-        (FrameId::Sagittarius, _) => (BLUE, HULL, DARK, EYE_PINK),
-        (FrameId::Corona, _) => (RED, HULL, DARK, EYE_PINK),
-        (FrameId::Argo, Faction::Almagest) => (ALMAGEST_GREEN, ALMAGEST_GREY, DARK, EYE_PINK),
-        (FrameId::Argo, Faction::Colonies) => (CORVUS_BLUE, WHITE, RED, EYE_GREEN),
-        (FrameId::Argo, Faction::Alliance) => (ALLIANCE_TAN, DARK, RED, EYE_PINK),
+    let l = bc_sim::content::cosmetics::default_livery(frame, faction);
+    (l.body, l.trim, l.accent, l.eye)
+}
+
+/// The livery a suit is drawn in: its pilot's paint (the roster's word), else its frame's own.
+pub fn livery_of(d: &SuitDrive) -> (u8, u8, u8, u8) {
+    match d.look.livery {
+        Some(l) => (l.body, l.trim, l.accent, l.eye),
+        None => livery(d.frame, d.faction),
     }
 }
 
@@ -190,7 +186,7 @@ fn build_suit(
     ribbons: &Ribbons,
     d: &SuitDrive,
 ) {
-    let (body, trim, accent, eye) = livery(d.frame, d.faction);
+    let (body, trim, accent, eye) = livery_of(d);
     let tag = HullTag {
         weathering: d.weathering,
         ..HullTag::livery(body, trim, accent, eye, (d.slot as u8).wrapping_mul(37))
@@ -392,10 +388,27 @@ fn build_suit(
             ))
             .id()
     });
+    // A decal its pilot chose, on the right shoulder's outer face.
+    let worn = lib.decal_right(d.frame).zip(pal.decal(d.look.decal)).map(|(place, material)| {
+        commands
+            .spawn((
+                Mesh3d(shapes.quad.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_translation(place.pos)
+                    .with_rotation(Quat::from_rotation_arc(Vec3::Z, place.normal))
+                    .with_scale(Vec3::splat(place.size)),
+                NotShadowCaster,
+                SuitPartMarker,
+                Visibility::Hidden,
+                ChildOf(bones[place.bone.index()]),
+            ))
+            .id()
+    });
     commands.entity(root).insert((
         SuitVisual {
             generation: d.generation,
             frame: d.frame,
+            look: d.look,
             bones,
             tag,
             lod: Lod::Near,
@@ -411,6 +424,7 @@ fn build_suit(
             shimmer,
             shadow,
             decal,
+            worn,
         },
         Anim::default(),
         Damage::new(d.slot),
@@ -431,7 +445,7 @@ pub fn build_suits(
 ) {
     for (e, d, vis) in &roots {
         match vis {
-            Some(v) if v.generation == d.generation && v.frame == d.frame => {}
+            Some(v) if v.generation == d.generation && v.frame == d.frame && v.look == d.look => {}
             Some(_) => {
                 commands.entity(e).despawn_children();
                 build_suit(&mut commands, e, &lib, &shapes, &pal, &surfaces.armour, &ribbons, d);
@@ -467,6 +481,11 @@ pub fn pose_suits(
             && let Ok((_, mut vis)) = parts.get_mut(decal)
         {
             set_visible(&mut vis, d.pill && !wreck && v.lod == Lod::Near);
+        }
+        if let Some(worn) = v.worn
+            && let Ok((_, mut vis)) = parts.get_mut(worn)
+        {
+            set_visible(&mut vis, !wreck && v.lod == Lod::Near);
         }
         // The main thrusters: longer and brighter with forward thrust, brightest on boost.
         let power = plume_power(d);

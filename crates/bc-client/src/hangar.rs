@@ -84,7 +84,15 @@ pub struct BayState {
     /// What its thrusters are doing, in its own frame (-1..1 each axis), and whether it's boosting.
     pub thrust: Vec3,
     pub boost: bool,
+    /// What it wears: its paint as the pilot may show it, or the console's draft while the page
+    /// tries one on it (`preview`, `paint_preview`).
+    pub look: bc_proto::control::Look,
+    pub preview: Option<bc_econ::livery::Paint>,
 }
+
+/// What the suit in the gantry was last built as: its line, its parts' armour (eighths), its
+/// mounts, its weathering and what it wears. Any change rebuilds it.
+type Built = (FrameId, [u8; Part::COUNT], [bool; 3], u8, bc_proto::control::Look);
 
 /// The bay's moving parts.
 #[derive(Resource)]
@@ -99,7 +107,7 @@ pub struct BayScene {
     suit: Entity,
     /// What the suit was last built as (its line, armour, mounts and weathering), to rebuild it
     /// when that changes.
-    built: Option<(FrameId, [u8; Part::COUNT], [bool; 3], u8)>,
+    built: Option<Built>,
     generation: u8,
 }
 
@@ -709,7 +717,7 @@ fn drive_bay(
         *v = Visibility::Inherited;
     }
     let parts: [u8; Part::COUNT] = std::array::from_fn(|i| eighths(suit.parts[i]));
-    let key = (suit.line, parts, suit.mounts, suit.weathering.level());
+    let key = (suit.line, parts, suit.mounts, suit.weathering.level(), state.look);
     if scene.built != Some(key) {
         // Rebuilt from scratch (a part fitted comes back, which damage alone never does).
         scene.built = Some(key);
@@ -735,6 +743,7 @@ fn drive_bay(
             ground: None,
             weathering: suit.weathering.level(),
             pill: false,
+            look: state.look,
             doomed: false,
             staggered: false,
         });

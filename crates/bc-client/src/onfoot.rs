@@ -2437,6 +2437,7 @@ pub fn drive_onfoot(
         g.core.set_pose(None);
     }
     let hangar_bay = g.core.hangar.view.as_ref().map(|v| v.bay.clone());
+    let cosmetics = bc_sim::content::cosmetics::Owned(g.core.hangar.view.as_ref().map_or(0, |v| v.cosmetics));
     if on_foot {
         for cmd in &cmds.0 {
             if let UiCmd::WalkTo { spot: slug } = cmd
@@ -2585,6 +2586,29 @@ pub fn drive_onfoot(
             Some(Bay::Docked { suit }) => Some(suit.clone()),
             _ => None,
         },
+    };
+    // Its paint: the console's draft while the page tries one on (anything may be tried), else
+    // as the pilot may show it. The draft goes with the console.
+    for cmd in &cmds.0 {
+        if let UiCmd::PaintPreview { paint } = cmd {
+            bay.preview = *paint;
+        }
+    }
+    if !matches!(ui.panel, Panel::Terminal(_)) {
+        bay.preview = None;
+    }
+    bay.look = match &bay.suit {
+        Some(suit) => {
+            use bc_sim::content::cosmetics::{Owned, default_livery, worn};
+            let own = default_livery(suit.line, bc_proto::Faction::Colonies);
+            match bay.preview {
+                Some(p) => worn(Some(p.livery()), p.decal, own, Owned(u32::MAX)),
+                None => {
+                    worn(suit.paint.map(|p| p.livery()), suit.paint.map_or(0, |p| p.decal), own, cosmetics)
+                }
+            }
+        }
+        None => Default::default(),
     };
     bay.boarded = match me.seq {
         Seq::Boarding | Seq::Venting | Seq::Catapult => true,

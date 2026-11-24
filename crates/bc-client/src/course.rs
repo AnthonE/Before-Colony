@@ -98,6 +98,7 @@ fn park_trainer(
                 ground: None,
                 weathering: 0,
                 pill: false,
+                look: Default::default(),
                 doomed: false,
                 staggered: false,
             };

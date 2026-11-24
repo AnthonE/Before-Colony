@@ -322,6 +322,13 @@ pub enum Request {
         item: Item,
         qty: u64,
     },
+    /// In the bay, at the suit's maintenance console: paint the suit standing there
+    /// (`crate::livery`): body, trim and accent paints, its sensors' glow and a decal, by their slugs
+    /// in `bc_sim::content::cosmetics`. Paid from the bay's credits for what changes; what needs a
+    /// cosmetic needs the pilot's wallet to hold it.
+    Paint {
+        paint: crate::livery::Paint,
+    },
 }
 
 /// Where a request about a home is made: at its door (outside it, or just in), or inside it, at its
@@ -385,7 +392,8 @@ impl Request {
             | Request::WatchBoard { .. }
             | Request::UseKit { .. }
             | Request::Eject { .. }
-            | Request::Say { .. } => None,
+            | Request::Say { .. }
+            | Request::Paint { .. } => None,
             // Its own door or panel (`Request::home`), not a desk.
             Request::Rent { .. }
             | Request::Buy { .. }
@@ -910,6 +918,9 @@ pub struct HangarView {
     pub parts: Vec<PartUnit>,
     pub bay: Bay,
     pub jobs: Vec<JobView>,
+    /// The cosmetics the pilot's wallet holds (`Hangar::cosmetics`): what the console may offer.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cosmetics: u32,
 }
 
 impl HangarView {
@@ -941,6 +952,7 @@ impl HangarView {
             parts: h.stores.parts().to_vec(),
             bay: h.bay.clone(),
             jobs,
+            cosmetics: h.cosmetics,
         }
     }
 }
@@ -1045,6 +1057,8 @@ pub fn apply(
         | Request::UseKit { .. }
         | Request::Eject { .. }
         | Request::Say { .. } => return None,
+        // The session's: a suit nobody painted wears its frame's livery in its pilot's side.
+        Request::Paint { .. } => return None,
         // The register's (`apply_homes`).
         Request::Rent { .. }
         | Request::Buy { .. }

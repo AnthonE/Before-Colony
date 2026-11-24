@@ -34,6 +34,59 @@ use serde_json::{Value, json};
 use crate::hangar::HangarState;
 use crate::page::special_name;
 
+/// The paints, glows and decals a livery is chosen from (`bc_sim::content::cosmetics`), with
+/// their colours (`bc_model::paint`), what each change costs (`bc_econ::livery::PAINT_CR`), and the
+/// cosmetics that unlock the rest (Elo Pros' items).
+fn paints() -> (Value, Value, Value, Value) {
+    use bc_sim::content::cosmetics::{Cosmetic, DECALS, EYES, PAINTS};
+    let needs = |c: Option<Cosmetic>| c.map(Cosmetic::key);
+    let paints: Vec<Value> = PAINTS
+        .iter()
+        .map(|s| {
+            let (r, g, b, _) = bc_model::paint::SRGB[usize::from(s.paint)];
+            json!({ "slug": s.slug, "name": s.name, "hex": bc_model::paint::hex((r, g, b)), "needs": needs(s.needs) })
+        })
+        .collect();
+    let eyes: Vec<Value> = EYES
+        .iter()
+        .map(|s| {
+            let hex = bc_model::paint::hex(bc_model::paint::EYE_SRGB[usize::from(s.paint)]);
+            json!({ "slug": s.slug, "name": s.name, "hex": hex, "needs": needs(s.needs) })
+        })
+        .collect();
+    let decals: Vec<Value> =
+        DECALS.iter().map(|d| json!({ "slug": d.slug, "name": d.name, "needs": needs(d.needs) })).collect();
+    let cosmetics: Vec<Value> = Cosmetic::ALL
+        .iter()
+        .map(|c| json!({ "key": c.key(), "name": c.name(), "summary": c.summary() }))
+        .collect();
+    (json!(paints), json!(eyes), json!(decals), json!(cosmetics))
+}
+
+/// The suit's paint as the console shows it, flown for `side`: as it stands (`now`), its frame's
+/// own (`factory`), whether its pilot painted it, and the cosmetics their wallet holds (keys).
+fn paint_json(v: &HangarView, suit: &Suit, side: bc_proto::Faction) -> Value {
+    use bc_econ::livery::Paint;
+    use bc_sim::content::cosmetics::{Cosmetic, Owned, default_livery};
+    let factory = Paint::of(default_livery(suit.line, side), 0);
+    let owned = Owned(v.cosmetics);
+    let held: Vec<&str> = Cosmetic::ALL.iter().filter(|c| owned.has(**c)).map(|c| c.key()).collect();
+    // Every part named, the decal too (`none`), as the page sends them back.
+    let slugs = |p: Paint| {
+        let mut v = json!(p);
+        if v.get("decal").is_none() {
+            v["decal"] = json!("none");
+        }
+        v
+    };
+    json!({
+        "now": slugs(suit.paint.unwrap_or(factory)),
+        "factory": slugs(factory),
+        "painted": suit.paint.is_some(),
+        "owned": held,
+    })
+}
+
 /// What fires each loadout mount (`bc-client`'s `input.rs`): primary, secondary, melee.
 const MOUNT_KEYS: [&str; 3] = ["LMB", "RMB", "F"];
 
@@ -153,7 +206,13 @@ pub fn catalogue() -> Value {
         .iter()
         .map(|d| json!({ "slug": d.slug(), "name": d.name(), "food_s": d.food_s(), "price": d.price() }))
         .collect();
+    let (paints, eyes, decals, cosmetics) = paints();
     json!({
+        "paints": paints,
+        "eyes": eyes,
+        "decals": decals,
+        "cosmetics": cosmetics,
+        "paint_cr": bc_econ::livery::PAINT_CR,
         "items": items,
         "recipes": recipes,
         "lines": lines,
@@ -169,7 +228,8 @@ pub fn catalogue() -> Value {
 
 /// The hangar as the server last told it, rebuilt (to ask it what a launch would say).
 fn rebuilt(v: &HangarView) -> Hangar {
-    let mut h = Hangar { credits: v.credits, bay: v.bay.clone(), ..Hangar::default() };
+    let mut h =
+        Hangar { credits: v.credits, bay: v.bay.clone(), cosmetics: v.cosmetics, ..Hangar::default() };
     for (item, qty) in &v.stock {
         h.stores.add(*item, *qty);
     }
@@ -256,9 +316,9 @@ fn refit(v: &HangarView, suit: &Suit) -> (Value, Value) {
     (Value::Object(slots), Value::Object(spares))
 }
 
-/// The suit's console: what could be fitted from the stores, what repairs would take, and
-/// whether the suit would launch (and why not).
-fn console(v: &HangarView) -> Value {
+/// The suit's console: what could be fitted from the stores, what repairs would take, whether
+/// the suit would launch (and why not), and its paint (flown for `side`).
+fn console(v: &HangarView, side: bc_proto::Faction) -> Value {
     let launch = rebuilt(v).launch().err();
     let Bay::Docked { suit } = &v.bay else {
         // An empty bay: a torso from the stores starts a new suit.
@@ -342,6 +402,7 @@ fn console(v: &HangarView) -> Value {
         "wear": wear,
         "service_cost": amounts(&service_cost(suit.line)),
         "service_from_pct": (SERVICE_FROM * 100.0).round() as u32,
+        "paint": paint_json(v, suit, side),
     })
 }
 
@@ -387,12 +448,14 @@ fn home_json(h: &HangarState, id: u32, inside: bool) -> Value {
 
 /// The hangar as the page takes it; `colony`: the colony's open (the Welcome's COLONY flag), so the
 /// bay's terminals point at the desks in the city for what only they do; `home`: the home whose
-/// door or panel is open, and whether the pilot's in it.
+/// door or panel is open, and whether the pilot's in it; `side`: the side they fly for (whose
+/// colours a suit nobody painted wears).
 pub fn hangar_json(
     h: &HangarState,
     log: &VecDeque<(String, bool)>,
     colony: bool,
     home: Option<(u32, bool)>,
+    side: bc_proto::Faction,
 ) -> Value {
     json!({
         "home": home.map(|(id, inside)| home_json(h, id, inside)),
@@ -403,7 +466,7 @@ pub fn hangar_json(
         "charter": h.charter,
         "proving": h.proving,
         "book": h.book.as_ref().map(|(depth, history)| json!({ "depth": depth, "history": history })),
-        "console": h.view.as_ref().map(console),
+        "console": h.view.as_ref().map(|v| console(v, side)),
         "body": h.body,
         "log": log,
     })
@@ -439,7 +502,7 @@ mod tests {
             condition: 90,
             faults: Default::default(),
         });
-        let con = console(&HangarView::of(&h, 0));
+        let con = console(&HangarView::of(&h, 0), bc_proto::Faction::Colonies);
         let mass = |v: &Value| v["mass_kg"].as_u64().expect("a mass");
         let now = mass(&con["stats"]);
         let refit = &con["refit"];
@@ -456,6 +519,65 @@ mod tests {
         assert!(refit["part.torso"]["without"].is_null());
         // The beam rifle the starter came without isn't in the stores to fit.
         assert_eq!(refit["mount.0"]["with"], json!({}));
+    }
+
+    /// The console's swatches are the content's, in its order, with the shader's colours; a
+    /// suit's paint reads as it stands, its frame's own until it's painted.
+    #[test]
+    fn the_console_offers_the_contents_paints_and_shows_the_suits() {
+        use bc_sim::content::cosmetics::{self, Cosmetic, paint};
+        let c = catalogue();
+        let paints = c["paints"].as_array().unwrap();
+        assert_eq!(paints.len(), cosmetics::PAINTS.len());
+        assert_eq!(paints[usize::from(paint::GLASS)]["needs"], "coalsack");
+        assert_eq!(paints[usize::from(paint::WHITE)]["needs"], Value::Null);
+        assert_eq!(paints[usize::from(paint::RED)]["hex"], "#b81414");
+        assert_eq!(c["eyes"].as_array().unwrap().len(), 4);
+        assert_eq!(c["decals"][1]["slug"], "lodestar");
+        assert_eq!(c["paint_cr"]["body"], bc_econ::livery::PAINT_CR.body);
+        let mut h = Hangar::starter();
+        let side = bc_proto::Faction::Colonies;
+        let con = console(&HangarView::of(&h, 0), side);
+        assert_eq!(con["paint"]["painted"], false);
+        assert_eq!(con["paint"]["now"], con["paint"]["factory"]);
+        assert_eq!(con["paint"]["now"]["body"], "slate_blue");
+        h.cosmetics = Cosmetic::Coalsack.bit();
+        let mut p = bc_econ::livery::Paint::of(cosmetics::default_livery(bc_proto::FrameId::Argo, side), 1);
+        p.body = paint::GLASS;
+        h.paint(p, cosmetics::default_livery(bc_proto::FrameId::Argo, side)).unwrap();
+        let con = console(&HangarView::of(&h, 0), side);
+        assert_eq!(con["paint"]["painted"], true);
+        assert_eq!(con["paint"]["now"]["body"], "black_glass");
+        assert_eq!(con["paint"]["now"]["decal"], "ring");
+        assert_eq!(con["paint"]["owned"], json!(["coalsack"]));
+    }
+
+    /// The content's paint indices are the hull palette's.
+    #[test]
+    fn the_contents_paints_are_the_palettes() {
+        use bc_model::paint as m;
+        use bc_sim::content::cosmetics::paint as c;
+        let pairs = [
+            (c::WHITE, m::WHITE),
+            (c::BLUE, m::BLUE),
+            (c::RED, m::RED),
+            (c::YELLOW, m::YELLOW),
+            (c::DARK, m::DARK),
+            (c::ALMAGEST_GREEN, m::ALMAGEST_GREEN),
+            (c::ALMAGEST_GREY, m::ALMAGEST_GREY),
+            (c::CORVUS_WHITE, m::CORVUS_WHITE),
+            (c::CORVUS_BLUE, m::CORVUS_BLUE),
+            (c::CETUS_OLIVE, m::CETUS_OLIVE),
+            (c::ALLIANCE_TAN, m::ALLIANCE_TAN),
+            (c::HULL, m::HULL),
+            (c::HULL_DARK, m::HULL_DARK),
+            (c::MIRROR, m::MIRROR),
+            (c::GUNMETAL, m::GUNMETAL),
+            (c::GLASS, m::GLASS),
+        ];
+        for (a, b) in pairs {
+            assert_eq!(a, b);
+        }
     }
 
     #[test]

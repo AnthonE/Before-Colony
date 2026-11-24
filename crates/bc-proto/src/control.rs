@@ -71,6 +71,12 @@ pub mod roster_flags {
     pub const WEATHERING: u8 = 0b111 << 2;
     /// The pilot's wallet holds the Pill: the decal on the suit's shoulder. Cosmetic.
     pub const PILL: u8 = 1 << 5;
+    /// On the wire only: the suit wears its pilot's paint, and its [`Livery`](super::Livery)
+    /// follows the flags (2 bytes). [`ControlMsg::Roster`](super::ControlMsg::Roster) carries it as
+    /// its `look`; these two bits are never in its `flags`.
+    pub const PAINTED: u8 = 1 << 6;
+    /// On the wire only: the suit wears a decal on its right shoulder, and its id follows (1 byte).
+    pub const DECAL: u8 = 1 << 7;
 
     /// The flags' weathering bits for `level` (at most 7).
     pub const fn weathering(level: u8) -> u8 {
@@ -81,6 +87,45 @@ pub mod roster_flags {
     pub const fn weathering_of(flags: u8) -> u8 {
         (flags & WEATHERING) >> 2
     }
+}
+
+/// A suit's livery as its pilot painted it at the bay's maintenance console
+/// (`bc_sim::content::cosmetics`): its body, trim and accent paints (each one of the hull palette's
+/// first 16, `bc_model::paint`) and its sensors' glow (one of 4). Cosmetic: nothing reads it but the
+/// renderer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Livery {
+    pub body: u8,
+    pub trim: u8,
+    pub accent: u8,
+    pub eye: u8,
+}
+
+impl Livery {
+    pub const fn new(body: u8, trim: u8, accent: u8, eye: u8) -> Self {
+        Self { body: body & 15, trim: trim & 15, accent: accent & 15, eye: eye & 3 }
+    }
+
+    /// In 14 bits: body, trim and accent (4 each), then the eye (2).
+    pub const fn pack(self) -> u16 {
+        (self.body & 15) as u16
+            | ((self.trim & 15) as u16) << 4
+            | ((self.accent & 15) as u16) << 8
+            | ((self.eye & 3) as u16) << 12
+    }
+
+    pub const fn unpack(v: u16) -> Self {
+        Self::new(v as u8 & 15, (v >> 4) as u8 & 15, (v >> 8) as u8 & 15, (v >> 12) as u8 & 3)
+    }
+}
+
+/// What a suit wears beyond its frame's own look, as the roster carries it: its pilot's paint
+/// (none: the frame's livery), and a decal on its right shoulder (0: none;
+/// `bc_sim::content::cosmetics::DECALS`). The server sends only what the pilot may wear.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Look {
+    pub livery: Option<Livery>,
+    pub decal: u8,
 }
 
 /// [`ControlMsg::Bye`] reasons.
@@ -213,8 +258,9 @@ pub enum ControlMsg {
     },
     /// Server → client, then the stream closes.
     Reject { reason: RejectReason },
-    /// Server → client: the pilot flying entity `slot` ([`roster_flags`]).
-    Roster { slot: u16, pilot: PilotKind, name: Name, flags: u8 },
+    /// Server → client: the pilot flying entity `slot` ([`roster_flags`]), and what their suit
+    /// wears ([`Look`]: on the wire, after the flags, as their bits 6 and 7 say).
+    Roster { slot: u16, pilot: PilotKind, name: Name, flags: u8, look: Look },
     /// Client → server: respawn (after death) in `frame`.
     Respawn { frame: FrameId },
     /// Either direction: goodbye ([`bye`]).
@@ -294,12 +340,21 @@ impl ControlMsg {
                 p.u8(3);
                 p.u8(reason as u8);
             }
-            ControlMsg::Roster { slot, pilot, name, flags } => {
+            ControlMsg::Roster { slot, pilot, name, flags, look } => {
+                use roster_flags::{DECAL, PAINTED};
                 p.u8(4);
                 p.u16(slot);
                 p.u8(pilot as u8);
                 p.name(&name);
-                p.u8(flags);
+                let painted = if look.livery.is_some() { PAINTED } else { 0 };
+                let decal = if look.decal != 0 { DECAL } else { 0 };
+                p.u8((flags & !(PAINTED | DECAL)) | painted | decal);
+                if let Some(l) = look.livery {
+                    p.u16(l.pack());
+                }
+                if look.decal != 0 {
+                    p.u8(look.decal);
+                }
             }
             ControlMsg::Respawn { frame } => {
                 p.u8(5);
@@ -403,12 +458,22 @@ impl ControlMsg {
                 faction: Faction::from_bits(u32::from(r.u8()?)),
             },
             3 => ControlMsg::Reject { reason: RejectReason::from_u8(r.u8()?) },
-            4 => ControlMsg::Roster {
-                slot: r.u16()?,
-                pilot: PilotKind::from_bits(u32::from(r.u8()?)),
-                name: r.name()?,
-                flags: r.u8()?,
-            },
+            4 => {
+                use roster_flags::{DECAL, PAINTED};
+                let slot = r.u16()?;
+                let pilot = PilotKind::from_bits(u32::from(r.u8()?));
+                let name = r.name()?;
+                let flags = r.u8()?;
+                let livery = if flags & PAINTED != 0 { Some(Livery::unpack(r.u16()?)) } else { None };
+                let decal = if flags & DECAL != 0 { r.u8()? } else { 0 };
+                ControlMsg::Roster {
+                    slot,
+                    pilot,
+                    name,
+                    flags: flags & !(PAINTED | DECAL),
+                    look: Look { livery, decal },
+                }
+            }
             5 => ControlMsg::Respawn {
                 frame: FrameId::from_bits(u32::from(r.u8()?)).ok_or(DecodeError::Invalid)?,
             },
@@ -579,6 +644,47 @@ mod tests {
 
     use super::*;
 
+    /// A look rides after the flags only as far as there is one: an unpainted suit's roster frame
+    /// is the size it always was, and the two bits never reach `flags`.
+    #[test]
+    fn the_look_rides_the_roster_as_its_bits_say() {
+        use roster_flags::*;
+        const { assert!((PAINTED | DECAL) & (VERIFIED | ASLEEP | WEATHERING | PILL) == 0) };
+        let roster = |look| ControlMsg::Roster {
+            slot: 5,
+            pilot: PilotKind::Human,
+            name: Name::new("Ada"),
+            flags: VERIFIED | weathering(3),
+            look,
+        };
+        let mut buf = [0u8; MAX_FRAME];
+        let plain = roster(Look::default()).encode(&mut buf).unwrap();
+        // Tag, slot, pilot, the name, flags.
+        assert_eq!(plain, 2 + 1 + 2 + 1 + 1 + 3 + 1);
+        for (look, extra) in [
+            (Look { livery: Some(Livery::new(1, 2, 3, 1)), decal: 0 }, 2),
+            (Look { livery: None, decal: 3 }, 1),
+            (Look { livery: Some(Livery::new(15, 15, 15, 3)), decal: 255 }, 3),
+        ] {
+            let n = roster(look).encode(&mut buf).unwrap();
+            assert_eq!(n, plain + extra);
+            assert_eq!(ControlMsg::decode(&buf[..n]).unwrap(), Some((roster(look), n)));
+        }
+        // Bits 6 and 7 a caller left in the flags say nothing on their own.
+        let stray = ControlMsg::Roster {
+            slot: 5,
+            pilot: PilotKind::Human,
+            name: Name::new("Ada"),
+            flags: VERIFIED | weathering(3) | PAINTED | DECAL,
+            look: Look::default(),
+        };
+        let n = stray.encode(&mut buf).unwrap();
+        assert_eq!(ControlMsg::decode(&buf[..n]).unwrap(), Some((roster(Look::default()), plain)));
+        for v in [0u16, 0x3FFF, 0x1234 & 0x3FFF] {
+            assert_eq!(Livery::unpack(v).pack(), v);
+        }
+    }
+
     #[test]
     fn the_street_flags_go_round_and_are_their_own_bits() {
         let hello = ControlMsg::Hello {
@@ -645,6 +751,14 @@ mod tests {
                 pilot: PilotKind::Human,
                 name: Name::new("Viktor"),
                 flags: roster_flags::VERIFIED | roster_flags::ASLEEP | roster_flags::weathering(6),
+                look: Look::default(),
+            },
+            ControlMsg::Roster {
+                slot: 78,
+                pilot: PilotKind::Human,
+                name: Name::new("Ada"),
+                flags: roster_flags::VERIFIED | roster_flags::PILL,
+                look: Look { livery: Some(Livery::new(15, 13, 2, 3)), decal: 2 },
             },
             ControlMsg::Respawn { frame: FrameId::Argo },
             ControlMsg::Bye { reason: bye::TAKEN_OVER },

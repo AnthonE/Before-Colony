@@ -49,6 +49,9 @@ pub struct SuitDrive {
     pub weathering: u8,
     /// The Pill on its shoulder: its pilot's wallet holds it (the roster's word, from the server).
     pub pill: bool,
+    /// What it wears beyond its frame's livery: its pilot's paint and a decal on its right
+    /// shoulder (the roster's word; the bay's own suit, the console's).
+    pub look: bc_proto::control::Look,
     /// Doomed: its torso breached and its reactor going (`Event::Doomed`), it burns.
     pub doomed: bool,
     /// Staggered (`bc_sim::sim::stagger`): its attitude jets fire every which way, and it sparks.

@@ -70,6 +70,9 @@ pub(super) struct Who {
     pub address: Option<PlayerId>,
     /// Their wallet holds the Pill (read at sign-in; cosmetic).
     pub pill: bool,
+    /// The cosmetics their wallet holds, the Pill among them (read at sign-in: nothing if it
+    /// couldn't be).
+    pub cosmetics: bc_sim::content::cosmetics::Owned,
 }
 
 /// How often the session looks at its suit's reports, its stations and the market.
@@ -134,6 +137,7 @@ pub(super) async fn run(
         callsign,
         address: who.address,
         pill: who.pill,
+        cosmetics: who.cosmetics,
         record,
         max_datagram: conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16,
         suit: None,
@@ -209,6 +213,7 @@ struct Session<'a> {
     callsign: String,
     address: Option<PlayerId>,
     pill: bool,
+    cosmetics: bc_sim::content::cosmetics::Owned,
     record: Option<PilotRecord>,
     max_datagram: u16,
     /// The suit flown, while the pilot is in the sector: (entity slot, generation).
@@ -431,6 +436,9 @@ impl Session<'_> {
                 arrived = true;
                 Hangar::starter()
             });
+            // What they may paint their suit in, and what it shows: the wallet's word as they came
+            // in, never the client's.
+            self.hangar.cosmetics = self.cosmetics.0;
             // Out in the sector, asleep: wake in it, if it's still there (on a flight slot: space
             // full, the pilot is turned away, and their suit sleeps on).
             if matches!(self.hangar.bay, Bay::Out { .. }) {
@@ -553,11 +561,7 @@ impl Session<'_> {
             .map(|r| r.iter().map(|(k, v)| (*k, v.clone())).collect())
             .unwrap_or_default();
         for (s, e) in everyone {
-            send_control(
-                self.tx,
-                ControlMsg::Roster { slot: s, pilot: e.pilot, name: Name::new(&e.name), flags: e.flags },
-            )
-            .await?;
+            send_control(self.tx, e.msg(s)).await?;
         }
         // Snapshots after the Welcome and the roster, if they fly.
         if let Some(slot) = self.slot() {
@@ -707,6 +711,8 @@ impl Session<'_> {
         // On everyone's roster while it flies, with how weathered it is for everyone to see.
         let verified = if self.address.is_some() { roster_flags::VERIFIED } else { 0 };
         let flags = verified | self.pill_flag() | roster_flags::weathering(self.hangar.weathering());
+        // And its paint (survival: the bay's suit, as its pilot may wear it).
+        let look = self.hangar.look(self.faction);
         if let Ok(mut r) = self.game.roster.write() {
             r.insert(
                 suit,
@@ -715,6 +721,7 @@ impl Session<'_> {
                     pilot: self.pilot,
                     session: self.id,
                     flags,
+                    look,
                     address: self.address.as_ref().map(pilots::short),
                 },
             );
@@ -724,6 +731,7 @@ impl Session<'_> {
             pilot: self.pilot,
             name: self.callsign.clone(),
             flags,
+            look,
         });
         Some(status.outcome())
     }
@@ -862,11 +870,11 @@ impl Session<'_> {
                 }
                 u = roster_rx.recv() => {
                     match u {
-                        Ok(u) => send_control(self.tx, ControlMsg::Roster { slot: u.suit, pilot: u.pilot, name: Name::new(&u.name), flags: u.flags }).await?,
+                        Ok(u) => send_control(self.tx, u.msg()).await?,
                         Err(broadcast::error::RecvError::Lagged(_)) => {
                             let everyone: Vec<(u16, RosterEntry)> = self.game.roster.read().map(|r| r.iter().map(|(k, v)| (*k, v.clone())).collect()).unwrap_or_default();
                             for (s, e) in everyone {
-                                send_control(self.tx, ControlMsg::Roster { slot: s, pilot: e.pilot, name: Name::new(&e.name), flags: e.flags }).await?;
+                                send_control(self.tx, e.msg(s)).await?;
                             }
                         }
                         Err(_) => return Ok(()),
@@ -1453,6 +1461,26 @@ impl Session<'_> {
                 self.send_hangar().await?;
                 self.send_board().await?;
                 self.send_notices().await?;
+                self.save().await;
+                Ok(())
+            }
+            Request::Paint { paint } => {
+                // At the suit's maintenance console, in the bay; a suit nobody painted wears its
+                // frame's livery in the pilot's side.
+                if self.place != Place::Hangar {
+                    return self
+                        .note("paint is done at the suit's maintenance console, in your bay", false)
+                        .await;
+                }
+                let default = bc_sim::content::cosmetics::default_livery(self.hangar_line(), self.faction);
+                match self.hangar.paint(paint, default) {
+                    Ok(text) => {
+                        tracing::info!(session = self.id, name = %self.callsign, "painted their suit");
+                        self.note(text, true).await?;
+                    }
+                    Err(why) => self.note(why, false).await?,
+                }
+                self.send_hangar().await?;
                 self.save().await;
                 Ok(())
             }
@@ -2671,6 +2699,7 @@ impl Session<'_> {
                         | roster_flags::ASLEEP
                         | self.pill_flag()
                         | roster_flags::weathering(self.hangar.weathering()),
+                    self.hangar.look(self.faction),
                 );
             } else {
                 forget(game, suit, self.pilot);

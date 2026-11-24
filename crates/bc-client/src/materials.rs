@@ -21,31 +21,9 @@ pub type RockMaterial = ExtendedMaterial<StandardMaterial, RockExt>;
 /// Palette indices for [`HullTag::paint`].
 pub use bc_model::paint;
 
-/// sRGB colour and perceptual roughness of each paint.
-const PALETTE: [(f32, f32, f32, f32); paint::COUNT] = [
-    (0.9, 0.91, 0.93, 0.38),
-    (0.1, 0.22, 0.66, 0.4),
-    (0.72, 0.08, 0.08, 0.4),
-    (0.95, 0.75, 0.1, 0.35),
-    (0.11, 0.12, 0.13, 0.5),
-    (0.4, 0.5, 0.32, 0.5),
-    (0.44, 0.47, 0.5, 0.45),
-    (0.83, 0.85, 0.88, 0.38),
-    (0.2, 0.32, 0.6, 0.42),
-    (0.38, 0.41, 0.27, 0.55),
-    (0.6, 0.5, 0.34, 0.55),
-    (0.62, 0.63, 0.64, 0.5),
-    (0.3, 0.31, 0.33, 0.6),
-    (0.66, 0.71, 0.8, 0.2),
-    (0.26, 0.28, 0.31, 0.32),
-    (0.02, 0.025, 0.03, 0.08),
-    (0.33, 0.24, 0.18, 0.55),
-    (0.78, 0.22, 0.16, 0.45),
-    (0.96, 0.66, 0.12, 0.12),
-    (0.62, 0.66, 0.76, 0.12),
-    (0.6, 0.82, 0.78, 0.4),
-    (0.76, 0.6, 0.76, 0.4),
-];
+/// sRGB colour and perceptual roughness of each paint (`bc_model::paint::SRGB`, which the
+/// maintenance console's swatches show too).
+const PALETTE: [(f32, f32, f32, f32); paint::COUNT] = paint::SRGB;
 
 /// Each ore kind's colour (sRGB) and how metallic it is: nickel-iron, titanium, volatiles, exotics.
 pub const ORES: [([f32; 3], f32); 4] =

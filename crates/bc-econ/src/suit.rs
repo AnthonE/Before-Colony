@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalogue::{munitions_per_load, recipe, rounds_per_load, tank_kg};
 use crate::faults::Faults;
 use crate::item::{Item, line_serde, part_serde};
+use crate::livery::Paint;
 use crate::stores::PartUnit;
 use crate::wear::Wear;
 use crate::weathering::Weathering;
@@ -74,6 +75,10 @@ pub struct Suit {
     /// What it has been through all its life, as its paint shows it.
     #[serde(default, skip_serializing_if = "Weathering::is_new")]
     pub weathering: Weathering,
+    /// How its pilot painted it at the maintenance console (`crate::livery`): none, its frame's
+    /// own livery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paint: Option<Paint>,
 }
 
 fn no_kits(k: &[u8; Kit::COUNT]) -> bool {
@@ -158,6 +163,7 @@ impl Suit {
             kits: [0; Kit::COUNT],
             wear: Wear::default(),
             weathering: Weathering::default(),
+            paint: None,
         }
     }
 
@@ -176,6 +182,7 @@ impl Suit {
             kits: [0; Kit::COUNT],
             wear: Wear::default(),
             weathering: Weathering::default(),
+            paint: None,
         }
         .with_mounts_of_its_loadout()
     }

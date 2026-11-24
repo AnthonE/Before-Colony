@@ -1081,6 +1081,18 @@ html.front-up #boot { display: none; }
 .refit .rd-acts button { padding: var(--s2) var(--s4); font-size: var(--t-small); }
 .refit .rd-acts button.primary { flex: 1 1 100%; padding: var(--s3) var(--s5); }
 
+/* The paint: swatches to pick from (a lock on those that come with a cosmetic), and a chip of the
+   one chosen. */
+.refit .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: var(--s1); margin: 0 0 var(--s3); }
+.refit .sw { position: relative; aspect-ratio: 1; padding: 0; border: none; background: var(--c); box-shadow: inset 0 0 0 1px var(--hair); cursor: pointer; }
+.refit .sw:hover { box-shadow: inset 0 0 0 1px var(--white); background: var(--c); }
+.refit .sw.on { box-shadow: 0 0 0 2px var(--cyan), inset 0 0 0 1px var(--ink); }
+.refit .sw.locked::after { content: "◆"; position: absolute; right: 2px; bottom: 1px; font-size: 9px; color: var(--amber); text-shadow: 0 0 3px var(--ink); }
+.refit .sw.dec { aspect-ratio: auto; grid-column: span 2; padding: var(--s1) 14px var(--s1) var(--s2); background: color-mix(in srgb, var(--label) 8%, transparent); }
+.refit .sw.dec .sw-name { font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: 0.14em; color: var(--white); }
+.refit .chip { display: inline-block; width: 12px; height: 12px; background: var(--c); box-shadow: inset 0 0 0 1px var(--hair); vertical-align: -2px; margin-right: 0.4em; }
+.refit .chip.decal { width: auto; height: auto; background: none; box-shadow: none; margin: 0; }
+
 /* The keys. */
 .refit-keys { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s3); padding: var(--s2) var(--s4); font-size: var(--t-small); color: var(--label); letter-spacing: 0.08em; }
 .refit-keys .cap { margin-right: 0.4em; }
