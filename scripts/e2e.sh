@@ -18,6 +18,7 @@
 #   scripts/e2e.sh inside [project]  # survival, the colony open: Q at the cockpit launches the suit into the colony, it flies a way down it (through the course's start ring) and docks back at the inner gate; another lands on the avenue, sees the stroller there and walks it; a third flies into the Blast Hall and scores on its targets; a fourth boards a trainer at the hall's gantry, starts the drill and docks back on foot
 #   scripts/e2e.sh chart [project]   # the chart: Earth-Moon space and back, a course to Fornax's Aft Well, the auto-nav flying it
 #   scripts/e2e.sh home [project]    # survival, the colony open: two signed-in pilots wake in neighbouring flats (a seeded register); one sets her code and puts a sofa down, the other knocks, is shocked, enters the code and comes in; she logs out asleep in her bed and wakes there
+#   scripts/e2e.sh report [project]  # F7 in the town files a report with the frame (and nothing of who); a trap files one crash report
 # Anything after the project goes to Playwright, e.g. `scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`.
 # The suits' suites run the arcade rules (any frame, free respawns) unless BC_RULES says otherwise
 # (hangar, base, town, colony, inside and home always run survival), and every game-mode suite the anime flight rules
@@ -129,6 +130,15 @@ case "$suite" in
     BC_HOME_SEED="$("$bin/examples/seed_homes" "$data")"
     export BC_HOME_SEED
     "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --colony --start bay --data-dir "$data" &
+    pids+=($!)
+    ;;
+  report)
+    # Survival as the game runs it (a new pilot wakes in the ring's town), no drones; a data dir, so
+    # the server takes reports (POST /bugs), which the suite reads back from it.
+    data="$(mktemp -d)"
+    export BC_REPORT_DIR="$data/reports"
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --data-dir "$data" \
+      --reports-per-address 50 &
     pids+=($!)
     ;;
   *) echo "unknown suite $suite" >&2; exit 1 ;;

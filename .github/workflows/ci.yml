@@ -22,6 +22,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Tests, including the zero-allocation and determinism proofs (release for speed)
         run: cargo test --workspace --release
+      - name: The reports' board (scripts/reports.py's gate)
+        run: python3 scripts/reports.py --self-test
       - name: Tick benchmark smoke run
         run: cargo bench -p bc-sim --bench tick -- --warm-up-time 1 --measurement-time 2
 
