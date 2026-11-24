@@ -616,6 +616,32 @@ pub fn struck(
     hit
 }
 
+/// Which of the other pilots on foot in the town (`people`, by the plaza's ids, drawn where this
+/// screen has them) a car at `v` runs down: one it reaches going [`HIT_SPEED`] or more, as it reaches
+/// the town's people ([`struck`]). Not those down already, nor the store's traders. The server
+/// judges it from its own poses (`Request::RunDown`).
+pub fn struck_pilot(v: &Vehicle, people: &[(u16, bc_proto::presence::PersonPose)]) -> Option<u16> {
+    if v.speed.abs() < HIT_SPEED {
+        return None;
+    }
+    let reach = CAR_CIRCLE.0 + bc_sim::foot::HALF;
+    let circles = Obstacles::circles(v.x, v.s, v.yaw);
+    people
+        .iter()
+        .filter(|(id, p)| {
+            *id < bc_proto::presence::VISITOR_BASE
+                && p.strip == bc_proto::presence::RING_DECK
+                && !p.driving()
+                && !p.down()
+                && !p.seated()
+                && p.riding().is_none()
+        })
+        .find(|(_, p)| {
+            circles.iter().any(|(cx, cs)| (cx - p.x).hypot(deck::round_from(RING, *cs, p.s)) < reach)
+        })
+        .map(|(id, _)| *id)
+}
+
 /// Where a guide walks a pilot in the town to from `from` (their feet), by name (the dev hooks'
 /// `walk_to`): `lift`, the step at the nearest lift's door; `boulevard`, the boulevard's pavement
 /// between the lift's piers; `car`, beside the nearest parked car. The square and its avenue are open
@@ -1011,6 +1037,29 @@ mod tests {
         assert_eq!(dodge(p.x + 0.5, s, 0, &parked), (0.0, 0.0));
         let gone = Mover { x: p.x + fx * 12.0, s: s + fs * 12.0, ..Mover::of(&on_them) };
         assert_eq!(dodge(p.x, s, 0, &gone), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_fast_car_runs_another_pilot_down_and_a_slow_one_doesnt() {
+        use bc_proto::presence::{PersonPose, RIDE_CAR, RIDE_DOWN, RING_DECK, VISITOR_BASE};
+        let (x, t) = town::out_of_the_lift(0);
+        let s = town::deck_s(t);
+        let pilot =
+            |dx: f32, ds: f32| PersonPose { strip: RING_DECK, x: x + dx, s: s + ds, ..PersonPose::default() };
+        // A car facing +x (τ/4), its nose a metre short of them.
+        let car = |speed: f32| Vehicle {
+            speed,
+            ..Vehicle::new(Kind::Car, RING_FLOOR, s, x, core::f32::consts::FRAC_PI_2)
+        };
+        let ahead = [(7, pilot(2.0, 0.0))];
+        assert_eq!(struck_pilot(&car(HIT_SPEED + 4.0), &ahead), Some(7));
+        assert_eq!(struck_pilot(&car(HIT_SPEED - 1.0), &ahead), None, "slow: only shoves past");
+        assert_eq!(struck_pilot(&car(14.0), &[(7, pilot(0.0, 4.0))]), None, "beside its way");
+        // Not somebody down already, another driver, or one of the store's traders.
+        let down = PersonPose { ride: RIDE_DOWN, ..pilot(2.0, 0.0) };
+        let driving = PersonPose { ride: RIDE_CAR, ..pilot(2.0, 0.0) };
+        let none = [(7, down), (8, driving), (VISITOR_BASE + 1, pilot(2.0, 0.0))];
+        assert_eq!(struck_pilot(&car(14.0), &none), None);
     }
 
     #[test]
