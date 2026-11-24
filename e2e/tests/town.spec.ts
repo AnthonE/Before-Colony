@@ -107,10 +107,15 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   expect(status.game.town.people).toBe(1);
   expect(status.game.hangars.find((h: any) => h.name === "Tester")?.place).toBe("town");
   await page.screenshot({ path: "artifacts/town-hub-gate.png" });
+  // The street is heard: its traffic's bed and its crowd's (the test browser allows autoplay).
+  const heard = (s: Record<string, any>, loop: string) => String(s.audio_street ?? "").split(" ").includes(loop);
+  await until(page, "the street heard", (s) => s.audio_state === "running" && heard(s, "traffic") && heard(s, "crowd"), 120_000);
 
-  // Out to the boulevard's pavement between the lift's piers.
+  // Out to the boulevard's pavement between the lift's piers, their steps heard as they go.
+  const steps0 = (await bc(page)).audio_steps ?? 0;
   await push(page, { cmd: "walk_to", spot: "boulevard" });
   s = await until(page, "the boulevard", (s) => !s.town_walking_to && Math.abs(townFeet(s)[0] + 36) < 1.5, 240_000);
+  expect(s.audio_steps).toBeGreaterThan(steps0);
   await page.screenshot({ path: "artifacts/town-boulevard.png" });
 
   // To the nearest car at a kerb: taken, pulled out of its bay and stopped again (W the throttle,
@@ -125,6 +130,7 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   await page.keyboard.down("KeyW");
   s = await until(page, "pulling away", (s) => s.town_speed > 1.5 || s.town_driving === false, 240_000);
   await page.keyboard.up("KeyW");
+  if (s.town_driving) expect(heard(await bc(page), "engine")).toBe(true);
   await page.screenshot({ path: "artifacts/town-driving.png" });
   await page.keyboard.down("Space");
   s = await until(page, "stopped", (s) => Math.abs(s.town_speed) < 0.5, 120_000);
@@ -152,6 +158,8 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   await expect(page.locator("#use")).toContainText("UP TO YOUR BAY");
   await push(page, { cmd: "use" });
   await until(page, "their bay", (s) => s.place === "hangar" && s.seq === "walking", 120_000);
+  // The bay's machinery hums; the street's gone.
+  await until(page, "the bay heard", (s) => heard(s, "bay") && !heard(s, "traffic"), 30_000);
   status = await (await page.request.get("/status")).json();
   expect(status.game.town.people).toBe(0);
   // And down again: Q at the bay's airlock is the spoke's lift.

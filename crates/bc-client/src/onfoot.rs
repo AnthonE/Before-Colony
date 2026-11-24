@@ -1223,6 +1223,9 @@ pub struct OnFoot {
     pub deck: Option<DeckFoot>,
     /// In the ring's town, down a spoke's lift.
     pub town: Option<TownFoot>,
+    /// The town's lifts ridden so far: down a spoke from the bay, across the hub, back up (a wake
+    /// where they left the town is no ride). The sound of each (`audio.rs`).
+    rides: u32,
 }
 
 impl Default for OnFoot {
@@ -1245,6 +1248,7 @@ impl Default for OnFoot {
             city: None,
             deck: None,
             town: None,
+            rides: 0,
         }
     }
 }
@@ -1282,6 +1286,34 @@ impl OnFoot {
     /// Until when the airlock's door stands open (it opens when the pilot comes in or leaves).
     pub fn airlock_until(&self) -> f64 {
         self.airlock_until
+    }
+
+    /// The town's lifts ridden so far (each ride one more).
+    pub fn rides(&self) -> u32 {
+        self.rides
+    }
+
+    /// The pilot's feet, if they're walking on them (not in a sequence, at a wheel, in a seat, on
+    /// a tram or in a home's lift): where they are, in the frame the walker walks in (the bay's,
+    /// the deck's or the city's: continuous while they walk), and whether they're on the ground.
+    pub fn feet_down(&self) -> Option<(Vec3, bool)> {
+        if self.seq != Seq::Walking {
+            return None;
+        }
+        let w = match self.place {
+            Some(Place::Hangar) if self.city.is_none() => &self.walker,
+            Some(Place::Base) => &self.deck.as_ref()?.walker,
+            Some(Place::Town) => &self.town.as_ref().filter(|t| t.drive.is_none())?.walker,
+            Some(Place::City) => {
+                let c = self.city.as_ref()?;
+                if c.ride.is_some() || c.drive.is_some() || c.seat.is_some() || c.lift.is_some() {
+                    return None;
+                }
+                &c.walker
+            }
+            _ => return None,
+        };
+        Some((w.feet, w.grounded))
     }
 
     fn t(&self, now: f64) -> f32 {
@@ -1545,6 +1577,10 @@ pub fn drive_onfoot(
                 me.deck = None;
                 me.town = None;
                 me.enter(now);
+                // Up a spoke's lift from the town.
+                if before == Some(Place::Town) {
+                    me.rides += 1;
+                }
             }
             // Down a spoke's lift to the ring's town: a cut, the screen fading back in at Hub
             // Gate's lift's door.
@@ -1556,9 +1592,11 @@ pub fn drive_onfoot(
                     *town_cars = TownCars::default();
                 }
                 me.done(now);
-                // (Woken there, the Charter Board's word comes with the place.)
+                // (Woken there, the Charter Board's word comes with the place, and no lift was
+                // ridden.)
                 if before == Some(Place::Hangar) {
                     ui.news("DOWN THE SPOKE · HUB GATE · CHARTER SQUARE", false);
+                    me.rides += 1;
                 }
             }
             // Out of the airlock onto Bay Row: a cut, the screen fading back in there.
@@ -2427,6 +2465,7 @@ pub fn drive_onfoot(
     }
     if came_across {
         me.done(now);
+        me.rides += 1;
     }
     // (Out of the town, a word of the Watch's or a ride across said as they left is forgotten.)
     if !in_town {
