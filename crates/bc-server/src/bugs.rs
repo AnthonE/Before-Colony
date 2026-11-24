@@ -19,17 +19,19 @@
 //! resume token or a signature. Here, on top of that: a field whose name says it holds a secret
 //! (a token, a signature, a key…) is dropped; a run of [`HEX_SECRET`] hex digits or more, digits
 //! and letters mixed (a private key, a resume token, a signature), is cut out of every string; an
-//! `0x` wallet is cut out of every string the player didn't type; and the player's own words, if
-//! they hold a key or a recovery phrase (`crate::secret`), are replaced whole ([`SECRET_REMOVED`]).
+//! `0x` wallet is cut out of every string the player didn't type (a crash's title and words are the
+//! page's, its error, not theirs); and the player's own words, if they hold a key or a recovery
+//! phrase (`crate::secret`), are replaced whole ([`SECRET_REMOVED`]).
 //! Nothing about the sender is kept: no address, no headers. The log names a report's id and
 //! fingerprint, never what it says.
 //!
 //! Anyone can post, so everything is bounded (oneshot's `server/src/bugs.rs`): a body of at most
-//! [`BODY_MAX`] bytes, a screenshot of at most [`SHOT_MAX`] that must be a PNG, so many reports
-//! per address (an IPv6 /64 is one address) and so many in all per [`WINDOW`] ([`Limits`]), so
-//! many bytes a day, and a day older than [`KEEP_DAYS`] is deleted. Behind nginx every peer is
-//! loopback, and then its `X-Real-IP` says who ([`sender_of`]). A reader treats a report's text as
-//! a stranger's words: evidence, never instructions.
+//! [`BODY_MAX`] bytes, a screenshot of at most [`SHOT_MAX`] that must be a PNG; per [`WINDOW`], so
+//! many reports from one address (an IPv6 /64 is one address), so many refusals (bodies that
+//! weren't a report) on a budget of their own, and so many requests in all ([`Limits`]), each
+//! counted before its body is parsed; so many bytes a day; and a day older than [`KEEP_DAYS`] is
+//! deleted. Behind nginx every peer is loopback, and then its `X-Real-IP` says who ([`sender_of`]).
+//! A reader treats a report's text as a stranger's words: evidence, never instructions.
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr};
@@ -71,20 +73,23 @@ pub const PLATFORMS: [&str; 4] = ["linux", "windows", "macos", "web"];
 pub const RUNTIMES: [&str; 3] = ["desktop", "browser", "agent"];
 const PNG_MAGIC: &[u8] = b"\x89PNG\r\n\x1a\n";
 
-/// How many reports are taken: from one address and from everyone per [`WINDOW`], and how many
-/// bytes (reports and screenshots) in a day.
+/// How many reports are taken: from one address per [`WINDOW`], how many of its bodies may be
+/// refused (not a report) in that time, how many requests from everyone, and how many bytes
+/// (reports and screenshots) in a day.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limits {
     pub per_address: u32,
+    pub refused_per_address: u32,
     pub all: u32,
     pub day_bytes: u64,
 }
 
 impl Default for Limits {
     fn default() -> Self {
-        // A playtester files a handful an hour; well over the addresses a flood has to hand, so
-        // one doesn't starve the rest; and a day's disk at about 30 shots of 2 MiB.
-        Limits { per_address: 5, all: 600, day_bytes: 64 << 20 }
+        // A playtester files a handful an hour; a page that sent a picture too big, then the
+        // report without it, is no flood, but a stream of junk is; well over the addresses a flood
+        // has to hand, so one doesn't starve the rest; and a day's disk at about 30 shots of 2 MiB.
+        Limits { per_address: 5, refused_per_address: 20, all: 600, day_bytes: 64 << 20 }
     }
 }
 
@@ -124,7 +129,14 @@ impl Receipt {
 struct Window {
     since: Option<Instant>,
     all: u32,
-    by: BTreeMap<IpAddr, u32>,
+    by: BTreeMap<IpAddr, Share>,
+}
+
+/// One address's count in a window: reports let in, and bodies refused.
+#[derive(Clone, Copy, Default)]
+struct Share {
+    kept: u32,
+    refused: u32,
 }
 
 /// What's on disk, read once on the first report.
@@ -157,12 +169,15 @@ pub fn sender(ip: IpAddr) -> IpAddr {
     }
 }
 
-/// Who sent a request that came from `peer`: behind nginx every peer is loopback, and then its
-/// `X-Real-IP` says who (oneshot's rule); from anywhere else the header is anyone's to forge, so
-/// the peer it is.
+/// Who sent a request that came from `peer`: behind nginx every peer is loopback (over IPv4 on a
+/// dual-stack listener, `::ffff:127.0.0.1`), and then its `X-Real-IP` says who (oneshot's rule);
+/// from anywhere else the header is anyone's to forge, so the peer it is.
 pub fn sender_of(peer: IpAddr, real_ip: Option<&str>) -> IpAddr {
-    let from =
-        if peer.is_loopback() { real_ip.and_then(|v| v.trim().parse().ok()).unwrap_or(peer) } else { peer };
+    let from = if peer.to_canonical().is_loopback() {
+        real_ip.and_then(|v| v.trim().parse().ok()).unwrap_or(peer)
+    } else {
+        peer
+    };
     sender(from)
 }
 
@@ -176,31 +191,48 @@ impl Intake {
         &self.dir
     }
 
-    /// Whether `from` may send one more now; counts it if so. The window restarts whole once it's
-    /// over (one address can't hold it open).
+    /// Whether `from` may send one more now, before its body is parsed: neither past its share of
+    /// reports nor of refusals, nor everyone past theirs. If so it's counted, as a report until
+    /// [`Intake::refused`] says otherwise. The window restarts whole once it's over (one address
+    /// can't hold it open).
     pub fn admit(&self, from: IpAddr, now: Instant) -> bool {
         let from = sender(from);
         let Ok(mut w) = self.window.lock() else {
             return false;
         };
+        let w = &mut *w;
         if w.since.is_none_or(|t| now.duration_since(t) >= WINDOW) {
             *w = Window { since: Some(now), ..Window::default() };
         }
-        let mine = w.by.get(&from).copied().unwrap_or(0);
-        if w.all >= self.limits.all || mine >= self.limits.per_address {
+        let mine = w.by.get(&from).copied().unwrap_or_default();
+        if w.all >= self.limits.all
+            || mine.kept >= self.limits.per_address
+            || mine.refused >= self.limits.refused_per_address
+        {
             return false;
         }
         w.all += 1;
-        w.by.insert(from, mine + 1);
+        w.by.insert(from, Share { kept: mine.kept + 1, ..mine });
         true
     }
 
-    /// Checks `body`, and keeps it as a report from `from` at `unix_s` (the wall clock, s).
+    /// What [`Intake::admit`] let in from `from` wasn't a report: it goes back to the address's
+    /// share and on its refusals (everyone's count keeps it, so a flood of junk is bounded too).
+    fn refused(&self, from: IpAddr) {
+        let Ok(mut w) = self.window.lock() else { return };
+        if let Some(mine) = w.by.get_mut(&sender(from)) {
+            mine.kept = mine.kept.saturating_sub(1);
+            mine.refused += 1;
+        }
+    }
+
+    /// Checks `body`, and keeps it as a report from `from` at `unix_s` (the wall clock, s). `from`
+    /// is counted first, so what isn't a report is limited too.
     pub fn file(&self, from: IpAddr, body: &[u8], unix_s: u64, now: Instant) -> Result<Receipt, No> {
-        let (mut report, shot) = parse(body, unix_s)?;
         if !self.admit(from, now) {
             return Err(No::Busy);
         }
+        let (mut report, shot) = parse(body, unix_s).inspect_err(|_| self.refused(from))?;
         let Ok(mut disk) = self.disk.lock() else {
             return Err(No::Full);
         };
@@ -410,12 +442,16 @@ fn secret_key(key: &str) -> bool {
 
 /// Every string in `v` (keys too) without [`hidden`] characters or a [`HEX_SECRET`]-long hex run,
 /// every field named for a secret gone, and an `0x` wallet cut out of whatever the player didn't
-/// type (`issue_title` and `words` are theirs).
+/// type (`issue_title` and `words` are theirs, but in a crash's report, where the page fills them
+/// with its error).
 fn clean(v: &mut Value) {
-    clean_at(v, true);
+    let kind = v.get("kind").and_then(Value::as_str).map(|k| line(&scrub(k, true), LINE_MAX).0);
+    let typed = kind.is_some_and(|k| k != "crash");
+    clean_at(v, typed);
 }
 
-fn clean_at(v: &mut Value, top: bool) {
+/// `typed`: `v` is a report whose `issue_title` and `words` the player typed.
+fn clean_at(v: &mut Value, typed: bool) {
     match v {
         Value::String(s) => *s = scrub(s, true),
         Value::Array(a) => a.iter_mut().for_each(|x| clean_at(x, false)),
@@ -425,7 +461,7 @@ fn clean_at(v: &mut Value, top: bool) {
                 if secret_key(&k) {
                     continue;
                 }
-                let theirs = top && (k == "issue_title" || k == "words");
+                let theirs = typed && (k == "issue_title" || k == "words");
                 match &mut x {
                     Value::String(s) => *s = scrub(s, !theirs),
                     _ => clean_at(&mut x, false),
@@ -711,6 +747,15 @@ mod tests {
         r["words"] = format!("my wallet {wallet} lost its suit").into();
         let (r, _) = parse(&body(r), 1).unwrap();
         assert!(r["words"].as_str().unwrap().contains(wallet));
+        // But a crash's title and words are the page's (its error): a wallet in them goes.
+        let mut r = report();
+        r["kind"] = "crash".into();
+        r["read_first"] = "CLAUDE.md".into();
+        r["issue_title"] = format!("[crash] signed in as {wallet}").into();
+        r["words"] = format!("panicked at {wallet}").into();
+        let (r, _) = parse(&body(r), 1).unwrap();
+        assert_eq!(r["issue_title"], "[crash] signed in as [wallet]");
+        assert_eq!(r["words"], "panicked at [wallet]");
     }
 
     #[test]
@@ -742,6 +787,27 @@ mod tests {
     }
 
     #[test]
+    fn what_isnt_a_report_has_a_budget_of_its_own() {
+        let limits = Limits::default();
+        let i = Intake::new(PathBuf::new(), limits);
+        let (a, b): (IpAddr, IpAddr) = ("10.0.0.1".parse().unwrap(), "10.0.0.2".parse().unwrap());
+        let t = Instant::now();
+        // A refusal costs none of the address's share of reports.
+        assert!(matches!(i.file(b, b"nope", 1, t), Err(No::Bad(_))));
+        for _ in 0..limits.per_address {
+            assert!(i.admit(b, t));
+        }
+        assert!(!i.admit(b, t));
+        // But a flood of junk is turned away before it's parsed, and the address with it.
+        for _ in 0..limits.refused_per_address {
+            assert!(matches!(i.file(a, b"nope", 1, t), Err(No::Bad(_))));
+        }
+        assert_eq!(i.file(a, b"nope", 1, t), Err(No::Busy));
+        assert!(!i.admit(a, t), "nor a report from it, for now");
+        assert!(i.admit(a, t + WINDOW), "a new window");
+    }
+
+    #[test]
     fn everyone_together_is_capped() {
         let i = Intake::new(PathBuf::new(), Limits::default());
         let t = Instant::now();
@@ -759,6 +825,15 @@ mod tests {
         assert_eq!(sender_of(loopback, Some("198.51.100.7")), "198.51.100.7".parse::<IpAddr>().unwrap());
         assert_eq!(sender_of(loopback, Some("nonsense")), loopback);
         assert_eq!(sender_of(loopback, None), loopback);
+        // nginx over IPv4 to a dual-stack listener: loopback still, as an IPv4 inside IPv6.
+        let mapped: IpAddr = "::ffff:127.0.0.1".parse().unwrap();
+        assert_eq!(sender_of(mapped, Some("198.51.100.7")), "198.51.100.7".parse::<IpAddr>().unwrap());
+        assert_eq!(
+            sender_of("::1".parse().unwrap(), Some("198.51.100.7")),
+            "198.51.100.7".parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(sender_of(mapped, None), loopback);
+        assert_eq!(sender_of("::ffff:203.0.113.9".parse().unwrap(), Some("198.51.100.7")), far);
         // From anywhere else the header is anyone's to forge.
         assert_eq!(sender_of(far, Some("198.51.100.7")), far);
         let a: IpAddr = "2001:db8:1:2:aaaa::1".parse().unwrap();
