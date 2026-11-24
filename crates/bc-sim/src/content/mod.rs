@@ -9,6 +9,7 @@ pub mod aces;
 pub mod base;
 pub mod body;
 pub mod city;
+pub mod cosmetics;
 mod frames;
 pub mod homes;
 pub mod kits;

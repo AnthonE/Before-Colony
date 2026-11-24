@@ -449,6 +449,7 @@ mod tests {
             pilot: PilotKind::Human,
             session,
             flags,
+            look: Default::default(),
             address: None,
         };
         let roster: HashMap<u16, RosterEntry> = [

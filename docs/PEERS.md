@@ -531,8 +531,9 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    rewards, aces' bounties, a certificate's rifle) waits to be collected, and its patrol and ace
    pay are lines on the sortie's debrief.
 7. **Liveries.** Body, trim and accent colours chosen at the suit's maintenance console, carried on
-   the suit (`bc_econ::suit::Suit`) and drawn for everyone (`livery` takes only the frame and the
-   faction today). Paint costs credits: a sink that sells itself.
+   the suit (`bc_econ::suit::Suit`) and drawn for everyone. Paint costs credits: a sink that sells
+   itself. Built (`ROADMAP.md`, "Liveries"): the console's PAINT slot, a decal on the right shoulder,
+   and premium swatches and decals that come with cosmetics a wallet holds on Elo Pros.
 8. **Drone offensives.** Squads that scale with the pilots out, an offensive now and then against
    the dock or Fornax, and something big: a carrier that launches drones. The bounties already pay
    for it (`content::salvage::bounty`).

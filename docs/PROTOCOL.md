@@ -22,6 +22,14 @@ gain OPEN_SPACE (`1 << 7`, the space sector only): past the colony's reach, 5 km
 hull and the hub's drum, pilots of any side harm each other, and inside it none; without it, sides.
 Nothing changes shape; both ends judge who is fair game by the same closed form.
 
+v49, too: liveries (`docs/ROADMAP.md`, "Liveries"; `bc_sim::content::cosmetics`): a Roster
+frame's flags take bit 6, PAINTED, and bit 7, DECAL, and after the flags come the suit's paint (2
+bytes, `control::Livery::pack`: body, trim and accent 4 bits each, the eye 2) when PAINTED is set and
+its decal's id (1 byte) when DECAL is: a suit nobody painted costs nothing more. The two bits are
+the wire's alone (`ControlMsg::Roster`'s `look` carries them). The hangar takes `paint` {`paint`} and
+the hangar view carries `cosmetics`, the bits of the cosmetics the pilot's wallet holds (the
+server's read at sign-in) (below).
+
 v47 (from v46): the Watch's heat is the server's (`docs/OPEN_CITY.md`, "Heat and the Watch";
 `bc_sim::colony::watch`'s tables, the server's `watch`). A person in a plaza datagram takes 3 bits
 more after their pose, their heat (0 to 5), which the server writes from the heat it holds: 15.25
@@ -606,7 +614,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME, 4 STREET), resume token (32 B, only with RESUME)} | client → server (first frame) |
 | 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR, 64 STREET, 128 OPEN_SPACE), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
-| 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7)} | server → client |
+| 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7, 32 PILL, 64 PAINTED, 128 DECAL), then its paint (u16, when PAINTED) and its decal's id (u8, when DECAL) (v49)} | server → client |
 | 5 | Respawn {frame} | client → server |
 | 6 | Bye {reason: 0 leaving, 1 taken over, 2 idle, 3 shutdown} | either |
 | 7 | Challenge {nonce (32 B), issued_at (u64, Unix seconds), domain (u8 length + ASCII, ≤ 64 B)} | server → client |
@@ -693,6 +701,7 @@ Client → server (`Request`):
 | `overhaul` | `part` (optional: all) | restore damaged and failed systems as far as the stores allow |
 | `scrap` | `item` | melt one down for half its materials |
 | `fuel` | `grade` (`standard`, `refined`, `ultra`) | fill the suit's tank with that grade from the stores (what it has of another is pumped back to the stores first; a launch tops up from the suit's own grade) |
+| `paint` | `paint` {`body`, `trim`, `accent` (paint slugs), `eye` (a glow's), `decal` (a decal's, or `none`; left out: none)} | in the bay, the suit standing there: paint it, paid from the bay's credits for each thing that changes (`livery::PAINT_CR`). A paint, glow or decal that comes with a cosmetic needs the pilot's wallet to hold it (the server's read). Refused with a `note` otherwise; the hangar answers (v49) |
 | `order` | `item`, `side` (`buy`, `sell`), `price`, `qty`, `rest` | a limit order on the exchange; `rest: true` leaves what doesn't fill on the book (desk: the Exchange floor) |
 | `cancel_order` | `id` | |
 | `watch` | `item` (or `null`) | send that item's book and history as they change |

@@ -251,6 +251,7 @@ pub fn sync_view(
             ground: view.ground.and_then(|g| SuitGround::of(&g, &bodies)),
             weathering: bc_client_core::weathering(world, own.slot),
             pill: bc_client_core::has_pill(world, own.slot),
+            look: bc_client_core::look_of(world, own.slot),
             doomed: own.alive && own.doom > 0,
             // As flown: the prediction runs the stagger down tick by tick.
             staggered: own.alive && core.predict.stagger > 0,
@@ -292,6 +293,7 @@ pub fn sync_view(
             ground: p.ground.and_then(|g| SuitGround::of(&g, &bodies)),
             weathering: bc_client_core::weathering(world, slot as u16),
             pill: bc_client_core::has_pill(world, slot as u16),
+            look: bc_client_core::look_of(world, slot as u16),
             doomed: state.flags & ent_flags::WRECK == 0 && world.doomed.contains_key(&(slot as u16)),
             staggered: state.flags & ent_flags::WRECK == 0 && world.is_staggered(slot as u16, t_render),
             foe: match core.own_view() {

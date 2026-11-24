@@ -489,6 +489,7 @@ impl ClientCore {
         let old = std::mem::replace(&mut self.world, World::new(self.cfg.faction));
         self.world.roster = old.roster;
         self.world.roster_flags = old.roster_flags;
+        self.world.roster_looks = old.roster_looks;
         self.world.my_hits = old.my_hits;
         self.world.my_kills = old.my_kills;
         self.world.my_deaths = old.my_deaths;
@@ -602,13 +603,19 @@ impl ClientCore {
                 self.phase = Phase::InGame;
             }
             ControlMsg::Reject { reason } => self.phase = Phase::Rejected(reason),
-            ControlMsg::Roster { slot, pilot, name, flags } => {
+            ControlMsg::Roster { slot, pilot, name, flags, look } => {
                 if name.is_empty() {
                     self.world.roster.remove(&slot);
                     self.world.roster_flags.remove(&slot);
+                    self.world.roster_looks.remove(&slot);
                 } else {
                     self.world.roster.insert(slot, (name.as_str().to_string(), pilot));
                     self.world.roster_flags.insert(slot, flags);
+                    if look == bc_proto::control::Look::default() {
+                        self.world.roster_looks.remove(&slot);
+                    } else {
+                        self.world.roster_looks.insert(slot, look);
+                    }
                 }
             }
             ControlMsg::Bye { reason } => {
@@ -1106,6 +1113,12 @@ pub fn weathering(world: &World, slot: u16) -> u8 {
 /// Whether the pilot in `slot` shows the Pill (the server read their wallet at sign-in).
 pub fn has_pill(world: &World, slot: u16) -> bool {
     world.roster_flags.get(&slot).is_some_and(|f| f & roster_flags::PILL != 0)
+}
+
+/// What the suit in `slot` wears beyond its frame's livery, as the server says (its pilot's
+/// paint and decal; nothing for a suit nobody's on the roster for).
+pub fn look_of(world: &World, slot: u16) -> bc_proto::control::Look {
+    world.roster_looks.get(&slot).copied().unwrap_or_default()
 }
 
 #[cfg(test)]

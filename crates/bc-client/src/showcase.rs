@@ -1058,6 +1058,7 @@ fn spawn_showcase(
                 ground: None,
                 weathering: weathering(show.scene, i),
                 pill: cfg.0.showcase_pill,
+                look: Default::default(),
                 doomed: false,
                 staggered: false,
                 foe: false,

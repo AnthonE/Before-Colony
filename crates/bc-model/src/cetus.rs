@@ -59,7 +59,7 @@ use crate::{Designer, On, paint};
 /// The inner frame, as the Argo's: neck, joints, shoulder balls, hands.
 const BROWN: Paint = Paint::Fixed(paint::FRAME_BROWN);
 /// The visor slit's glass, dark behind the mono-eye.
-const SMOKE: Paint = Paint::Fixed(paint::GLASS);
+const SMOKE: Paint = Paint::Fixed(paint::SENSOR_GLASS);
 
 pub(crate) fn cetus(d: &mut Designer) {
     head(d);

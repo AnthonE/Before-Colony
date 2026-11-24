@@ -342,6 +342,9 @@ pub struct World {
     pub roster: HashMap<u16, (String, PilotKind)>,
     /// `bc_proto::control::roster_flags` by entity slot (signed in, asleep).
     pub roster_flags: HashMap<u16, u8>,
+    /// What each suit on the roster wears beyond its frame's livery (its pilot's paint, a
+    /// decal), by entity slot: only those that do.
+    pub roster_looks: HashMap<u16, bc_proto::control::Look>,
     /// Rocks whose state differs from the generated field's (mined, shattered), by id.
     pub rocks: HashMap<u16, RockState>,
     /// Salvage chunks in range, by id.
@@ -413,6 +416,7 @@ impl World {
             feed: VecDeque::new(),
             roster: HashMap::new(),
             roster_flags: HashMap::new(),
+            roster_looks: HashMap::new(),
             rocks: HashMap::new(),
             objects: vec![None; 1 << CHUNK_BITS],
             hulks: HashMap::new(),

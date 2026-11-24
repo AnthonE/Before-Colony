@@ -24,8 +24,10 @@ pub struct SuitMeshLib {
     sockets: HashMap<FrameId, Sockets>,
     /// The bones the cockpit view leaves out (`bc_model::near_eye_bones`), by frame.
     near_eye: HashMap<FrameId, u32>,
-    /// Where the Pill goes, by frame (`bc_model::shoulder_decal`).
+    /// Where the Pill goes, by frame (`bc_model::shoulder_decal`), and a worn decal on the right
+    /// shoulder (`bc_model::shoulder_decal_right`).
     decals: HashMap<FrameId, bc_model::Decal>,
+    decals_right: HashMap<FrameId, bc_model::Decal>,
     /// One of a Corona's wards as it flies out of its rack (`bc_model::ward_disc`).
     pub ward_disc: Handle<Mesh>,
 }
@@ -42,6 +44,11 @@ impl SuitMeshLib {
     /// Where a decal goes on `frame`'s shoulder.
     pub fn decal(&self, frame: FrameId) -> Option<bc_model::Decal> {
         self.decals.get(&frame).copied()
+    }
+
+    /// Where a worn decal goes on `frame`'s right shoulder.
+    pub fn decal_right(&self, frame: FrameId) -> Option<bc_model::Decal> {
+        self.decals_right.get(&frame).copied()
     }
 
     /// The bones of `frame` the cockpit view leaves out (bit `Bone::index`).
@@ -64,6 +71,7 @@ pub fn build_suit_meshes(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>
     let mut sockets = HashMap::new();
     let mut near_eye = HashMap::new();
     let mut decals = HashMap::new();
+    let mut decals_right = HashMap::new();
     for frame in FrameId::ALL {
         for lod in LODS {
             let model = bc_model::build(frame, lod);
@@ -71,6 +79,9 @@ pub fn build_suit_meshes(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>
                 near_eye.insert(frame, bc_model::near_eye_bones(&model, bc_model::NEAR_EYE));
                 if let Some(d) = bc_model::shoulder_decal(&model) {
                     decals.insert(frame, d);
+                }
+                if let Some(d) = bc_model::shoulder_decal_right(&model) {
+                    decals_right.insert(frame, d);
                 }
             }
             let mut bones: [Option<Handle<Mesh>>; BONES] = std::array::from_fn(|_| None);
@@ -84,5 +95,5 @@ pub fn build_suit_meshes(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>
         }
     }
     let ward_disc = meshes.add(mesh(bc_model::ward_disc(Lod::Near)));
-    commands.insert_resource(SuitMeshLib { models, sockets, near_eye, decals, ward_disc });
+    commands.insert_resource(SuitMeshLib { models, sockets, near_eye, decals, decals_right, ward_disc });
 }

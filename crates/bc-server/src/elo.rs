@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use bc_proto::auth::PlayerId;
+use bc_sim::content::cosmetics::{Cosmetic, Owned};
 
 use crate::pilots::unix_now;
 
@@ -89,7 +90,15 @@ pub fn parse_pubkey(text: &str) -> Option<[u8; 32]> {
 pub const READ_WAIT: Duration = Duration::from_secs(2);
 
 /// The free Pill, this title's first cosmetic, by its key in the items' record.
-pub const PILL: &str = "pill";
+pub const PILL: &str = bc_sim::content::cosmetics::Cosmetic::Pill.key();
+
+/// What a wallet holds of this title's cosmetics (`bc_sim::content::cosmetics`), from one read:
+/// the Pill (the roster's own bit), and every cosmetic, a bit each.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Holdings {
+    pub pill: bool,
+    pub cosmetics: Owned,
+}
 
 /// A wallet's items on Elo Pros (`GET /api/items/sol/of/<wallet>`; an `0x` wallet is read at the
 /// Solana wallet linked to it).
@@ -104,16 +113,30 @@ impl Items {
         Some(Self { http, origin })
     }
 
-    /// Whether `wallet` holds the Pill. No when Elo Pros can't be asked: it's cosmetic, so not
-    /// knowing costs the look, never the game.
-    pub async fn holds_pill(&self, wallet: &PlayerId) -> bool {
+    /// What `wallet` holds of this title's cosmetics, the Pill among them, if Elo Pros said: none
+    /// when it couldn't be asked or couldn't look, which the session takes as "as last read" (it's
+    /// cosmetic, so not knowing costs at most the look, never the game).
+    pub async fn read(&self, wallet: &PlayerId) -> Option<Holdings> {
         let url = format!("{}/api/items/sol/of/{wallet}", self.origin);
-        let read = async {
-            let res = self.http.get(&url).send().await.ok()?.error_for_status().ok()?;
-            res.json::<serde_json::Value>().await.ok()
-        };
-        read.await.is_some_and(|doc| holds(&doc, bc_auth::GAME, PILL))
+        let res = self.http.get(&url).send().await.ok()?.error_for_status().ok()?;
+        holdings(&res.json::<serde_json::Value>().await.ok()?, bc_auth::GAME)
     }
+}
+
+/// What a `/api/items/sol/of` answer lists of title `slug`'s cosmetics (any number of them; an item
+/// this build doesn't know is passed over). None when it isn't an answer: Elo Pros couldn't look
+/// (`reachable: false`), or there's no list of items.
+pub fn holdings(doc: &serde_json::Value, slug: &str) -> Option<Holdings> {
+    if doc["reachable"] == false {
+        return None;
+    }
+    let mut cosmetics = Owned::NONE;
+    for row in doc["items"].as_array()?.iter().filter(|r| r["title"] == slug) {
+        if let Some(c) = row["item"].as_str().and_then(Cosmetic::from_key) {
+            cosmetics = cosmetics.with(c);
+        }
+    }
+    Some(Holdings { pill: cosmetics.has(Cosmetic::Pill), cosmetics })
 }
 
 /// Whether a `/api/items/sol/of` answer lists `item` from title `slug`.
@@ -182,5 +205,41 @@ mod tests {
             "pill"
         ));
         assert!(!holds(&serde_json::json!({}), "before-colony", "pill"));
+    }
+
+    /// Every cosmetic the title's record lists, from the one answer; another title's, an item this
+    /// build doesn't know and a read with nothing in it give nothing.
+    #[test]
+    fn every_cosmetic_is_read_from_the_one_answer() {
+        let doc = serde_json::json!({
+            "reachable": true, "count": 5,
+            "items": [
+                {"title": "before-colony", "item": "pill"},
+                {"title": "before-colony", "item": "coalsack", "name": "Coalsack"},
+                {"title": "before-colony", "item": "crux-decal"},
+                {"title": "before-colony", "item": "a-thing-from-later"},
+                {"title": "gates", "item": "albireo"},
+            ],
+        });
+        let h = holdings(&doc, "before-colony").unwrap();
+        assert!(h.pill);
+        assert_eq!(
+            h.cosmetics,
+            Owned::NONE.with(Cosmetic::Pill).with(Cosmetic::Coalsack).with(Cosmetic::CruxDecal)
+        );
+        assert_eq!(holdings(&doc, "oneshot"), Some(Holdings::default()));
+        let only = serde_json::json!({"items": [{"title": "before-colony", "item": "pleiades"}]});
+        assert_eq!(
+            holdings(&only, "before-colony"),
+            Some(Holdings { pill: false, cosmetics: Owned::NONE.with(Cosmetic::Pleiades) })
+        );
+        // Holding nothing is an answer; Elo Pros not able to look, or no list, isn't one.
+        assert_eq!(
+            holdings(&serde_json::json!({"reachable": true, "items": []}), "before-colony"),
+            Some(Holdings::default())
+        );
+        assert_eq!(holdings(&serde_json::json!({"reachable": false, "items": []}), "before-colony"), None);
+        assert_eq!(holdings(&serde_json::json!({"items": "nope"}), "before-colony"), None);
+        assert_eq!(holdings(&serde_json::json!({}), "before-colony"), None);
     }
 }

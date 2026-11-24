@@ -541,6 +541,12 @@ pub enum Cmd {
         #[serde(default)]
         shot: bool,
     },
+    /// The suit's console, on its paint: draw the suit in the gantry in this draft (none: as it
+    /// stands). Only the look changes; painting it is a hangar request (`paint`).
+    PaintPreview {
+        #[serde(default)]
+        paint: Option<bc_econ::livery::Paint>,
+    },
 }
 
 impl Cmd {

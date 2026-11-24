@@ -98,8 +98,8 @@ changes. The suit stands in the middle, the real one in its gantry: while the ta
 leaves the pilot's eyes and stands off its front (`bay::Refit`, eased in a quarter of a second), the
 page sends the drag and the wheel as `suit_view`, and the panel's middle is clear glass, each part
 round it a pane of its own. Across the top, the suit, whether it would launch (and why not) and its
-totals; under them the slots as numbered tabs (1–9: the six parts, the weapons, the equipment, the
-service), a square where one needs work (red: missing or failed; amber: damaged, worn, a weapon not
+totals; under them the slots as numbered tabs (1–9 and 0: the six parts, the weapons, the
+equipment, the service, the paint), a square where one needs work (red: missing or failed; amber: damaged, worn, a weapon not
 fitted, the tank low). It opens on the first that does.
 
 Down the left, the open slot's choices as cards: what's fitted, what the stores hold for it, the
@@ -109,7 +109,10 @@ own fit and strip on a copy, so it can't disagree with what the server will do).
 a callout per slot (the suit's right on the left, as it faces you). On the right, the chosen card in
 full: what it is, its rows, how you fire it (a key against each mount and the special), the stat sheet
 as it would launch with it, and the one thing to do, amber, at the pane's foot. ↑↓ choose, Enter
-does it. Its states are the gallery's `suit*` scenes.
+does it. The paint's cards are the livery's body, trim, accent, sensors and decal, and the frame's
+own: the chosen one's swatches in its detail (a ◆ on those that come with a cosmetic on Elo Pros),
+the draft drawn on the suit in its gantry (`paint_preview`) until PAINT pays for it. Its states are
+the gallery's `suit*` scenes.
 
 ## Reports
 
@@ -137,5 +140,5 @@ agent.
 
 - The Orrery's panel as instruments too: its picks' confidence and the threat as bars.
 - HUD options: its scale and opacity as settings (`settings::KNOBS`), as Titanic Scion has them.
-- The suit's console: light the chosen slot's part on the suit itself, and paint (liveries) as a slot.
+- The suit's console: light the chosen slot's part on the suit itself.
 - The objective's marker in the view (`DRONE 1.5 km`) can sit under a focus tag: let `tags` keep clear of it.

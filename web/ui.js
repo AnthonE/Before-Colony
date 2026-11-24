@@ -1135,6 +1135,8 @@
       openTab(v.terminal || tab);
     } else if (!termOpen && terminalShown) {
       terminalShown = false;
+      paintDraft = null;
+      paintPreview(null);
       desk = "";
       suitView(false);
       watch("");
@@ -1711,7 +1713,10 @@
     { id: "weapons", label: "WEAPONS" },
     { id: "equipment", label: "EQUIPMENT" },
     { id: "service", label: "SERVICE" },
+    { id: "paint", label: "PAINT" },
   ];
+  // A slot's number on its tab and key: 1 to 9, then 0.
+  const slotKey = (k) => String((k + 1) % 10);
   // The stat sheet's rows: the field, its label, how it reads, its bar's full scale, and whether
   // less is better.
   const SUIT_STATS = [
@@ -1771,10 +1776,123 @@
     `<span class="sl-v">${esc(r.text)}</span><span class="sl-d ${r.delta ? (r.good ? "up" : "down") : ""}">${esc(r.delta || "")}</span></div>`;
   const cap = (k) => `<span class="cap">${esc(k)}</span>`;
 
+  // The paint: the suit's livery as it stands, and each part of it chosen from the swatches. What's
+  // chosen is a draft (drawn on the suit in the gantry, `paint_preview`) until PAINT pays for it.
+  // Swatches that come with a cosmetic on Elo Pros can be tried on the suit; painting them needs
+  // the wallet to hold it (the server's read as they signed in).
+  const PAINT_CHANNELS = [
+    ["body", "BODY", "paints"],
+    ["trim", "TRIM", "paints"],
+    ["accent", "ACCENT", "paints"],
+    ["eye", "SENSORS", "eyes"],
+    ["decal", "DECAL", "decals"],
+  ];
+  let paintDraft = null;
+  let paintShown = "";
+  const swatchOf = (list, slug) => (catalogue[list] || []).find((s) => s.slug === slug);
+  const cosmeticName = (key) => (catalogue.cosmetics || []).find((c) => c.key === key)?.name || key;
+  // What going from the paint as it stands to the draft costs (the server's own sum, `livery::Paint::cost_to`).
+  function paintCost(cur, want) {
+    const cr = catalogue.paint_cr || {};
+    let n = 0;
+    for (const [ch] of PAINT_CHANNELS) {
+      if (ch === "decal") n += want.decal !== "none" && want.decal !== cur.decal ? cr.decal || 0 : 0;
+      else n += want[ch] !== cur[ch] ? cr[ch] || 0 : 0;
+    }
+    return n;
+  }
+  // The first cosmetic the draft needs that the wallet doesn't hold.
+  function paintLacks(want, owned) {
+    for (const [ch, , list] of PAINT_CHANNELS) {
+      const needs = swatchOf(list, want[ch])?.needs;
+      if (needs && !owned.includes(needs)) return needs;
+    }
+    return null;
+  }
+  const chip = (list, slug) => {
+    const s = swatchOf(list, slug);
+    if (list === "decals") return `<span class="chip decal">${esc(s ? s.name.toUpperCase() : "NONE")}</span>`;
+    return `<span class="chip" style="--c:${esc(s?.hex || "#000")}"></span>${esc((s?.name || slug).toUpperCase())}`;
+  };
+  // The page asks the game to draw the draft on the suit while the paint slot is open.
+  function paintPreview(want) {
+    const json = want ? JSON.stringify(want) : "";
+    if (json === paintShown) return;
+    paintShown = json;
+    send("paint_preview", want ? { paint: want } : {});
+  }
+  function paintCards(suit, con) {
+    const p = con.paint;
+    if (!p) return [];
+    const cur = p.now;
+    const want = paintDraft || cur;
+    const owned = p.owned || [];
+    const cost = paintCost(cur, want);
+    const lacks = paintLacks(want, owned);
+    const changed = PAINT_CHANNELS.some(([ch]) => want[ch] !== cur[ch]);
+    const credits = hangar?.view?.credits || 0;
+    const act = !changed
+      ? null
+      : lacks
+        ? null
+        : cost > credits
+          ? null
+          : [`PAINT · ${fmt(cost)} CR`, { act: "paint" }];
+    const notes = [];
+    if (lacks) notes.push(`${esc(cosmeticName(lacks))} isn't in your wallet. It's on Elo Pros: try it on here, and paint it once it's yours.`);
+    else if (changed && cost > credits) notes.push(`That paint costs ${fmt(cost)} CR, and you have ${fmt(credits)} CR.`);
+    const others = changed ? [button("AS IT STANDS", { act: "paint-reset" })] : [];
+    const cards = PAINT_CHANNELS.map(([ch, label, list]) => {
+      const options = catalogue[list] || [];
+      const none = ch === "decal" ? [{ slug: "none", name: "None" }] : [];
+      const grid = none.concat(options).map((s) => {
+        const locked = s.needs && !owned.includes(s.needs);
+        const swatch = list === "decals" ? `<span class="sw-name">${esc(s.name.toUpperCase())}</span>` : "";
+        const title = locked ? `${s.name}: comes with ${cosmeticName(s.needs)} on Elo Pros` : s.name;
+        return `<button type="button" class="sw${want[ch] === s.slug ? " on" : ""}${locked ? " locked" : ""}${list === "decals" ? " dec" : ""}" style="--c:${esc(s.hex || "transparent")}" title="${esc(title)}" data-act="paint-pick" data-ch="${ch}" data-slug="${esc(s.slug)}">${swatch}</button>`;
+      }).join("");
+      const moved = want[ch] !== cur[ch];
+      const price = (catalogue.paint_cr || {})[ch] || 0;
+      return {
+        key: `paint.${ch}`,
+        title: label,
+        plate: moved ? "CHANGED" : p.painted ? "AS PAINTED" : "FACTORY",
+        plateCls: moved ? "warn" : p.painted ? "" : "dim",
+        sub: chip(list, want[ch]),
+        rows: [],
+        noSheet: true,
+        pick: `<div class="swatches">${grid}</div>`,
+        about: ch === "decal"
+          ? `On the right shoulder, for everyone to see. ${fmt(price)} CR to put one on; taking it off is free.`
+          : `${fmt(price)} CR to change. Paint changes how the suit looks and nothing else.`,
+        act,
+        others,
+        notes,
+      };
+    });
+    const isFactory = PAINT_CHANNELS.every(([ch]) => want[ch] === (ch === "decal" ? "none" : p.factory[ch]));
+    cards.push({
+      key: "paint.factory",
+      title: "THE FRAME'S OWN",
+      plate: p.painted ? "FACTORY" : "AS IT STANDS",
+      plateCls: "dim",
+      sub: ["body", "trim", "accent"].map((ch) => `<span class="chip" style="--c:${esc(swatchOf("paints", p.factory[ch])?.hex || "#000")}"></span>`).join(""),
+      rows: [],
+      noSheet: true,
+      about: "Its frame's livery in your side's colours, as it left the line. Painting it back is paid for like any other paint.",
+      act: isFactory ? act : ["CHOOSE THE FRAME'S OWN", { act: "paint-factory" }],
+      others,
+      notes: isFactory ? notes : [],
+    });
+    return cards;
+  }
+
   // The cards for a slot, each: its key, title, plate (and the plate's look), a line under the
   // title, its rows, the stat sheet it would leave (`then`), and its detail: what it is (`about`),
   // the one thing to do (`act`: a button's label, its data and class), others, and notes.
+  // (The paint's also have `pick`, the swatches to choose from, and `noSheet`.)
   function suitCards(slot, suit, con, line) {
+    if (slot.id === "paint") return paintCards(suit, con);
     const st = con.stats;
     const refit = con.refit || {};
     const fits = new Set(con.fits || []);
@@ -2039,6 +2157,10 @@
       suitSlot = SUIT_SLOTS[states.includes("bad") ? states.indexOf("bad") : Math.max(0, states.indexOf("warn"))].id;
     }
     const slot = SUIT_SLOTS.find((s) => s.id === suitSlot);
+    // A draft the server has painted is the paint as it stands: nothing left to try on.
+    const nowPaint = con.paint?.now;
+    if (paintDraft && nowPaint && Object.keys(paintDraft).every((k) => paintDraft[k] === nowPaint[k])) paintDraft = null;
+    paintPreview(slot.id === "paint" ? paintDraft : null);
     const mounts = catalogue.module_mounts || [];
     if (suitMount < 0 || suitMount >= mounts.length) {
       // The first mount with something in the stores for it, else the first free one on a part
@@ -2065,9 +2187,9 @@
       `</div></header>`;
     // The slots, numbered.
     out += `<nav class="refit-slots">` + SUIT_SLOTS.map((s, k) =>
-      `<button type="button" data-act="refit-slot" data-slot="${s.id}" class="${s.id === suitSlot ? "active" : ""}"><span class="n">${k + 1}</span>${s.label}${states[k] ? `<i class="need ${states[k]}"></i>` : ""}</button>`).join("") + `</nav>`;
+      `<button type="button" data-act="refit-slot" data-slot="${s.id}" class="${s.id === suitSlot ? "active" : ""}"><span class="n">${slotKey(k)}</span>${s.label}${states[k] ? `<i class="need ${states[k]}"></i>` : ""}</button>`).join("") + `</nav>`;
     // The choices.
-    out += `<div class="refit-main"><section class="refit-list"><h4><span class="n">${SUIT_SLOTS.indexOf(slot) + 1}</span>${slot.label}<span class="count">${cards.length} ${cards.length === 1 ? "choice" : "choices"}</span></h4>`;
+    out += `<div class="refit-main"><section class="refit-list"><h4><span class="n">${slotKey(SUIT_SLOTS.indexOf(slot))}</span>${slot.label}<span class="count">${cards.length} ${cards.length === 1 ? "choice" : "choices"}</span></h4>`;
     if (slot.id === "equipment") {
       let torso = 0;
       out += `<div class="refit-mounts">` + mounts.map((p, k) => {
@@ -2106,7 +2228,8 @@
       out += `<div class="rd-plate"><span class="plate ${chosen.plateCls || ""}">${esc(chosen.plate)}</span><span class="lbl">${slot.label}</span></div>` +
         `<div class="rd-title">${esc(chosen.title)}</div>` +
         (chosen.sub ? `<div class="rc-sub">${chosen.sub}</div>` : "") +
-        `<p class="rd-about">${chosen.about || ""}</p>`;
+        `<p class="rd-about">${chosen.about || ""}</p>` +
+        (chosen.pick || "");
       for (const n of chosen.notes || []) out += `<div class="note">${n}</div>`;
       if (chosen.rows.length) out += chosen.rows.map(statLine).join("");
       if (chosen.fire) out += `<h3>HOW YOU FIRE</h3><div class="fires">${chosen.fire}</div>`;
@@ -2118,7 +2241,7 @@
         const moved = Math.abs(b - a) / Math.max(Math.abs(a), Math.abs(b), 1e-6) >= 0.004;
         return `<tr><td class="dim">${label}</td><td class="num">${moved ? `<s>${esc(read(a))}</s> ` : ""}${esc(read(b))}</td><td class="num ${moved ? (b > a !== !!less ? "up" : "down") : ""}">${moved ? (b > a ? "▲" : "▼") : ""}</td></tr>`;
       }).join("");
-      out += `<h3>AS IT WOULD LAUNCH${chosen.then ? ", WITH THIS" : ""}</h3><table class="rd-sheet">${sheet}</table>`;
+      if (!chosen.noSheet) out += `<h3>AS IT WOULD LAUNCH${chosen.then ? ", WITH THIS" : ""}</h3><table class="rd-sheet">${sheet}</table>`;
       out += `<div class="rd-acts">` +
         (chosen.act ? button(chosen.act[0], chosen.act[1], "primary") : "") +
         (chosen.others || []).join("") +
@@ -2126,7 +2249,7 @@
     }
     out += `</section></div>`;
     // The keys.
-    out += `<footer class="refit-keys">${cap("1-9")}slot ${cap("↑↓")}choice${slot.id === "equipment" ? ` ${cap("←→")}mount` : ""} ${cap("ENTER")}do it <span class="gap"></span>${cap("E")}step away ${cap("ESC")}back</footer></div>`;
+    out += `<footer class="refit-keys">${cap("1-0")}slot ${cap("↑↓")}choice${slot.id === "equipment" ? ` ${cap("←→")}mount` : ""} ${cap("ENTER")}do it <span class="gap"></span>${cap("E")}step away ${cap("ESC")}back</footer></div>`;
     return out;
   }
 
@@ -2136,8 +2259,8 @@
     if (tab !== "suit" || !suitViewOn || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return false;
     const cards = [...document.querySelectorAll("#term-body .rc")];
     const at = cards.findIndex((c) => c.classList.contains("chosen"));
-    if (/^[1-9]$/.test(e.key)) {
-      suitSlot = SUIT_SLOTS[Number(e.key) - 1].id;
+    if (/^[0-9]$/.test(e.key)) {
+      suitSlot = SUIT_SLOTS[(Number(e.key) + 9) % 10]?.id || suitSlot;
     } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       const next = cards[Math.max(0, Math.min(cards.length - 1, at + (e.key === "ArrowDown" ? 1 : -1)))];
       if (!next) return true;
@@ -2589,6 +2712,8 @@
     const caret = key && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
     const body = $("term-body");
     const scroll = body.scrollTop;
+    // The draft is tried on the suit only on the paint's own slot (`renderSuit`).
+    if (tab !== "suit") paintPreview(null);
     const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter, proving: renderProving, wanted: renderArrival, menu: renderMenu, home: renderHome }[tab];
     body.innerHTML = render ? render() : "";
     body.scrollTop = scroll;
@@ -2733,6 +2858,25 @@
       case "refit-mount":
         suitMount = Number(d.mount);
         break;
+      case "paint-pick": {
+        const now = hangar?.console?.paint?.now;
+        if (!now) return;
+        paintDraft = { ...(paintDraft || now), [d.ch]: d.slug };
+        suitPick.paint = `paint.${d.ch}`;
+        break;
+      }
+      case "paint-reset":
+        paintDraft = null;
+        break;
+      case "paint-factory": {
+        const p = hangar?.console?.paint;
+        if (!p) return;
+        paintDraft = { ...p.factory, decal: "none" };
+        break;
+      }
+      case "paint":
+        if (paintDraft) ask({ t: "paint", paint: paintDraft });
+        return;
       case "scrap":
         ask({ t: "scrap", item: d.item });
         return;
