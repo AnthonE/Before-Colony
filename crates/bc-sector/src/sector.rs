@@ -7,6 +7,7 @@ use bc_proto::{Event, InputCmd, MAX_DATAGRAM, PilotKind, SnapshotHeader};
 use bc_sim::bodies::Body;
 use bc_sim::colony::course::{self, Event as CourseEvent};
 use bc_sim::colony::hall::DrillEvent;
+use bc_sim::config::rewind_floor_q4;
 use bc_sim::ground::Footing;
 use bc_sim::handle::Handle;
 use bc_sim::orrery::TacticalPicture;
@@ -474,6 +475,8 @@ impl Sector {
                 if !client.active {
                     continue;
                 }
+                // Set by its session before it pushed this (the ring orders the two).
+                client.rtt_us = self.ends.link_rtt_us[s].load(std::sync::atomic::Ordering::Relaxed);
                 Metrics::add(&m.inputs, 1);
                 let p = &msg.packet;
                 for k in 0..p.count as usize {
@@ -581,7 +584,16 @@ impl Sector {
         let next = self.sim.next_tick();
         for client in self.clients.iter_mut().filter(|c| c.active) {
             let cmd = match client.jitter.take(next) {
-                Some(cmd) => {
+                Some((mut cmd, arrived)) => {
+                    // No further back than its link explains, from when it arrived as it is (a
+                    // backtracker's claim is cut; the sim's MAX_REWIND_TICKS still caps the rest).
+                    if client.rtt_us > 0 {
+                        let floor = rewind_floor_q4(arrived, client.rtt_us).min(cmd.tick << 4);
+                        if cmd.view_tick_q4 < floor {
+                            cmd.view_tick_q4 = floor;
+                            Metrics::add(&self.shared.metrics.rewind_cut, 1);
+                        }
+                    }
                     client.missing = 0;
                     client.last_real = next;
                     client.last_cmd = cmd;

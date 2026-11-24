@@ -99,6 +99,11 @@ pub struct Metrics {
     pub inputs: AtomicU64,
     pub inputs_stale: AtomicU64,
     pub inputs_missing: AtomicU64,
+    /// Commands whose view claimed further back than their link explains, put on its floor
+    /// (`bc_sim::config::rewind_floor_q4`). A tell more than a cut while `MAX_REWIND_TICKS` is 8:
+    /// the floor sits at least 7¾ ticks below a command's tick, so it moves a view at most a
+    /// quarter tick past where the cap leaves it.
+    pub rewind_cut: AtomicU64,
     pub clients: AtomicU64,
     /// Spectators watching the sector's suits (pilots on foot in the colony's city).
     pub watchers: AtomicU64,
@@ -147,6 +152,7 @@ impl Metrics {
             inputs: AtomicU64::new(0),
             inputs_stale: AtomicU64::new(0),
             inputs_missing: AtomicU64::new(0),
+            rewind_cut: AtomicU64::new(0),
             clients: AtomicU64::new(0),
             watchers: AtomicU64::new(0),
             suits_alive: AtomicU64::new(0),

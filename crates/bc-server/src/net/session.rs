@@ -825,6 +825,9 @@ impl Session<'_> {
                             // Inside the colony, to its sector; out in space, to its flight slot;
                             // with neither, there's nothing to fly.
                             if let Some(lease) = self.inside.as_mut().or(self.lease.as_mut()) {
+                                // The link as QUIC measures it, not as the client says: how far back
+                                // its views may be (the sector's rewind floor).
+                                lease.set_link_rtt(self.conn.rtt());
                                 let _ = lease.input.push(InputMsg { packet, recv_us });
                             }
                         }

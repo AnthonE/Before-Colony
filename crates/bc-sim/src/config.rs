@@ -8,6 +8,41 @@ pub const DT: f32 = 1.0 / TICK_HZ as f32;
 pub const G0: f32 = 9.806_65;
 /// Lag compensation never rewinds further than this (≈267 ms).
 pub const MAX_REWIND_TICKS: u32 = 8;
+/// How far behind the server's time a client draws everyone else (ticks), for a round trip of
+/// `rtt` seconds: more jitter, more delay, from 2 to 6 ticks. The client's clock sets its
+/// `interp_delay` with it, and the sector's rewind floor ([`rewind_floor_q4`]) expects it.
+pub fn interp_delay_ticks(rtt: f64) -> f64 {
+    (2.0 + rtt * TICK_HZ as f64 * 0.25).clamp(2.0, 6.0)
+}
+/// How much older than its link explains a command's view may be before the sector puts a floor
+/// under it ([`rewind_floor_q4`]), in sixteenths of a tick: what an honest client's clock can put
+/// between them, from the clock's own bounds (`bc_client_core::clock`, whose tests hold it to this):
+/// - a tick: a command waits up to one for the tick it arrived in;
+/// - 4 ticks (the clock's `EASE_SNAP`): the drawn view eases onto a corrected estimate rather than
+///   jumping, and trails it by at most this before it jumps;
+/// - ¾ of a tick (`LATE_STEP × LATE_RUN`): a burst of late snapshots (a stalled page) drags the
+///   estimate back by at most 1/20 of a tick each, 15 of them, before it gives in.
+///
+/// Settled, the view trails its estimate by far less than those 4 ticks, which is what covers a
+/// lost input packet (its command comes about a tick later, in the next) and jitter on the way up.
+pub const REWIND_SLACK_Q4: u32 = 16 + 4 * 16 + 12;
+
+/// The oldest view (sixteenths of a tick) the sector takes for a command that first arrived as
+/// tick `arrived` was next, over a link whose round trip the transport measures at `rtt_us`
+/// (µs): an honest client stamps its view `rtt/2 + interp` behind the server's time as it sends
+/// ([`interp_delay_ticks`]), which the command reaches the server half a round trip later; a
+/// claim further back than that and [`REWIND_SLACK_Q4`] is a pilot looking back at what it
+/// never saw (backtracking). Rounded down: never a sixteenth stricter than the slack says.
+///
+/// [`MAX_REWIND_TICKS`] still caps every rewind; this is what lets that cap rise for pilots far
+/// away without handing near ones a deeper look back than their link explains.
+pub fn rewind_floor_q4(arrived: u32, rtt_us: u32) -> u32 {
+    let rtt = f64::from(rtt_us) / 1e6;
+    let back = rtt * 0.5 * TICK_HZ as f64 + interp_delay_ticks(rtt);
+    let floor = f64::from(arrived) * 16.0 - back * 16.0 - f64::from(REWIND_SLACK_Q4);
+    // Truncation is floor() for a positive value.
+    if floor > 0.0 { floor as u32 } else { 0 }
+}
 /// Ticks of hitbox history kept for lag compensation and motion estimates.
 pub const HISTORY_TICKS: usize = 16;
 /// Anything this close is visible regardless of sensors (eyeball range, metres).

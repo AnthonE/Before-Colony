@@ -39,6 +39,8 @@ base64 = "0.22"
 
 [dev-dependencies]
 bc-auth = { workspace = true, features = ["sign"] }
+# quinn, re-exported: `tests/leak.rs` dials as a raw QUIC peer.
+wtransport = { workspace = true, features = ["quinn"] }
 bc-bot.workspace = true
 bc-client-core.workspace = true
 

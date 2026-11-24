@@ -37,7 +37,12 @@ rtrb = "0.4.0"
 
 # Networking / server
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "time", "net", "sync", "signal"] }
-wtransport = { version = "0.7.2", features = ["dangerous-configuration"] }
+# wtransport: upstream master at b16674e, still version 0.7.2 (the same API). crates.io's 0.7.2 has
+# #317's fix (0f7609a) but not 1df1c05, the remote connection leak: a peer granting no stream credit
+# parked the driver before SETTINGS, so a session dropped at its handshake deadline lived on
+# (`bc-server/tests/leak.rs`). Checked with git: 0f7609a, 1df1c05 and 0.7.2's d022a6a are all
+# ancestors of b16674e. Back to crates.io once a release has 1df1c05.
+wtransport = { git = "https://github.com/BiagioFesta/wtransport", rev = "b16674edca87e52969e32d9f969a34e2c4abd1c2", features = ["dangerous-configuration"] }
 axum = "0.8.9"
 tower-http = { version = "0.6", features = ["fs", "set-header"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider"] }

@@ -875,6 +875,8 @@ impl StatusView {
             "inputs": l(&m.inputs),
             "inputs_stale": l(&m.inputs_stale),
             "inputs_missing": l(&m.inputs_missing),
+            // Views claimed further back than the link explains, put on its floor.
+            "rewind_cut": l(&m.rewind_cut),
             "pictures": l(&m.pictures),
             "pictures_dropped": l(&m.pictures_dropped),
             "advice": l(&m.advice),
