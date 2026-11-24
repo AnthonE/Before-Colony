@@ -1158,7 +1158,8 @@ async fn session(
         None => (None, None),
     };
     // On the store's roster (`/online.json`) while this session holds the pilot.
-    let _here = held.map(|(a, s)| game.online.enter(a, s, name.as_str(), pilot != PilotKind::Human));
+    let here = held.map(|(a, s)| game.online.enter(a, s, name.as_str(), pilot != PilotKind::Human));
+    let presence = here.as_ref().map(crate::online::Here::presence);
     // Their items, read once as they come in. Never in the way: no answer in time costs the look.
     let pill = match (&game.elo, address) {
         (Some(elo), Some(a)) if a.is_wallet() => {
@@ -1166,7 +1167,7 @@ async fn session(
         }
         _ => false,
     };
-    let who = super::session::Who { pilot, frame, faction, name, address, pill };
+    let who = super::session::Who { pilot, frame, faction, name, address, pill, presence };
     let result = super::session::run(conn, &game, &stats, &mut tx, &mut rx, pending, who, kicked).await;
     if let Some((address, session)) = held {
         // What was said of their suit in a hide spot while they flew, now that the session has

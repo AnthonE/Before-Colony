@@ -32,8 +32,8 @@ pub struct NetStats {
     /// Hangar requests refused for coming too fast, and sessions ended for it.
     pub requests_refused: AtomicU64,
     pub flooders_ended: AtomicU64,
-    /// Sessions open now past their Hello, by who's at the controls: people (the store's player
-    /// count, `/status.json`) and agents.
+    /// Sessions open now past their Hello, by who's at the controls: people and agents (together,
+    /// the store's player count, `/status.json`).
     pub humans_active: AtomicU64,
     pub agents_active: AtomicU64,
 }
@@ -73,17 +73,19 @@ pub fn status_json(stats: &NetStats, game: Option<&game::StatusView>) -> serde_j
 }
 
 /// The `/status.json` document, in the shape the Elo Pros launcher and store poll (Gates' shard
-/// serves the same): `players` are the people connected (agents and drones apart), `max_players`
-/// the slots, `tick` the sector's.
+/// serves the same): `players` are everyone connected, people and agents (drones apart), and
+/// `agents` the share of them agents fly, so the store's people are `players - agents`
+/// (`meter/launcher.py`); `max_players` the slots, `tick` the sector's.
 pub fn launcher_status_json(
     stats: &NetStats,
     game: Option<&game::StatusView>,
     max_players: usize,
 ) -> serde_json::Value {
     let r = |c: &AtomicU64| c.load(Ordering::Relaxed);
+    let (humans, agents) = (r(&stats.humans_active), r(&stats.agents_active));
     serde_json::json!({
-        "players": r(&stats.humans_active),
-        "agents": r(&stats.agents_active),
+        "players": humans + agents,
+        "agents": agents,
         "max_players": max_players,
         "tick": game.map_or(0, |g| g.tick()),
         "proto": bc_proto::PROTOCOL_VERSION,

@@ -70,6 +70,8 @@ pub(super) struct Who {
     pub address: Option<PlayerId>,
     /// Their wallet holds the Pill (read at sign-in; cosmetic).
     pub pill: bool,
+    /// Their line on the store's roster (`/online.json`), signed in.
+    pub presence: Option<crate::online::Presence>,
 }
 
 /// How often the session looks at its suit's reports, its stations and the market.
@@ -134,6 +136,7 @@ pub(super) async fn run(
         callsign,
         address: who.address,
         pill: who.pill,
+        presence: who.presence,
         record,
         max_datagram: conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16,
         suit: None,
@@ -209,6 +212,8 @@ struct Session<'a> {
     callsign: String,
     address: Option<PlayerId>,
     pill: bool,
+    /// Their line on the store's roster, kept to what they're doing (`crate::online::Status`).
+    presence: Option<crate::online::Presence>,
     record: Option<PilotRecord>,
     max_datagram: u16,
     /// The suit flown, while the pilot is in the sector: (entity slot, generation).
@@ -614,6 +619,7 @@ impl Session<'_> {
             }
             self.publish_hangar();
         }
+        self.show_status();
         Ok(true)
     }
 
@@ -919,10 +925,28 @@ impl Session<'_> {
     }
 
     async fn send_place(&mut self) -> anyhow::Result<()> {
+        self.show_status();
         let bay = self.bay;
         let strip = (self.place == Place::City).then_some(self.strip);
         let wake = self.waking.take();
         self.send(&Update::Place { place: self.place, bay, strip, trainer: self.trainer, wake }).await
+    }
+
+    /// What the store's roster says they're doing: flying, at the Exchange's books (its terminal
+    /// open on one), or else in the colony. Never where.
+    fn show_status(&self) {
+        use crate::online::Status;
+        let Some(presence) = &self.presence else { return };
+        // (Under arcade rules a pilot is always in their suit.)
+        let flying = self.place == Place::Space || self.inside.is_some() || !self.survival();
+        let status = if flying {
+            Status::Flying
+        } else if self.watching.is_some() {
+            Status::AtTheExchange
+        } else {
+            Status::InTheColony
+        };
+        presence.set(status);
     }
 
     /// In the colony (on foot in its city, or flying inside it): the Proving Ground's board, as
@@ -1403,6 +1427,7 @@ impl Session<'_> {
             }
             Request::Watch { item } => {
                 self.watching = item.filter(|i| i.valid());
+                self.show_status();
                 self.send_market().await
             }
             Request::UseKit { kit } => {
@@ -2311,6 +2336,8 @@ impl Session<'_> {
             self.send_hangar().await?;
         }
         if settle {
+            // (Every move of place sends it; a second's look catches any that doesn't.)
+            self.show_status();
             let (notes, handed) = self.settle(true);
             if !notes.is_empty() {
                 for n in &notes {
