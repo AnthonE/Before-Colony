@@ -16,11 +16,11 @@
 //! - In the hangar bay, and flying inside the colony: nobody is heard, and nobody hears (not yet).
 //!
 //! Each listener hears at most [`LANES`] talkers at once; a lane is a talker's until their last
-//! frame or [`LANE_QUIET`] of quiet. Agents hear nobody unless the server says they may (people's
-//! voices aren't an agent's to hear by default). A copy that would crowd the listener's connection
-//! (its datagram buffer past half full) is dropped before any snapshot would be. Payloads are never
-//! decoded, kept or logged, and neither is who heard whom: only counts (`/status`'s `voice`), and no
-//! refusal ends a session.
+//! frame or [`LANE_QUIET`] of quiet, and only a copy sent holds it. Agents hear nobody unless the
+//! server says they may (people's voices aren't an agent's to hear by default). A copy that would
+//! crowd the listener's connection (more than [`QUEUED`] waiting in its datagram buffer) isn't sent:
+//! under pressure the game's own datagrams go first. Payloads are never decoded, kept or logged,
+//! and neither is who heard whom: only counts (`/status`'s `voice`), and no refusal ends a session.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -48,10 +48,17 @@ pub const REFRESH: Duration = Duration::from_millis(100);
 /// Frames a second a talker may send (one each 20 ms), and how many at once.
 pub const RATE: f64 = 50.0;
 pub const BURST: f64 = 10.0;
-/// A copy isn't sent to a listener whose connection's datagram buffer is fuller than this share of
-/// what it holds (quinn's, 1 MiB, drops its oldest datagram when full): past half full, voice gives
-/// way, so it's never what pushes out a snapshot.
-pub const ROOM: f32 = 0.5;
+/// A copy isn't sent to a listener whose connection has more than this waiting to go out in its
+/// datagram buffer, bytes: a few datagrams' worth (a tick's snapshot is one or a few). Past that
+/// the link is behind and voice gives way, so it never queues ahead of a snapshot (quinn's buffer,
+/// 1 MiB, would hold seconds of them before it dropped one).
+pub const QUEUED: usize = 4 * bc_proto::MAX_DATAGRAM;
+
+/// Whether a copy gives way to a connection whose datagram buffer holds `size` bytes with `room`
+/// still free.
+pub fn gives_way(size: usize, room: usize) -> bool {
+    size.saturating_sub(room) > QUEUED
+}
 
 /// Whether a suit at `listener` hears one at `talker` whose radio reaches `range` m.
 pub fn radio_reach(talker: glam::Vec3, range: f32, listener: glam::Vec3) -> bool {
@@ -145,18 +152,24 @@ impl Default for Lanes {
 }
 
 impl Lanes {
-    /// Whether a frame from `key` (how it came, and who) gets through at `now`: on the lane it holds,
-    /// or a free one. Its last frame (`end`) gets through and frees the lane.
-    pub fn admit(&mut self, key: u32, now: Instant, end: bool) -> bool {
+    /// The lane a frame from `key` (how it came, and who) would go out on at `now`: the one it holds,
+    /// or a free one (`None`: all taken).
+    pub fn lane(&self, key: u32, now: Instant) -> Option<usize> {
         let live = |l: &(u32, Option<Instant>)| l.1.is_some_and(|until| until > now);
-        let i = match self.0.iter().position(|l| live(l) && l.0 == key) {
-            Some(i) => i,
-            None => match self.0.iter().position(|l| !live(l)) {
-                Some(i) => i,
-                None => return false,
-            },
-        };
+        self.0.iter().position(|l| live(l) && l.0 == key).or_else(|| self.0.iter().position(|l| !live(l)))
+    }
+
+    /// A frame from `key` went out on lane `i` at `now`: the lane is theirs until [`LANE_QUIET`], or
+    /// free again if it was their last (`end`).
+    pub fn hold(&mut self, i: usize, key: u32, now: Instant, end: bool) {
         self.0[i] = (key, (!end).then(|| now + LANE_QUIET));
+    }
+
+    /// Whether a frame from `key` gets through at `now` (and goes out): [`Self::lane`], then
+    /// [`Self::hold`].
+    pub fn admit(&mut self, key: u32, now: Instant, end: bool) -> bool {
+        let Some(i) = self.lane(key, now) else { return false };
+        self.hold(i, key, now, end);
         true
     }
 }
@@ -339,7 +352,8 @@ impl Mouth {
     }
 
     /// `frame` from `talker` (`via`), to each of the listeners last worked out, outside every lock
-    /// but each one's own lanes'. Counted in `net` as the datagrams out.
+    /// but each one's own lanes' (held while its copy goes, so a lane is taken only by a copy that
+    /// went). Counted in `net` as the datagrams out.
     pub fn relay(&self, frame: &VoiceFrame, talker: u16, via: Via, now: Instant, net: &NetStats) {
         let stats = &self.relay.stats;
         if self.heard.is_empty() {
@@ -353,17 +367,17 @@ impl Mouth {
         };
         let key = lane_key(talker, via);
         for ear in self.heard.iter().filter_map(Weak::upgrade) {
-            let admitted = ear.lanes.lock().is_ok_and(|mut l| l.admit(key, now, frame.end));
-            if !admitted {
+            let Ok(mut lanes) = ear.lanes.lock() else { continue };
+            let Some(lane) = lanes.lane(key, now) else {
                 Relay::add(&stats.lane_full);
                 continue;
-            }
-            let room = ear.conn.quic_connection().datagram_send_buffer_space();
-            if (room as f32) < ear.buffer as f32 * ROOM {
+            };
+            if gives_way(ear.buffer, ear.conn.quic_connection().datagram_send_buffer_space()) {
                 Relay::add(&stats.gave_way);
                 continue;
             }
             if ear.conn.send_datagram(&buf[..n]).is_ok() {
+                lanes.hold(lane, key, now, frame.end);
                 Relay::add(&stats.relayed);
                 NetStats::add(&net.datagrams_out, 1);
                 NetStats::add(&net.bytes_out, n as u64);
@@ -417,6 +431,27 @@ mod tests {
         assert!(!lanes.admit(16, later, false));
         // The air's talker 5 and the radio's suit 5 are two talkers.
         assert_ne!(lane_key(5, Via::Air), lane_key(5, Via::Radio));
+        // A copy that didn't go out (it gave way, or the send failed) takes no lane.
+        let mut lanes = Lanes::default();
+        for k in 0..7 {
+            assert!(lanes.admit(k, t0, false));
+        }
+        assert_eq!(lanes.lane(7, t0), Some(7), "one lane left");
+        assert_eq!(lanes.lane(8, t0), Some(7), "and it's still free: lane() takes nothing");
+        lanes.hold(7, 8, t0, false);
+        assert_eq!(lanes.lane(7, t0), None);
+    }
+
+    #[test]
+    fn voice_gives_way_once_a_few_datagrams_wait_not_half_a_mebibyte() {
+        let size = 1 << 20;
+        assert!(!gives_way(size, size), "an empty buffer");
+        assert!(!gives_way(size, size - 3 * bc_proto::MAX_DATAGRAM), "a tick's snapshot waiting");
+        assert!(!gives_way(size, size - QUEUED));
+        assert!(gives_way(size, size - QUEUED - 1));
+        assert!(gives_way(size, size - 64 * 1024), "a link this far behind is well past it");
+        assert!(gives_way(size, 0));
+        const { assert!(QUEUED <= 8 * 1024, "a few KiB, not a share of the buffer") };
     }
 
     #[test]
