@@ -360,7 +360,7 @@ mod tests {
             assert!(d.gain > 0.0 && d.gain <= 1.0, "{c:?}");
             assert!(d.pitch_var >= 0.0 && d.pitch_var < 0.3, "{c:?}");
             if d.looped {
-                assert_eq!(d.radius, 0.0, "{c:?}: loops are the cockpit's or the music's");
+                assert_eq!(d.radius, 0.0, "{c:?}: loops are the cockpit's, the music's or the street's");
             }
         }
     }
