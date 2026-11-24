@@ -277,7 +277,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Files `report` (and `shot`, a base64 PNG, if any). As plain text, so a page on another site
     // than the intake asks nothing first. `beacon`: fire and forget (a crash, a tab going), and
     // true if the browser took it; else a promise of the intake's answer, `{id, fingerprint, seen,
-    // shot}`, or a rejection saying why not.
+    // shot}`, or a rejection saying why not (an Error with the answer's `status`).
     send: function (report, shot, beacon) {
       var body = { game: "before-colony", report: report };
       if (shot) body.shot_png_b64 = shot;
@@ -287,8 +287,10 @@ document.addEventListener("DOMContentLoaded", function () {
       return fetch(to, { method: "POST", body: text, credentials: "omit",
         headers: { "Content-Type": "text/plain;charset=UTF-8" } }).then(function (res) {
         return res.json().catch(function () { return {}; }).then(function (said) {
-          if (!res.ok) throw new Error(said.error || (res.status === 404 ? "this server takes no reports" : "the server said " + res.status));
-          return said;
+          if (res.ok) return said;
+          var e = new Error(said.error || (res.status === 404 ? "this server takes no reports" : "the server said " + res.status));
+          e.status = res.status;
+          throw e;
         });
       });
     },

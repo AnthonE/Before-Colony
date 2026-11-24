@@ -911,10 +911,19 @@
   }
 
   // Files a report, with `shot` (a promise of the frame, or null), and says what the intake said:
-  // `{id, fingerprint, seen, shot}`, or throws why not.
+  // `{id, fingerprint, seen, shot}`, or throws why not. A picture the intake refuses as too big
+  // (bugs.rs's answer, or the Elo Pros intake's 413) is dropped, and the report sent once more
+  // without it: the words matter more than the frame.
   async function fileReport(kind, words, runtime, shot) {
     const doc = reportDoc(kind, words, runtime);
-    return window.bcReports.send(doc, await shot);
+    const png = await shot;
+    try {
+      return await window.bcReports.send(doc, png);
+    } catch (e) {
+      const tooBig = e.status === 413 || /(screenshot|body) is (too big|over)/i.test(e.message || "");
+      if (!png || !tooBig) throw e;
+      return window.bcReports.send(doc, null);
+    }
   }
 
   function reportNote(text, bad) {
@@ -975,7 +984,8 @@
       // Sent: the words go. A draft that wasn't stays for the next try.
       $("report-input").value = "";
       const many = got.seen > 1 ? ` · ${got.seen} REPORTS OF THIS NOW` : "";
-      reportNote(`SENT · ${got.id || "THANK YOU"}${many}`);
+      const bare = $("report").dataset.shot === "taken" && got.shot === false ? " · WITHOUT THE PICTURE (TOO BIG)" : "";
+      reportNote(`SENT · ${got.id || "THANK YOU"}${many}${bare}`);
       setTimeout(() => {
         if (!composer.busy) closeReport();
       }, 1400);

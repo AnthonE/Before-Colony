@@ -27,6 +27,18 @@ if [ "${variants[*]}" != page ]; then
 fi
 
 mkdir -p web/dist
+# The build stamp (window.BC_BUILD): what a report names (ui.js's composer, boot.js's crash
+# beacon), and window.__bc's build_version and build_commit. It names what the wasm was built
+# from, so it's written once one is built; until then (and for `page` alone) the last one stays.
+# publish-web.sh writes its own.
+stamp_head="// Written by scripts/build-web.sh: what this page was built from."
+last_stamp=""
+[ -f web/dist/config.js ] && last_stamp="$(grep -A1 -xF "$stamp_head" web/dist/config.js || true)"
+version="$(grep -m1 -oP '^version = "\K[^"]+' Cargo.toml)"
+commit="$(git rev-parse --short=10 HEAD 2>/dev/null || echo unknown)"
+if [ "$commit" != unknown ] && [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+  commit="${commit}-dirty"
+fi
 cp web/index.html web/config.js web/boot.js web/loader.js web/ui.js web/floor.js web/gallery.js web/style.css web/favicon.svg web/dist/
 # Proximity voice: the page's codec and its microphone tap (an AudioWorklet module, fetched by name).
 cp web/voice.js web/voice-worklet.js web/dist/
@@ -35,15 +47,7 @@ mkdir -p web/dist/fonts && cp web/fonts/* web/dist/fonts/
 mkdir -p web/dist/assets && cp -r web/assets/. web/dist/assets/
 # The page's gallery (`?gallery`): every screen with made-up data (bc_client_core::gallery).
 cargo run -q -p bc-client-core --example page_gallery > web/dist/gallery.json
-# The build stamp (window.BC_BUILD): what a report names (ui.js's composer, boot.js's crash
-# beacon), and window.__bc's build_version and build_commit. publish-web.sh writes its own.
-version="$(grep -m1 -oP '^version = "\K[^"]+' Cargo.toml)"
-commit="$(git rev-parse --short=10 HEAD 2>/dev/null || echo unknown)"
-if [ "$commit" != unknown ] && [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then
-  commit="${commit}-dirty"
-fi
-printf '%s\n' "// Written by scripts/build-web.sh: what this page was built from." \
-  "window.BC_BUILD = window.BC_BUILD || { version: \"${version}\", commit: \"${commit}\" };" >>web/dist/config.js
+[ -n "$last_stamp" ] && printf '%s\n' "$last_stamp" >>web/dist/config.js
 
 for v in "${variants[@]}"; do
   [ "$v" = page ] && continue
@@ -73,4 +77,10 @@ for v in "${variants[@]}"; do
     }' "$out/bc_bg.wasm" "$out/bc.js"
   raw=$(stat -c %s "$out/bc_bg.wasm"); br=$(stat -c %s "$out/bc_bg.wasm.br")
   echo "==> $v: wasm $((raw / 1024 / 1024)) MiB raw, $((br / 1024 / 1024)) MiB brotli"
+  stamped=1
 done
+if [ -n "${stamped:-}" ]; then
+  cp web/config.js web/dist/config.js
+  printf '%s\n' "$stamp_head" \
+    "window.BC_BUILD = window.BC_BUILD || { version: \"${version}\", commit: \"${commit}\" };" >>web/dist/config.js
+fi

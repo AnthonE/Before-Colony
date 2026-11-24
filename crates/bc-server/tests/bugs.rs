@@ -1,7 +1,8 @@
 //! `POST /bugs` on a real server: a page's report lands under the data dir as `bc-report-*.json`
 //! (and its `.png`), sent as plain text the way a page on another site, or a crashing tab's
-//! beacon, sends it; each address gets its share (behind nginx, its `X-Real-IP`); a body over the
-//! cap is refused; and nothing secret is ever written. Without a data dir there's no such route.
+//! beacon, sends it; each address gets its share of reports and of refusals (behind nginx, its
+//! `X-Real-IP`); a body over the cap is refused; and nothing secret is ever written. Without a
+//! data dir there's no such route.
 
 use std::path::{Path, PathBuf};
 
@@ -137,10 +138,22 @@ async fn each_address_gets_its_share() -> anyhow::Result<()> {
     assert_eq!(status, 429, "past its share: {got}");
     let (status, _) = post(&base, body(report(), None), Some("198.51.100.8")).await?;
     assert_eq!(status, 200, "another address still may");
-    // A refusal for its shape costs no share.
+    // A refusal for its shape costs none of the share, but refusals have a budget of their own:
+    // a flood of junk is turned away before it's parsed, and the address with it.
+    let refusals = bc_server::bugs::Limits::default().refused_per_address;
     let (status, _) = post(&base, b"[]".to_vec(), Some("198.51.100.9")).await?;
     assert_eq!(status, 400);
-    assert_eq!(files(&data.join("reports")).len(), share as usize + 1);
+    let (status, _) = post(&base, body(report(), None), Some("198.51.100.9")).await?;
+    assert_eq!(status, 200, "a refusal costs no share");
+    for _ in 1..refusals {
+        let (status, _) = post(&base, b"[]".to_vec(), Some("198.51.100.9")).await?;
+        assert_eq!(status, 400);
+    }
+    let (status, _) = post(&base, b"[]".to_vec(), Some("198.51.100.9")).await?;
+    assert_eq!(status, 429, "past its refusals");
+    let (status, _) = post(&base, body(report(), None), Some("198.51.100.9")).await?;
+    assert_eq!(status, 429, "and its reports too, for now");
+    assert_eq!(files(&data.join("reports")).len(), share as usize + 2);
     server.shutdown();
     let _ = std::fs::remove_dir_all(&data);
     Ok(())

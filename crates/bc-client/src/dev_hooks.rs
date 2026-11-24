@@ -29,18 +29,28 @@ impl Plugin for DevHooksPlugin {
 
 /// What the page was built from (`window.BC_BUILD`, which `scripts/build-web.sh` and
 /// `scripts/publish-web.sh` write into its config), as `build_version` and `build_commit`: a
-/// report names them. Without it (a page served straight from `web/`), this crate's version and
-/// `unknown`.
+/// report names them. The page's own reading of it (`window.bcBuild`, `web/boot.js`) when there is
+/// one, else the same rule: a field that isn't 1 to 40 of `0-9A-Za-z.+_-` (or a page served
+/// straight from `web/`, with no stamp) is `dev` and `unknown`.
 fn stamp(mut status: ResMut<DevStatus>) {
-    let baked = web_sys::window()
-        .map(|w| js_sys::Reflect::get(&w, &JsValue::from_str("BC_BUILD")).unwrap_or(JsValue::UNDEFINED))
-        .unwrap_or(JsValue::UNDEFINED);
-    let field =
-        |key: &str| js_sys::Reflect::get(&baked, &JsValue::from_str(key)).ok().and_then(|v| v.as_string());
-    let version = field("version").unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
-    let commit = field("commit").unwrap_or_else(|| "unknown".to_string());
-    status.set("build_version", version);
-    status.set("build_commit", commit);
+    let global = |key: &str| {
+        web_sys::window()
+            .and_then(|w| js_sys::Reflect::get(&w, &JsValue::from_str(key)).ok())
+            .filter(|v| v.is_object())
+    };
+    let baked = global("bcBuild").or_else(|| global("BC_BUILD")).unwrap_or(JsValue::UNDEFINED);
+    let field = |key: &str, otherwise: &str| {
+        js_sys::Reflect::get(&baked, &JsValue::from_str(key))
+            .ok()
+            .and_then(|v| v.as_string())
+            .filter(|s| {
+                (1..=40).contains(&s.len())
+                    && s.bytes().all(|b| b.is_ascii_alphanumeric() || b".+_-".contains(&b))
+            })
+            .unwrap_or_else(|| otherwise.to_string())
+    };
+    status.set("build_version", field("version", "dev"));
+    status.set("build_commit", field("commit", "unknown"));
 }
 
 /// Below this frame rate every frame publishes: frames come in bunches on a page drawing in
