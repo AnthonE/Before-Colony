@@ -180,9 +180,10 @@ impl Street {
     /// (0..1).
     pub fn frame(&mut self, now: f64, i: &StreetIn, cue: &mut dyn FnMut(Cue, f32)) -> StreetOut {
         // The frame's time: all of it for the steps (paced by the ground a slow frame covers), a
-        // quarter of a second at most for the loops' easing.
+        // second at most for the loops' easing (a hitch longer than that is a cut: Web Audio
+        // smooths the jump).
         let frame = self.then.map_or(0.0, |t| (now - t).clamp(0.0, LONGEST_FRAME)) as f32;
-        let dt = frame.min(0.25);
+        let dt = frame.min(1.0);
         self.then = Some(now);
         if let Some(p) = self.prev {
             if i.rides > p.rides {
@@ -425,6 +426,23 @@ mod tests {
             out = step(&mut s, k as f64 * FRAME, StreetIn { on_deck: true, ..Default::default() }).0;
         }
         assert!((gain(&out, Cue::BayHum) - ON_THE_ROW).abs() < 0.01, "through the airlock");
+    }
+
+    #[test]
+    fn the_beds_keep_time_on_a_slow_machine() {
+        // Up the lift from a busy street at a frame every 5 s: the town's gone from the bay within
+        // a few frames, as it is in as many seconds at a smooth rate.
+        let mut s = Street::default();
+        let busy = StreetIn { traffic: 1.0, crowd: 1.0, ..walking([0.0; 3]) };
+        for k in 0..600 {
+            step(&mut s, k as f64 * FRAME, busy);
+        }
+        let mut out = step(&mut s, 10.0, StreetIn { in_bay: true, ..Default::default() }).0;
+        for k in 1..6 {
+            out = step(&mut s, 10.0 + 5.0 * f64::from(k), StreetIn { in_bay: true, ..Default::default() }).0;
+        }
+        assert_eq!(gain(&out, Cue::TrafficBed), 0.0, "{out:?}");
+        assert!(gain(&out, Cue::BayHum) > 0.99);
     }
 
     #[test]

@@ -43,6 +43,23 @@ function seenAt(s: Record<string, any>, name: string): number[] | undefined {
 const inTheTown = (page: Page, ms: number) =>
   until(page, "the town", (s) => s.place === "town" && s.seq === "walking" && s.town_feet !== "", ms);
 
+/** A new pilot loaded and awake in the town, on foot; loaded again if the link failed first (a
+ * loaded machine can miss the first handshake). */
+async function awake(page: Page, name: string): Promise<Record<string, any>> {
+  for (let k = 0; k < 3; k++) {
+    await page.goto(`/?autoplay=1&name=${name}&quality=low`);
+    const s = await until(
+      page,
+      "the town",
+      (s) => (s.place === "town" && s.seq === "walking" && s.town_feet !== "") || s.link === "failed",
+      240_000,
+    );
+    if (s.link !== "failed") return s;
+    console.log(`${name}: the link failed (${s.last_error}); loading again`);
+  }
+  throw new Error(`${name} never got in`);
+}
+
 /** From the bay: to its airlock, and down the spoke's lift to the town. */
 async function downToTheTown(page: Page) {
   await push(page, { cmd: "walk_to", spot: "airlock" });
@@ -88,11 +105,9 @@ test("a new pilot wakes in the town, walks it, drives a car off, rides up to the
   const sampler = townSampler(page);
   const loaded = Date.now();
   const marks: [string, number][] = [];
-  await page.goto("/?autoplay=1&name=Tester&quality=low");
-
   // Awake at Hub Gate's lift's door, on the floor of its square, in Charter Square, told where
   // their suit is; the town drawn round them, its people and its traffic about.
-  let s = await inTheTown(page, 240_000);
+  let s = await awake(page, "Tester");
   await expect(page.locator("#news")).toContainText("UP THE SPOKE'S LIFT", { timeout: 30_000 });
   const [x0, , h0] = townFeet(s);
   expect(x0).toBeLessThan(-40);
@@ -180,20 +195,6 @@ test("two new pilots wake in the town and see each other in Hub Gate's square", 
   const [ca, cb] = [await browser.newContext(small), await second.newContext(small)];
   const [a, b] = [await ca.newPage(), await cb.newPage()];
   const logs = [collectConsole(a), collectConsole(b)];
-  const awake = async (p: Page, name: string) => {
-    for (let k = 0; k < 3; k++) {
-      await p.goto(`/?autoplay=1&name=${name}&quality=low`);
-      const s = await until(
-        p,
-        "the town",
-        (s) => (s.place === "town" && s.seq === "walking" && s.town_feet !== "") || s.link === "failed",
-        240_000,
-      );
-      if (s.link !== "failed") return;
-      console.log(`${name}: the link failed (${s.last_error}); loading again`);
-    }
-    throw new Error(`${name} never got in`);
-  };
   await awake(a, "Kai");
   await awake(b, "Nico");
   // Nico steps out to the boulevard; Kai sees him there (within 2 m of where he stands).
