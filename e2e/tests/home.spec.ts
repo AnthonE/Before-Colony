@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { chromium, expect, test, type Browser, type Page, type TestInfo } from "@playwright/test";
-import { bc, built, collectConsole } from "./util";
+import { bc, built, collectConsole, connectWallet } from "./util";
 
 // Homes (`docs/OPEN_CITY.md`; `scripts/e2e.sh home`: a survival server with the colony open and no
 // drones, its register of homes seeded by `examples/seed_homes` with test keys 1 and 2 asleep in
@@ -90,8 +90,7 @@ async function signIn(browser: Browser, key: number, name: string, home: number,
   const logs = collectConsole(page);
   await page.goto(`/?quality=low&gfx=${info.project.name}`);
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
-  await page.locator("#wallet-button").click();
-  await expect(page.locator("#wallet-account")).toContainText(address.slice(0, 6));
+  await connectWallet(page, /Browser wallet/, address.slice(0, 6));
   await page.locator("#callsign").fill(name);
   for (let k = 0; ; k++) {
     await page.locator("#launch-button").click();

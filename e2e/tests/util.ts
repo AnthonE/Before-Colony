@@ -49,3 +49,27 @@ export const calmPointer = () => {
     };
   }
 };
+
+/** The wallet button pressed, and `name`'s row chosen if the page asks which wallet; then waits
+ *  for `account` (the start of its address, or a name) to show as signed in. The page asks when
+ *  the browser has more than one: the stub wallet and, whenever the page reaches elopros.com's
+ *  `wallet-config.js` with the phone wallet switched on, a phone wallet's row (`web/ui.js`). Waits
+ *  till it has either asked or connected, so a slow page's question isn't missed. */
+export async function connectWallet(page: Page, name: RegExp, account: string, timeout = 60_000) {
+  await page.locator("#wallet-button").click();
+  await page.waitForFunction(
+    (acc) =>
+      !!document.querySelector("#wallet-pick")?.hasAttribute("open") ||
+      (document.querySelector("#wallet-account")?.textContent ?? "").includes(acc),
+    account,
+    { timeout, polling: 250 },
+  );
+  if (await page.locator("#wallet-pick").evaluate((d) => d.hasAttribute("open"))) {
+    await page.locator("#wallet-list button", { hasText: name }).click({ timeout });
+  }
+  await page.waitForFunction(
+    (acc) => (document.querySelector("#wallet-account")?.textContent ?? "").includes(acc),
+    account,
+    { timeout, polling: 250 },
+  );
+}
