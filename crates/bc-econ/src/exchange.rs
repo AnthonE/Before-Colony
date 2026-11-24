@@ -180,6 +180,11 @@ pub struct Exchange {
     pub fees: u64,
     pub colony_paid: u64,
     pub colony_took: u64,
+    /// Fills each trader has had (as buyer or seller) since their session last took the count
+    /// ([`Exchange::take_filled`]): kept with the exchange, so one that rests and fills while its
+    /// trader is away is counted when they're back.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    filled: BTreeMap<Trader, u64>,
 }
 
 impl Default for Exchange {
@@ -225,7 +230,14 @@ impl Exchange {
             fees: 0,
             colony_paid: 0,
             colony_took: 0,
+            filled: BTreeMap::new(),
         }
+    }
+
+    /// How many of `trader`'s trades have filled since this was last asked (and the count starts
+    /// again).
+    pub fn take_filled(&mut self, trader: &str) -> u64 {
+        self.filled.remove(trader).unwrap_or(0)
     }
 
     /// Stocks the colony's desk for anything it deals in but holds no record of: an exchange kept
@@ -393,6 +405,12 @@ impl Exchange {
             order.escrow -= value;
         }
         let fee = if seller.is_some() { value * FEE_BP / 10_000 } else { 0 };
+        // A trader filling their own resting order traded with nobody: not a fill to count.
+        if buyer != seller {
+            for party in [&buyer, &seller].into_iter().flatten() {
+                *self.filled.entry(party.clone()).or_default() += 1;
+            }
+        }
         self.fees += fee;
         if let Some(b) = &buyer {
             let a = self.accounts.entry(b.clone()).or_default();
@@ -456,8 +474,9 @@ impl Exchange {
         }
     }
 
-    /// Cancels every order `trader` has (a guest leaving).
+    /// Cancels every order `trader` has (a guest leaving), and forgets their fills' count.
     pub fn cancel_all(&mut self, trader: &str) {
+        self.filled.remove(trader);
         let ids: Vec<u64> = self.orders(trader).map(|o| o.id).collect();
         for id in ids {
             self.cancel(trader, id);
@@ -738,7 +757,23 @@ mod tests {
         assert_eq!(alice.credits, escrow - 3_800 - 6_000, "the price improvement comes back");
         assert_eq!(ex.collect("carol").credits, 3_800 - 76);
         assert_eq!(ex.collect("bob").credits, 6_000 - 120);
-        // Bob's 150 kg still rest; cancelling hands them back.
+        // Each side of a fill counts it, once (and the count starts again); a resting order's
+        // trader is counted whether or not they're there.
+        assert_eq!((ex.take_filled("alice"), ex.take_filled("carol"), ex.take_filled("bob")), (2, 1, 1));
+        assert_eq!(ex.take_filled("alice"), 0);
+        // Bob buying from his own resting ask trades with nobody: no fill counted.
+        let mine = ex.place(
+            "bob",
+            SIDERIUM,
+            Side::Buy,
+            40_000,
+            10,
+            Exchange::escrow_for(SIDERIUM, 40_000, 10),
+            true,
+        );
+        assert_eq!(mine.unwrap().fills.len(), 1);
+        assert_eq!(ex.take_filled("bob"), 0);
+        // Bob's 140 kg still rest; cancelling hands them back (with the 10 he bought, 150).
         assert_eq!(ex.orders("bob").count(), 1);
         assert!(ex.cancel("bob", r.resting.unwrap()));
         assert_eq!(ex.collect("bob").goods[&SIDERIUM], 150);

@@ -75,6 +75,8 @@ pub(super) struct Who {
     /// What their wallet holds of the title's cosmetics, the Pill among them, as Elo Pros said at
     /// sign-in: none if it didn't (no wallet, or no answer in time).
     pub holdings: Option<crate::elo::Holdings>,
+    /// Their line on the store's roster (`/online.json`), signed in.
+    pub presence: Option<crate::online::Presence>,
 }
 
 /// How often the session looks at its suit's reports, its stations and the market.
@@ -140,6 +142,8 @@ pub(super) async fn run(
         address: who.address,
         pill: who.holdings.is_some_and(|h| h.pill),
         cosmetics: who.holdings.map(|h| h.cosmetics),
+        presence: who.presence,
+        tally: Default::default(),
         record,
         max_datagram: conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16,
         suit: None,
@@ -220,6 +224,10 @@ struct Session<'a> {
     /// The cosmetics their wallet holds, if Elo Pros said as they signed in (none: as last read,
     /// the hangar's).
     cosmetics: Option<bc_sim::content::cosmetics::Owned>,
+    /// Their line on the store's roster, kept to what they're doing (`crate::online::Status`).
+    presence: Option<crate::online::Presence>,
+    /// What they've done since it last went to Elo Pros' stats (`crate::gamestats`).
+    tally: crate::gamestats::Tally,
     record: Option<PilotRecord>,
     max_datagram: u16,
     /// The suit flown, while the pilot is in the sector: (entity slot, generation).
@@ -641,6 +649,7 @@ impl Session<'_> {
             }
             self.publish_hangar();
         }
+        self.show_status();
         Ok(true)
     }
 
@@ -1034,10 +1043,38 @@ impl Session<'_> {
     }
 
     async fn send_place(&mut self) -> anyhow::Result<()> {
+        self.show_status();
         let bay = self.bay;
         let strip = (self.place == Place::City).then_some(self.strip);
         let wake = self.waking.take();
         self.send(&Update::Place { place: self.place, bay, strip, trainer: self.trainer, wake }).await
+    }
+
+    /// What the store's roster says they're doing: flying, at the Exchange's books (its terminal
+    /// open on one), or else in the colony. Never where.
+    fn show_status(&self) {
+        use crate::online::Status;
+        let Some(presence) = &self.presence else { return };
+        // (Under arcade rules a pilot is always in their suit.)
+        let flying = self.place == Place::Space || self.inside.is_some() || !self.survival();
+        let status = if flying {
+            Status::Flying
+        } else if self.watching.is_some() {
+            Status::AtTheExchange
+        } else {
+            Status::InTheColony
+        };
+        presence.set(status);
+    }
+
+    /// What they've done since the last time goes to Elo Pros' stats (`crate::gamestats`): a
+    /// signed-in pilot's, under survival rules, with the server's key. A guest is nobody.
+    fn report_tally(&mut self) {
+        let tally = std::mem::take(&mut self.tally);
+        if let (Some(reporter), Some(player), true) = (&self.game.reporter, self.address, self.survival()) {
+            let agent = self.pilot != PilotKind::Human;
+            reporter.report(crate::gamestats::Row { player, agent, tally });
+        }
     }
 
     /// In the colony (on foot in its city, or flying inside it): the Proving Ground's board, as
@@ -1269,6 +1306,9 @@ impl Session<'_> {
     /// What happened, to tell, and whether the Board's desk handed something over (its view, with
     /// what waits there, is then out of date).
     fn settle(&mut self, collect: bool) -> (Vec<String>, bool) {
+        // Their trades that filled on the Exchange, at once or resting while they were away.
+        let trader = self.trader.as_str();
+        self.tally.fills += self.game.market.with(|ex| ex.take_filled(trader));
         let mut notes: Vec<String> = self
             .hangar
             .settle(pilots::unix_now())
@@ -1546,6 +1586,7 @@ impl Session<'_> {
             }
             Request::Watch { item } => {
                 self.watching = item.filter(|i| i.valid());
+                self.show_status();
                 self.send_market().await
             }
             Request::UseKit { kit } => {
@@ -1578,10 +1619,22 @@ impl Session<'_> {
             | Request::AceTerms { .. }
             | Request::Sign => {
                 let now = pilots::unix_now();
+                // A delivery the colony asked for (its own contracts, its great works) counts on
+                // Elo Pros: one to a pilot's contract is a deal between pilots.
+                let colonys = match &req {
+                    Request::Deliver { id, .. } => {
+                        self.game.charter.with(|b| b.contract(*id).is_some_and(|c| c.issuer.is_none()))
+                    }
+                    Request::Contribute { .. } => true,
+                    _ => false,
+                };
                 let (hangar, trader, name) = (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
                 let (market, charter) = (&self.game.market, &self.game.charter);
                 let done = charter
                     .with(|b| market.with(|ex| wire::apply_charter(&req, hangar, b, ex, trader, name, now)));
+                if colonys && matches!(done, Some(Ok(_))) {
+                    self.tally.deliveries += 1;
+                }
                 charter.changed();
                 if matches!(req, Request::Deliver { .. }) {
                     // A colony contract's goods went to its desk.
@@ -2290,6 +2343,7 @@ impl Session<'_> {
         match self.seat(line, Some(launch), Comeback::default()).await {
             Some(_) => {
                 self.place = Place::Space;
+                self.tally.sorties += 1;
                 tracing::info!(session = self.id, slot, name = %self.callsign, line = line.slug(), "launched");
                 self.send_place().await?;
                 self.send_hangar().await?;
@@ -2540,6 +2594,7 @@ impl Session<'_> {
                 self.out_of_the_colony().await?;
                 // A patrol's reward goes on the sheet; nothing is told until the hangar is kept.
                 let patrol = self.patrol_bounties(home.bounty);
+                self.tally.home(&home);
                 let (text, debrief) = self.hangar.came_home_debriefed(&home);
                 self.place = Place::Hangar;
                 tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "docked: {text}");
@@ -2615,6 +2670,7 @@ impl Session<'_> {
     /// What the tugs brought home goes to the stores: the wreck of the suit the pilot ejected from,
     /// or of the ace they downed (`ace`). Its notes.
     fn towed(&mut self, wreck: Option<&bc_proto::ChunkDesc>, torso: bool, ace: Option<u8>) -> Vec<String> {
+        self.tally.towed(wreck, ace);
         match ace {
             Some(a) => self.hangar.towed_ace(wreck, bc_sim::content::aces::ace(a).name),
             None => self.hangar.towed(wreck, torso),
@@ -2629,6 +2685,7 @@ impl Session<'_> {
         }
         let a = bc_sim::content::aces::ace(ace);
         let now = pilots::unix_now();
+        self.tally.aces_downed += 1;
         let (trader, name) = (self.trader.as_str(), self.callsign.as_str());
         let salvage = self.game.charter.with(|b| b.ace_downed(ace, trader, name, now));
         tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, ace = a.name, salvage, "an ace downed");
@@ -2710,7 +2767,11 @@ impl Session<'_> {
             self.send_hangar().await?;
         }
         if settle {
+            // (Every move of place sends it; a second's look catches any that doesn't.)
+            self.show_status();
+            // (Settled first: the fills it takes go with this second's tally.)
             let (notes, handed) = self.settle(true);
+            self.report_tally();
             if !notes.is_empty() {
                 for n in &notes {
                     self.note(n.clone(), true).await?;
@@ -3114,6 +3175,7 @@ impl Session<'_> {
                     // desk while the colony is open.
                     Report::AceDown { ace, .. } if self.survival() => {
                         let now = pilots::unix_now();
+                        self.tally.aces_downed += 1;
                         let (hangar, trader, name) =
                             (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
                         game.charter.with(|b| {
@@ -3211,6 +3273,7 @@ impl Session<'_> {
         if self.survival() {
             self.body.sleep(pilots::unix_now());
         }
+        self.report_tally();
         if let Some(r) = self.record.as_mut() {
             if game.survival {
                 r.hangar = Some(self.hangar.clone());

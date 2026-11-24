@@ -210,7 +210,11 @@ wallets sign in to; defaults to `--http`), `--require-auth` (no human guests), `
 (default 127.0.0.1:8080), `--wt-port N` (WebTransport's UDP port, default 4433), `--web-dir DIR`
 (the built client, default `web/dist`), `--seed N` (the simulation's), `--max-connections N` and
 `--per-address N` (connections taken in all and from one address, loopback excepted; default 512
-and 8). Records go through a `PilotStore` trait a Redis or Mongo store can implement.
+and 8), `--elo-key FILE` and `--elo-key-id ID` (the server's Ed25519 key on Elo Pros, a PKCS#8 PEM
+kept on the game box and never in the repo, and the id it's named under, default `sector-1`: with
+it, what signed-in pilots do is reported to the game's stats, achievements and boards, signed;
+without it, nothing is. Its public half is in the log at start, for `elo.json`'s `server_keys`).
+Records go through a `PilotStore` trait a Redis or Mongo store can implement.
 
 `scripts/dev.sh` takes its settings from the environment: `BC_RULES`, `BC_FLIGHT` (`anime|real`),
 `BC_COLONY=1` (the server's `--colony`), `BC_DATA=DIR` (the server's `--data-dir`), `BC_DRONES` (24), `BC_AGENTS` and
@@ -288,7 +292,8 @@ crates/bc-sector       the hot loop: sector thread, lock-free queues, replicatio
 crates/bc-orrery         tactical oracles: TypeSafe Jev, worker
 crates/bc-client-core  client state machine shared by the browser and bots (and the bay's walker)
 crates/bc-econ         the economy: items, recipes, stores, suit builds, faults and overhauls, jobs, the Colony Exchange
-crates/bc-server       WebTransport server, HTTP (/cert-hash, /status, /status.json, /online.json, /floor.json)
+crates/bc-server       WebTransport server, HTTP (/cert-hash, /status, /status.json, /online.json, /floor.json), Elo Pros' stats
+elo.json               the game's manifest for Elo Pros: its stats, achievements and boards (no server keys until the operator's)
 crates/bc-bot          Bot SDK, drone and miner agents, bc-swarm
 crates/bc-client       Bevy browser client (wasm32)
 crates/bc-model        the suits' procedural designs and their sockets

@@ -197,6 +197,9 @@ pub struct GameShared {
     pub voice: Arc<crate::voice::Relay>,
     /// Where a wallet's items are read (`Config::elo_origin`; off: nobody shows any).
     pub(super) elo: Option<Arc<crate::elo::Items>>,
+    /// Where what signed-in pilots do goes, for Elo Pros' stats (`crate::gamestats`; off without
+    /// the server's key).
+    pub(super) reporter: Option<Arc<crate::gamestats::Reporter>>,
     /// The suits left in hide spots have been put back (or let go): a suit the sector puts back
     /// from now on came too late, and goes again ([`process_notes`]).
     restore_over: Arc<AtomicBool>,
@@ -384,6 +387,29 @@ pub struct GameRuntime {
     shared: GameShared,
     oracle: &'static str,
     _oracle_worker: Option<bc_orrery::WorkerHandle>,
+    /// Tells the stats' reporter to post what it holds, and stop.
+    reporter_stop: tokio::sync::watch::Sender<bool>,
+    /// The stats' reporter's task, whose last post is in it ([`Stopping`]).
+    reporter_task: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// What still finishes once the game has stopped: the stats' last post to Elo Pros and the stores'
+/// last save. A process awaits it ([`Stopping::finish`]) before its runtime goes, or both die
+/// half-done with it.
+pub struct Stopping {
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl Stopping {
+    /// Waits for them, up to `within`. Whether they all finished.
+    pub async fn finish(self, within: std::time::Duration) -> bool {
+        let all = async {
+            for t in self.tasks {
+                let _ = t.await;
+            }
+        };
+        tokio::time::timeout(within, all).await.is_ok()
+    }
 }
 
 impl GameRuntime {
@@ -499,6 +525,31 @@ impl GameRuntime {
             Arc::new(crate::homes::HomeRegister::open(cfg.data_dir.as_ref().map(|d| d.join("homes.json"))));
         let watch = Arc::new(crate::watch::Watch::default());
         let brawl = Arc::new(crate::brawl::Brawls::default());
+        // Stats for Elo Pros: only with the server's key, and somewhere to send them.
+        let (reporter_stop, stop_rx) = tokio::sync::watch::channel(false);
+        let (reporter, reporter_task) = match (&cfg.elo_key, &cfg.elo_origin) {
+            (Some(key), Some(origin)) => {
+                match crate::serverkey::Signed::new(origin, key.clone(), stats.clone()) {
+                    Some(s) => {
+                        tracing::info!(who = %key.who(), public = %key.public_b64(), "stats reported to Elo Pros, signed");
+                        let (r, task) =
+                            crate::gamestats::Reporter::start(s, stats.clone(), cfg.elo_flush, stop_rx);
+                        (Some(Arc::new(r)), Some(task))
+                    }
+                    None => {
+                        tracing::warn!("no HTTP client for Elo Pros: nothing is reported");
+                        (None, None)
+                    }
+                }
+            }
+            (Some(_), None) => {
+                tracing::warn!(
+                    "a server key, and no Elo Pros to report to (--elo-origin none): nothing is reported"
+                );
+                (None, None)
+            }
+            (None, _) => (None, None),
+        };
         let game = GameShared {
             sector: shared,
             egress: queue,
@@ -515,6 +566,7 @@ impl GameRuntime {
                 nonces: Arc::new(crate::elo::Nonces::default()),
             },
             elo: cfg.elo_origin.clone().and_then(crate::elo::Items::new).map(Arc::new),
+            reporter,
             idle: cfg.idle_timeout,
             survival,
             colony: survival && cfg.colony,
@@ -614,6 +666,8 @@ impl GameRuntime {
             shared: game,
             oracle,
             _oracle_worker: oracle_worker,
+            reporter_stop,
+            reporter_task,
         })
     }
 
@@ -648,7 +702,12 @@ impl GameRuntime {
         }
     }
 
-    pub fn stop(mut self) {
+    /// Stops the sector threads. The stats' last post and the stores' last save go on: await what
+    /// comes back, bounded, before the runtime goes.
+    pub fn stop(mut self) -> Stopping {
+        // What the sessions handed over goes to Elo Pros.
+        let _ = self.reporter_stop.send(true);
+        let mut tasks: Vec<tokio::task::JoinHandle<()>> = self.reporter_task.take().into_iter().collect();
         if let Some(s) = self.sector.take() {
             s.stop();
         }
@@ -662,12 +721,12 @@ impl GameRuntime {
         let proving = self.shared.proving.clone();
         let homes = self.shared.homes.clone();
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            rt.spawn(async move {
+            tasks.push(rt.spawn(async move {
                 market.save().await;
                 charter.save().await;
                 proving.save().await;
                 homes.save().await;
-            });
+            }));
         }
         self.egress_stop.store(true, Ordering::Release);
         if let Some(e) = self.egress.take() {
@@ -678,6 +737,7 @@ impl GameRuntime {
             e.thread().unpark();
             let _ = e.join();
         }
+        Stopping { tasks }
     }
 }
 
@@ -1227,7 +1287,8 @@ async fn session(
         None => (None, None),
     };
     // On the store's roster (`/online.json`) while this session holds the pilot.
-    let _here = held.map(|(a, s)| game.online.enter(a, s, name.as_str(), pilot != PilotKind::Human));
+    let here = held.map(|(a, s)| game.online.enter(a, s, name.as_str(), pilot != PilotKind::Human));
+    let presence = here.as_ref().map(crate::online::Here::presence);
     // Their items, read once as they come in. Never in the way: no answer in time is no answer,
     // and the session keeps what their wallet held when it was last read.
     let holdings = match (&game.elo, address) {
@@ -1236,7 +1297,7 @@ async fn session(
         }
         _ => None,
     };
-    let who = super::session::Who { pilot, frame, faction, name, address, holdings };
+    let who = super::session::Who { pilot, frame, faction, name, address, holdings, presence };
     let result = super::session::run(conn, &game, &stats, &mut tx, &mut rx, pending, who, kicked).await;
     if let Some((address, session)) = held {
         // What was said of their suit in a hide spot while they flew, now that the session has

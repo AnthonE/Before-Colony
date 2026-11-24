@@ -35,7 +35,7 @@ async fn the_store_reads_players_slots_and_tick() -> anyhow::Result<()> {
     let server = bc_server::start(cfg).await?;
     let base = format!("http://{}", server.http_addr);
 
-    // An agent flying: it isn't a player (drones neither).
+    // An agent flying: a player, and the agents' share of them (drones are neither).
     let bot = BotConfig {
         server: base.clone(),
         name: "Agent-1".into(),
@@ -46,8 +46,11 @@ async fn the_store_reads_players_slots_and_tick() -> anyhow::Result<()> {
     agent.run_for(Duration::from_millis(400), &mut |_| bc_proto::InputCmd::default()).await?;
 
     let (headers, doc) = get(&format!("{base}/status.json"), Some("https://elopros.com")).await?;
-    assert_eq!(doc["players"], 0, "{doc}");
+    assert_eq!(doc["players"], 1, "{doc}");
     assert_eq!(doc["agents"], 1, "{doc}");
+    // As the store reads it: people are the players agents don't fly.
+    let people = doc["players"].as_u64().zip(doc["agents"].as_u64()).map(|(p, a)| p.checked_sub(a));
+    assert_eq!(people, Some(Some(0)), "{doc}");
     assert_eq!(doc["max_players"], 12);
     assert!(doc["tick"].as_u64().is_some_and(|t| t > 0), "the sector ticks: {doc}");
     assert_eq!(doc["proto"], bc_proto::PROTOCOL_VERSION);
@@ -82,7 +85,7 @@ async fn the_store_reads_players_slots_and_tick() -> anyhow::Result<()> {
     agent.close().await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let (_, doc) = get(&format!("{base}/status.json"), None).await?;
-    assert_eq!(doc["agents"], 0, "{doc}");
+    assert_eq!((doc["players"].as_u64(), doc["agents"].as_u64()), (Some(0), Some(0)), "{doc}");
     server.shutdown();
     Ok(())
 }
@@ -120,8 +123,8 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// `/online.json`: the signed-in wallets, for the store's playtime. A guest isn't in it; an agent
-/// with a wallet is, marked as one; a second session for the same wallet takes the entry over, and
-/// leaving takes it away.
+/// with a wallet is, marked as one, with its line of what it's doing; a second session for the same
+/// wallet takes the entry over, and leaving takes it away.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_store_reads_who_is_on() -> anyhow::Result<()> {
     let cfg = Config {
@@ -154,6 +157,8 @@ async fn the_store_reads_who_is_on() -> anyhow::Result<()> {
     assert_eq!(on[0]["name"], "Keyed-1");
     assert_eq!(on[0]["agent"], true);
     assert!(on[0]["since"].as_u64().is_some_and(|t| t > 0) && doc["at"].as_u64().is_some());
+    // The store's rich presence: what they're at, never where (arcade: always in their suit).
+    assert_eq!(on[0]["status"], "Flying", "{doc}");
 
     // The same wallet again: the newer session holds the entry, the older one leaving doesn't drop it.
     let mut again = BotClient::connect_as(&bot("Keyed-2"), Some(&wallet)).await?;

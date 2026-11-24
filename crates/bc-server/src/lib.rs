@@ -20,6 +20,7 @@ pub mod crowd;
 pub mod dispatch;
 pub mod elo;
 pub mod floor;
+pub mod gamestats;
 pub mod homes;
 pub mod http;
 pub mod market;
@@ -30,6 +31,7 @@ pub mod plaza;
 pub mod proving;
 pub mod radio;
 pub mod secret;
+pub mod serverkey;
 pub mod street;
 pub mod telemetry;
 pub mod visitors;
@@ -68,12 +70,25 @@ impl ServerHandle {
         net::status_json(&self.stats, self.status_view.as_ref())
     }
 
-    /// Stops accepting connections and shuts the sector threads down.
-    pub fn shutdown(mut self) {
-        let _ = self.shutdown.send(true);
-        if let Some(game) = self.game.take() {
-            game.stop();
+    /// Stops accepting connections and shuts the sector threads down. The stats' last post to Elo
+    /// Pros and the stores' last save are left running; [`ServerHandle::shutdown_flushed`] waits.
+    pub fn shutdown(self) {
+        let _ = self.stop();
+    }
+
+    /// [`ServerHandle::shutdown`], then waits up to `within` for the stats' last post to Elo Pros
+    /// and the stores' last save: what a process does before its runtime goes. Whether they
+    /// finished in time.
+    pub async fn shutdown_flushed(self, within: std::time::Duration) -> bool {
+        match self.stop() {
+            Some(left) => left.finish(within).await,
+            None => true,
         }
+    }
+
+    fn stop(mut self) -> Option<net::game::Stopping> {
+        let _ = self.shutdown.send(true);
+        self.game.take().map(|game| game.stop())
     }
 }
 

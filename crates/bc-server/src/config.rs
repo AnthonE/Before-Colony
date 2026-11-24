@@ -135,8 +135,15 @@ pub struct Config {
     pub siwe_domains: Vec<String>,
     /// Elo Pros' account key (`GET /api/account/pubkey`). None: no pass is taken, and `/nonce` says so.
     pub elo_pubkey: Option<[u8; 32]>,
-    /// Where a wallet's items are read at sign-in. None: nobody shows any.
+    /// Where a wallet's items are read at sign-in, and stats are reported. None: nobody shows any,
+    /// and nothing is reported.
     pub elo_origin: Option<String>,
+    /// This server's key on Elo Pros (`--elo-key`, a file on the game box; `crate::serverkey`).
+    /// With it (and `elo_origin`), what signed-in pilots do is reported to the game's stats,
+    /// achievements and boards (`crate::gamestats`); without it, nothing is.
+    pub elo_key: Option<std::sync::Arc<crate::serverkey::ServerKey>>,
+    /// How often the stats are reported (`gamestats::FLUSH_EVERY`; a test's is short).
+    pub elo_flush: Duration,
     /// A CA-issued certificate chain and its key (PEM files) for WebTransport. None: the server
     /// self-signs for 14 days and browsers pin the certificate's hash (`/cert-hash`).
     pub tls: Option<(PathBuf, PathBuf)>,
@@ -218,6 +225,8 @@ impl Default for Config {
             siwe_domains: Vec::new(),
             elo_pubkey: None,
             elo_origin: None,
+            elo_key: None,
+            elo_flush: crate::gamestats::FLUSH_EVERY,
             tls: None,
             cors_origins: vec![STORE_ORIGIN.to_string()],
             require_auth: false,
