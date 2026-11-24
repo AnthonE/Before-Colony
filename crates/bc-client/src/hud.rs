@@ -23,7 +23,7 @@
 use bc_client_core::holdup::{Holdup, drain, holdup};
 use bc_client_core::instruments::{self, Dial, Gauge, Row, Tone};
 use bc_client_core::palette;
-use bc_client_core::surface::{LetGo, SurfaceHint, let_go, range_rate, surface_hint};
+use bc_client_core::surface::{LetGo, SurfaceHint, let_go, lifted_off, range_rate, surface_hint};
 use bc_client_core::tags::{self, Seen, Shown, Tag};
 use bc_client_core::world::ObjectMotion;
 use bc_client_core::{ClientCore, FeedLine};
@@ -40,7 +40,7 @@ use bc_sim::content::{
     ArmSlot, FrameSpec, PLAYABLE_ORDER, SpecialKind, WeaponClass, frame, frame_name, weapon, weapon_name,
 };
 use bc_sim::content::{Kit, Kits, System, Systems};
-use bc_sim::ground::{Footing, RELEASE_SPEED, STANCE};
+use bc_sim::ground::{Footing, STANCE};
 use bc_sim::orrery::fire_control::intercept;
 use bc_sim::orrery::hypotheses::Maneuver;
 use bc_sim::sim::LURK_SETTLE_TICKS;
@@ -162,18 +162,6 @@ pub fn footed(core: &ClientCore) -> Footed {
         hint: if flying { surface_hint(&bodies, &m.flight) } else { None },
         near: flying && bodies.nearest_grippable(&m.flight, 1_000.0, f32::INFINITY, f32::INFINITY).is_some(),
     }
-}
-
-/// Whether the own suit, just let go of `body`, climbed out of its grip on the thrusters: Space
-/// held (so it rose past the release height), the body still there, and the suit no faster over it
-/// than a grip holds. Any other letting go, still armed, the pilot didn't ask for.
-fn lifted_off(core: &ClientCore, body: Body) -> bool {
-    let p = &core.predict;
-    let f = &p.mover().flight;
-    let bodies = p.bodies(p.tick + 1);
-    core.last_cmd.thrust[1] > 0
-        && bodies.alive(body)
-        && bodies.pose(body).is_some_and(|b| (f.vel - b.point_vel(f.pos)).length() <= RELEASE_SPEED)
 }
 
 /// The hide spot the own suit is in, as the server last had it: its name.
@@ -1436,7 +1424,17 @@ pub fn update_hud(
     {
         let form = &core.predict.form;
         let can_grip = frame(form.frame).has_legs() && !form.changing();
-        match let_go(was, lifted_off(core, body), can_grip) {
+        // How it let go, from the ticks flown (a slow page sees the hop and the climb out of the
+        // grip fall between two of its frames), else as it stood last frame.
+        let (p, climbing) = (&core.predict, core.last_cmd.thrust[1] > 0);
+        let (was, lifted) = match p.letting_go() {
+            Some((before, s)) => (before, lifted_off(&p.bodies(s.tick + 1), body, s.pos, s.vel, climbing)),
+            None => {
+                let f = &p.mover().flight;
+                (was, lifted_off(&p.bodies(p.tick + 1), body, f.pos, f.vel, climbing))
+            }
+        };
+        match let_go(was, lifted, can_grip) {
             LetGo::Flying => ui.toast("FLYING"),
             LetGo::Transformed => {}
             LetGo::Lost => lurk.lost_at = Some(now),

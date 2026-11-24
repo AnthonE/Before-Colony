@@ -429,10 +429,11 @@ pub fn read_input(
     if game.autopilot {
         return;
     }
-    // A click that takes the pointer doesn't also fire.
+    // A click that takes the pointer doesn't also fire, even one let go within the frame it came in.
     if mouse.just_pressed(MouseButton::Left) && !pointer.0.flying() {
         controls.swallow_click = true;
     }
+    let swallowed = controls.swallow_click;
     if !mouse.pressed(MouseButton::Left) {
         controls.swallow_click = false;
     }
@@ -562,10 +563,13 @@ pub fn read_input(
     } else {
         tap.clear();
     }
-    if controls.locked && !controls.swallow_click && mouse.pressed(MouseButton::Left) {
+    // A trigger pulled this frame fires, even let go again before it was drawn: on a page drawing
+    // a frame every few seconds a click comes and goes between two (`pressed` alone missed it).
+    let pulled = |button| mouse.pressed(button) || mouse.just_pressed(button);
+    if controls.locked && !swallowed && pulled(MouseButton::Left) {
         b |= FIRE_PRIMARY;
     }
-    if controls.locked && mouse.pressed(MouseButton::Right) {
+    if controls.locked && pulled(MouseButton::Right) {
         b |= FIRE_SECONDARY;
     }
     if keys.pressed(KeyCode::KeyF) {

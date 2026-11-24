@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
-import { bc, built, collectConsole } from "./util";
+import { bc, built, collectConsole, connectWallet } from "./util";
 
 // Suits on the bodies, end to end: signed in with a stub wallet, the lander autopilot flies from
 // the Colonies' base to Fornax, lands in its Aft Well with its grip, crouches and lies still until
@@ -58,8 +58,7 @@ test("land in Fornax's Aft Well, hide there, park on leaving, wake hidden and li
   // The lander flies; the title waits for the wallet (`autoplay=0`) so the pilot signs in.
   await page.goto(`/?quality=low&gfx=${info.project.name}&frame=argo&autopilot=lander:hide:0:0&autoplay=0`);
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
-  await page.locator("#wallet-button").click();
-  await expect(page.locator("#wallet-account")).toContainText(ADDRESS.slice(0, 6));
+  await connectWallet(page, /Browser wallet/, ADDRESS.slice(0, 6));
   await page.locator("#callsign").fill(NAME);
   await page.locator("#launch-button").click();
   await waitOn(page, "signed in", (b) => b.link === "ingame" && b.signed_in && b.alive);

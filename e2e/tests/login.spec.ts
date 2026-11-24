@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createPrivateKey, sign as edSign } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { bc, built, calmPointer, collectConsole } from "./util";
+import { bc, built, calmPointer, collectConsole, connectWallet } from "./util";
 
 // Each move whole: the pointer locks here (`util.ts`, `calmPointer`).
 test.beforeEach(({ page }) => page.addInitScript(calmPointer));
@@ -12,12 +12,6 @@ test.beforeEach(({ page }) => page.addInitScript(calmPointer));
 // wallet again), a second tab taking the pilot over, and sleeping in the cockpit: leaving signed
 // in keeps the suit in the sector, and coming back wakes in it.
 const SIGNER = built("examples/sign");
-// With the phone wallet switched on (the platform's `wallet-config.js`, when the origin answers) a
-// second row makes the picker open: choose in it.
-const pick = async (page: Page, name: RegExp) => {
-  const row = page.locator("#wallet-list button", { hasText: name });
-  if (await row.waitFor({ timeout: 5_000 }).then(() => true, () => false)) await row.click({ timeout: 60_000 });
-};
 // Test key 1's address.
 const ADDRESS = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
 
@@ -67,9 +61,7 @@ test("sign in with a wallet, come back on the token, get taken over, sleep and w
 
   await page.goto(`/?quality=low&gfx=${info.project.name}`);
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
-  await page.locator("#wallet-button").click();
-  await pick(page, /Browser wallet/);
-  await expect(page.locator("#wallet-account")).toContainText("0x7e5f");
+  await connectWallet(page, /Browser wallet/, "0x7e5f");
   await page.locator("#callsign").fill("E2E-Wallet");
 
   // The first time, the pilot declines in the wallet: it says so, and doesn't retry by itself.
@@ -192,9 +184,7 @@ test("sign in with only a Solana wallet", async ({ context, page, request }, inf
   }, SOL);
   await page.goto(`/?quality=low&gfx=${info.project.name}`);
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
-  await page.locator("#wallet-button").click();
-  await pick(page, /Phantom/);
-  await expect(page.locator("#wallet-account")).toContainText("GmaDrp");
+  await connectWallet(page, /Phantom/, "GmaDrp");
   await page.locator("#callsign").fill("E2E-Sol");
   await page.locator("#launch-button").click();
   await page.waitForFunction("window.__bc?.link === 'ingame' && window.__bc?.signed_in", null, { timeout: 60_000 });
