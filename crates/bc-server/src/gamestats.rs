@@ -7,15 +7,18 @@
 //! own: a session counts what it sees into a [`Tally`] and hands it over every second it has
 //! something ([`Reporter::report`]); the reporter merges them by pilot and posts them every
 //! [`FLUSH_EVERY`], signed with the server's key (`crate::serverkey`), at most [`MAX_REPORTS`] a
-//! call. With no key (`--elo-key`) there is no reporter, and nothing is counted.
+//! call, and once more as the server shuts down ([`Reporter::start`]'s task, which `main` waits
+//! for). With no key (`--elo-key`) there is no reporter: sessions still keep their tallies and the
+//! Exchange its fill counts, and nothing is sent.
 //!
 //! Only what the ring server makes today, and only against the colony's own side (PvE): sorties,
 //! ore and salvage brought home (the Almagest's wrecks, never a pilot's), the colony's contracts
 //! and great works delivered to, the Almagest's aces downed, and fills on the Colony Exchange. **No
 //! pilot kills, ever**: suits fight pilots away from the colony and anyone on foot anywhere, and a
 //! number that counts kills of pilots is a printer for alts. A guest is nobody and is never
-//! reported; an agent is reported as one, and never on a board. Under arcade rules (free suits,
-//! free respawns) nothing is.
+//! reported; a pilot that says it's an agent is reported as one, and never on a board (one that
+//! says nothing is placed by Elo Pros, by its wallet's signed kind). Under arcade rules (free
+//! suits, free respawns) nothing is.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -27,6 +30,7 @@ use bc_proto::{ChunkDesc, ChunkKind, Faction};
 use bc_sim::sim::Homecoming;
 use serde_json::{Map, Value, json};
 use tokio::sync::{mpsc, watch};
+use tokio::task::{JoinHandle, JoinSet};
 
 use crate::net::NetStats;
 use crate::serverkey::Signed;
@@ -248,7 +252,8 @@ impl Tally {
 }
 
 /// One pilot's report: who (a wallet, or an account's `acct_` id, as Elo Pros spells them), whether
-/// an agent flies them, and what they did.
+/// they said an agent flies them (their Hello's word: a pilot that says so loses the boards, so it
+/// is believed; one that doesn't is left to Elo Pros), and what they did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub player: PlayerId,
@@ -257,14 +262,18 @@ pub struct Row {
 }
 
 /// `POST /api/gamestats/<slug>/report`'s body: `{"reports": [{wallet, agent, stats, scores}]}`.
-/// An agent's row carries no scores: the boards are people's.
+/// An agent's row says `agent: true` and carries no scores: the boards are people's. Any other row
+/// leaves `agent` out, so a client's unchecked word never overrides the kind Elo Pros holds signed
+/// for the wallet (`gamestats._kind_of`).
 pub fn report_body(rows: &[Row]) -> String {
     let reports: Vec<Value> = rows
         .iter()
         .map(|r| {
-            let mut v = json!({ "wallet": r.player.as_str(), "agent": r.agent, "stats": r.tally.stats() });
+            let mut v = json!({ "wallet": r.player.as_str(), "stats": r.tally.stats() });
             let scores = r.tally.scores();
-            if !r.agent && !scores.is_empty() {
+            if r.agent {
+                v["agent"] = Value::Bool(true);
+            } else if !scores.is_empty() {
                 v["scores"] = Value::Object(scores);
             }
             v
@@ -279,6 +288,12 @@ pub const MAX_REPORTS: usize = 500;
 pub const FLUSH_EVERY: Duration = Duration::from_secs(30);
 /// Rows waiting to be merged at most; past it a session's row is dropped (counted).
 const QUEUE: usize = 4_096;
+/// Tries the last post at shutdown gets (the rest take [`crate::serverkey::TRIES`]): `main` waits
+/// a bounded time for it, and a deploy shouldn't hang on the full backoff.
+pub const FINAL_TRIES: u32 = 2;
+/// How long the reporter still takes the sessions' tallies once told to stop: a session hands its
+/// over each second, so one still running then hands over its last second's.
+const GRACE: Duration = Duration::from_millis(1_200);
 
 /// Takes the sessions' tallies and posts them to Elo Pros, merged by pilot.
 pub struct Reporter {
@@ -287,11 +302,19 @@ pub struct Reporter {
 }
 
 impl Reporter {
-    /// The reporter's task, posting with `signed` every `every`, and once more when `stop` says so.
-    pub fn start(signed: Signed, stats: Arc<NetStats>, every: Duration, stop: watch::Receiver<bool>) -> Self {
+    /// The reporter's task, posting with `signed` every `every`, and once more when `stop` says so
+    /// (or its sender is gone): it then takes what the sessions hand over for [`GRACE`] more, posts
+    /// it all, waits for the posts still out, and ends. Await its handle, bounded, before the
+    /// runtime goes, or the last post dies with it.
+    pub fn start(
+        signed: Signed,
+        stats: Arc<NetStats>,
+        every: Duration,
+        stop: watch::Receiver<bool>,
+    ) -> (Self, JoinHandle<()>) {
         let (tx, rx) = mpsc::channel(QUEUE);
-        tokio::spawn(run(rx, Arc::new(signed), every, stop));
-        Self { tx, stats }
+        let task = tokio::spawn(run(rx, Arc::new(signed), every, stop));
+        (Self { tx, stats }, task)
     }
 
     /// Hands `row` over (never waits). A full queue drops it, counted (`net.elo_dropped`).
@@ -301,6 +324,25 @@ impl Reporter {
         }
         if self.tx.try_send(row).is_err() {
             self.stats.elo_dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Takes `row` into what's held: merged by pilot, and by whether they said they're an agent (one
+/// wallet flown by an agent and by a person in one window is two rows, so the agent's haul never
+/// goes out as a person's score).
+fn hold(held: &mut BTreeMap<(PlayerId, bool), Tally>, row: Row) {
+    held.entry((row.player, row.agent)).or_default().merge(&row.tally);
+}
+
+/// Posts what's held (taking it), [`MAX_REPORTS`] rows a call, with `tries` each.
+async fn send(signed: Arc<Signed>, held: BTreeMap<(PlayerId, bool), Tally>, tries: u32) {
+    let rows: Vec<Row> =
+        held.into_iter().map(|((player, agent), tally)| Row { player, agent, tally }).collect();
+    let path = format!("/gamestats/{}/report", bc_auth::GAME);
+    for chunk in rows.chunks(MAX_REPORTS) {
+        if let Err(why) = signed.post_tries(&path, &report_body(chunk), tries).await {
+            tracing::warn!(pilots = chunk.len(), "stats not reported to Elo Pros: {why}");
         }
     }
 }
@@ -315,16 +357,17 @@ async fn run(
         let signed = signed.clone();
         async move { signed.check().await }
     });
-    let mut held: BTreeMap<PlayerId, (bool, Tally)> = BTreeMap::new();
+    let mut held: BTreeMap<(PlayerId, bool), Tally> = BTreeMap::new();
+    // Posts still out (retrying): the last word waits for them.
+    let mut out: JoinSet<()> = JoinSet::new();
     let mut tick = tokio::time::interval(every);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        let last = tokio::select! {
+        while out.try_join_next().is_some() {}
+        let stopping = tokio::select! {
             row = rx.recv() => match row {
                 Some(row) => {
-                    let e = held.entry(row.player).or_insert((row.agent, Tally::default()));
-                    e.0 = row.agent;
-                    e.1.merge(&row.tally);
+                    hold(&mut held, row);
                     // A whole call's worth: sent now.
                     if held.len() < MAX_REPORTS {
                         continue;
@@ -336,30 +379,22 @@ async fn run(
             _ = tick.tick() => false,
             _ = stop.changed() => true,
         };
-        if !held.is_empty() {
-            let rows: Vec<Row> = std::mem::take(&mut held)
-                .into_iter()
-                .map(|(player, (agent, tally))| Row { player, agent, tally })
-                .collect();
-            let signed = signed.clone();
-            let send = async move {
-                let path = format!("/gamestats/{}/report", bc_auth::GAME);
-                for chunk in rows.chunks(MAX_REPORTS) {
-                    if let Err(why) = signed.post(&path, &report_body(chunk)).await {
-                        tracing::warn!(pilots = chunk.len(), "stats not reported to Elo Pros: {why}");
-                    }
-                }
-            };
-            if last {
-                send.await;
-            } else {
-                tokio::spawn(send);
-            }
+        if stopping {
+            break;
         }
-        if last {
-            return;
+        if !held.is_empty() {
+            out.spawn(send(signed.clone(), std::mem::take(&mut held), crate::serverkey::TRIES));
         }
     }
+    // The sessions' last second, then the last post.
+    let until = tokio::time::Instant::now() + GRACE;
+    while let Ok(Some(row)) = tokio::time::timeout_at(until, rx.recv()).await {
+        hold(&mut held, row);
+    }
+    if !held.is_empty() {
+        out.spawn(send(signed, held, FINAL_TRIES));
+    }
+    while out.join_next().await.is_some() {}
 }
 
 #[cfg(test)]
@@ -455,7 +490,9 @@ mod tests {
         .unwrap();
         let r = &body["reports"];
         assert_eq!(r[0]["wallet"], "0x1111111111111111111111111111111111111111");
-        assert_eq!((r[0]["agent"].as_bool(), &r[0]["scores"]["haul_kg"]), (Some(false), &json!(900)));
+        // A person's row leaves `agent` to Elo Pros' signed record of the wallet.
+        assert!(r[0].get("agent").is_none(), "{body}");
+        assert_eq!(r[0]["scores"]["haul_kg"], json!(900));
         assert_eq!(r[0]["stats"], json!({ "sorties_home": 1, "ore_kg": 900, "best_haul_kg": 900 }));
         assert_eq!(r[1]["wallet"], "acct_0123456789abcdef0123");
         assert_eq!(r[1]["agent"], true);
@@ -468,6 +505,64 @@ mod tests {
         a.merge(&Tally { sorties: 2, ore_kg: 300, best_haul_kg: 300, fills: 4, ..Tally::default() });
         assert_eq!(a, Tally { sorties: 3, ore_kg: 800, best_haul_kg: 500, fills: 4, ..Tally::default() });
         assert!(Tally::default().is_empty() && !a.is_empty());
+    }
+
+    /// A sortie home: the hold's ore and the ore in hand count, a piece of an Almagest wreck in
+    /// hand is salvage, and the best haul is one sortie's ore, never the sum.
+    #[test]
+    fn a_sortie_home_counts_its_ore_and_its_salvage() {
+        use bc_proto::FrameId;
+        let l = bc_econ::suit::Suit::complete(FrameId::Argo).loadout();
+        let docked = |cargo_kg: [u16; bc_proto::CARGO_KINDS], held: Option<ChunkDesc>| Homecoming {
+            frame: FrameId::Argo,
+            parts: l.parts,
+            mounts: l.mounts,
+            ammo: l.ammo,
+            propellant: l.propellant,
+            grade: l.grade,
+            systems: l.systems,
+            modules: l.modules,
+            kits: l.kits,
+            usage: Default::default(),
+            cargo_kg,
+            held,
+            bounty: 0,
+        };
+        let mut t = Tally::default();
+        let rock = ChunkDesc { kind: ChunkKind::Ore { ore: 1 }, seed: 0, mass_kg: 250 };
+        t.home(&docked([1_000, 500, 0, 0], Some(rock)));
+        assert_eq!((t.sorties_home, t.ore_kg, t.best_haul_kg, t.salvage), (1, 1_750, 1_750, 0));
+        let wreck = ChunkDesc {
+            kind: ChunkKind::Hulk { frame: FrameId::Corvus, faction: Faction::Almagest, parts: 3 },
+            seed: 0,
+            mass_kg: 4_000,
+        };
+        t.home(&docked([0, 0, 300, 0], Some(wreck)));
+        assert_eq!((t.sorties_home, t.ore_kg, t.best_haul_kg, t.salvage), (2, 2_050, 1_750, 1));
+        let theirs = ChunkDesc {
+            kind: ChunkKind::Hulk { frame: FrameId::Argo, faction: Faction::Colonies, parts: 3 },
+            ..wreck
+        };
+        t.home(&docked([0; bc_proto::CARGO_KINDS], Some(theirs)));
+        assert_eq!((t.sorties_home, t.ore_kg, t.salvage), (3, 2_050, 1), "a pilot's wreck is nothing");
+    }
+
+    /// One wallet flown by an agent and by a person in one window: two rows, and the agent's haul
+    /// never reaches a board.
+    #[test]
+    fn an_agents_tally_never_merges_into_a_persons() {
+        let w = PlayerId::parse("0x2222222222222222222222222222222222222222").unwrap();
+        let haul = Tally { sorties_home: 1, ore_kg: 3_000, best_haul_kg: 3_000, ..Tally::default() };
+        let mut held = BTreeMap::new();
+        hold(&mut held, Row { player: w, agent: true, tally: haul });
+        hold(&mut held, Row { player: w, agent: false, tally: Tally { sorties: 1, ..Tally::default() } });
+        hold(&mut held, Row { player: w, agent: false, tally: Tally { sorties: 1, ..Tally::default() } });
+        assert_eq!(held.len(), 2);
+        assert_eq!(held[&(w, false)], Tally { sorties: 2, ..Tally::default() });
+        let rows: Vec<Row> =
+            held.into_iter().map(|((player, agent), tally)| Row { player, agent, tally }).collect();
+        let body: Value = serde_json::from_str(&report_body(&rows)).unwrap();
+        assert!(body["reports"].as_array().unwrap().iter().all(|r| r.get("scores").is_none()), "{body}");
     }
 
     #[test]

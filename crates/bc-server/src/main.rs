@@ -152,6 +152,9 @@ fn load_key(path: &std::path::Path, id: &str) -> Result<bc_server::serverkey::Se
     bc_server::serverkey::ServerKey::from_pem(bc_auth::GAME, id, &pem)
 }
 
+/// How long a shutdown waits for the stats' last post and the stores' last save.
+const SHUTDOWN_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
 fn main() -> anyhow::Result<()> {
     bc_server::telemetry::init();
     let args = Args::parse();
@@ -234,7 +237,14 @@ fn main() -> anyhow::Result<()> {
         tracing::info!("open http://{} (WebTransport on UDP {})", handle.http_addr, handle.wt_port);
         tokio::signal::ctrl_c().await?;
         tracing::info!("shutting down");
-        handle.shutdown();
+        // The stats' last post to Elo Pros and the stores' last save finish before the runtime
+        // goes (it would cancel them), within a bound so a deploy never hangs on them.
+        if !handle.shutdown_flushed(SHUTDOWN_WAIT).await {
+            tracing::warn!(
+                "the last post to Elo Pros or the last save didn't finish in {}s: let go",
+                SHUTDOWN_WAIT.as_secs()
+            );
+        }
         Ok(())
     })
 }

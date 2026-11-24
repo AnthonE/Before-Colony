@@ -405,8 +405,11 @@ impl Exchange {
             order.escrow -= value;
         }
         let fee = if seller.is_some() { value * FEE_BP / 10_000 } else { 0 };
-        for party in [&buyer, &seller].into_iter().flatten() {
-            *self.filled.entry(party.clone()).or_default() += 1;
+        // A trader filling their own resting order traded with nobody: not a fill to count.
+        if buyer != seller {
+            for party in [&buyer, &seller].into_iter().flatten() {
+                *self.filled.entry(party.clone()).or_default() += 1;
+            }
         }
         self.fees += fee;
         if let Some(b) = &buyer {
@@ -758,7 +761,19 @@ mod tests {
         // trader is counted whether or not they're there.
         assert_eq!((ex.take_filled("alice"), ex.take_filled("carol"), ex.take_filled("bob")), (2, 1, 1));
         assert_eq!(ex.take_filled("alice"), 0);
-        // Bob's 150 kg still rest; cancelling hands them back.
+        // Bob buying from his own resting ask trades with nobody: no fill counted.
+        let mine = ex.place(
+            "bob",
+            SIDERIUM,
+            Side::Buy,
+            40_000,
+            10,
+            Exchange::escrow_for(SIDERIUM, 40_000, 10),
+            true,
+        );
+        assert_eq!(mine.unwrap().fills.len(), 1);
+        assert_eq!(ex.take_filled("bob"), 0);
+        // Bob's 140 kg still rest; cancelling hands them back (with the 10 he bought, 150).
         assert_eq!(ex.orders("bob").count(), 1);
         assert!(ex.cancel("bob", r.resting.unwrap()));
         assert_eq!(ex.collect("bob").goods[&SIDERIUM], 150);

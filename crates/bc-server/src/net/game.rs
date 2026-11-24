@@ -347,6 +347,27 @@ pub struct GameRuntime {
     _oracle_worker: Option<bc_orrery::WorkerHandle>,
     /// Tells the stats' reporter to post what it holds, and stop.
     reporter_stop: tokio::sync::watch::Sender<bool>,
+    /// The stats' reporter's task, whose last post is in it ([`Stopping`]).
+    reporter_task: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// What still finishes once the game has stopped: the stats' last post to Elo Pros and the stores'
+/// last save. A process awaits it ([`Stopping::finish`]) before its runtime goes, or both die
+/// half-done with it.
+pub struct Stopping {
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl Stopping {
+    /// Waits for them, up to `within`. Whether they all finished.
+    pub async fn finish(self, within: std::time::Duration) -> bool {
+        let all = async {
+            for t in self.tasks {
+                let _ = t.await;
+            }
+        };
+        tokio::time::timeout(within, all).await.is_ok()
+    }
 }
 
 impl GameRuntime {
@@ -460,16 +481,28 @@ impl GameRuntime {
         let watch = Arc::new(crate::watch::Watch::default());
         // Stats for Elo Pros: only with the server's key, and somewhere to send them.
         let (reporter_stop, stop_rx) = tokio::sync::watch::channel(false);
-        let reporter = match (&cfg.elo_key, &cfg.elo_origin) {
-            (Some(key), Some(origin)) => crate::serverkey::Signed::new(origin, key.clone(), stats.clone()).map(|s| {
-                tracing::info!(who = %key.who(), public = %key.public_b64(), "stats reported to Elo Pros, signed");
-                Arc::new(crate::gamestats::Reporter::start(s, stats.clone(), cfg.elo_flush, stop_rx))
-            }),
-            (Some(_), None) => {
-                tracing::warn!("a server key, and no Elo Pros to report to (--elo-origin none): nothing is reported");
-                None
+        let (reporter, reporter_task) = match (&cfg.elo_key, &cfg.elo_origin) {
+            (Some(key), Some(origin)) => {
+                match crate::serverkey::Signed::new(origin, key.clone(), stats.clone()) {
+                    Some(s) => {
+                        tracing::info!(who = %key.who(), public = %key.public_b64(), "stats reported to Elo Pros, signed");
+                        let (r, task) =
+                            crate::gamestats::Reporter::start(s, stats.clone(), cfg.elo_flush, stop_rx);
+                        (Some(Arc::new(r)), Some(task))
+                    }
+                    None => {
+                        tracing::warn!("no HTTP client for Elo Pros: nothing is reported");
+                        (None, None)
+                    }
+                }
             }
-            (None, _) => None,
+            (Some(_), None) => {
+                tracing::warn!(
+                    "a server key, and no Elo Pros to report to (--elo-origin none): nothing is reported"
+                );
+                (None, None)
+            }
+            (None, _) => (None, None),
         };
         let game = GameShared {
             sector: shared,
@@ -583,6 +616,7 @@ impl GameRuntime {
             oracle,
             _oracle_worker: oracle_worker,
             reporter_stop,
+            reporter_task,
         })
     }
 
@@ -614,9 +648,12 @@ impl GameRuntime {
         }
     }
 
-    pub fn stop(mut self) {
+    /// Stops the sector threads. The stats' last post and the stores' last save go on: await what
+    /// comes back, bounded, before the runtime goes.
+    pub fn stop(mut self) -> Stopping {
         // What the sessions handed over goes to Elo Pros.
         let _ = self.reporter_stop.send(true);
+        let mut tasks: Vec<tokio::task::JoinHandle<()>> = self.reporter_task.take().into_iter().collect();
         if let Some(s) = self.sector.take() {
             s.stop();
         }
@@ -630,12 +667,12 @@ impl GameRuntime {
         let proving = self.shared.proving.clone();
         let homes = self.shared.homes.clone();
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            rt.spawn(async move {
+            tasks.push(rt.spawn(async move {
                 market.save().await;
                 charter.save().await;
                 proving.save().await;
                 homes.save().await;
-            });
+            }));
         }
         self.egress_stop.store(true, Ordering::Release);
         if let Some(e) = self.egress.take() {
@@ -646,6 +683,7 @@ impl GameRuntime {
             e.thread().unpark();
             let _ = e.join();
         }
+        Stopping { tasks }
     }
 }
 

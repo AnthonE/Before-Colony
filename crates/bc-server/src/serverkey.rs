@@ -13,9 +13,12 @@
 //! standard base64 of the signature over [`server_text`]: `elo server`, the method, the path
 //! without `/api`, `<slug>/<key id>`, the time, the nonce and the body's SHA-256 in hex, one a line.
 //!
-//! [`Signed`] posts with it, off the hot path (the session tasks' side): what may pass (no answer,
-//! a 5xx, a 429) is tried again, five times in all, a second and then doubling; a refusal is not.
-//! Whatever becomes of a call is counted (`/status`'s `net.elo_*`), and none of it is ever fatal.
+//! [`Signed`] posts with it, off the hot path (the session tasks' side). A report isn't idempotent
+//! on Elo Pros (each try is a fresh nonce, so a new call, and a `sum` stat adds again), so only what
+//! surely never landed is tried again: no connection made, a 429, a 502 or a 503 (Elo Pros' own
+//! "nothing was recorded"), five times in all, a second and then doubling. A timeout once the
+//! request went out, a 500 or a 504 may have landed, and is let go; a refusal is final. Whatever
+//! becomes of a call is counted (`/status`'s `net.elo_*`), and none of it is ever fatal.
 
 use std::fmt;
 use std::sync::Arc;
@@ -33,9 +36,10 @@ const PKCS8_ED25519: [u8; 16] =
     [0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20];
 const NONCE_ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-/// Tries a signed POST gets, and how long one may take.
+/// Tries a signed POST gets, how long one may take, and how long making its connection may.
 pub const TRIES: u32 = 5;
 pub const POST_TIMEOUT: Duration = Duration::from_secs(10);
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Whether `id` is a key id the platform takes: lowercase letters, digits and `-`, up to 31
 /// characters, not starting with `-`.
@@ -147,8 +151,23 @@ pub enum Posted {
     Taken(String),
     /// Refused for good (a 4xx but 429): `"<code>: <text>"`.
     Refused(String),
-    /// Not answered, or an error that may pass (a 5xx, a 429).
+    /// Surely not landed, and may pass: no connection made, a 429, a 502 or a 503. Tried again.
     Passing(String),
+    /// May have landed (a timeout once sent, a 500, a 504): never tried again, since a report
+    /// sent twice counts twice.
+    Unknown(String),
+}
+
+/// What an answer with status `code` (not a success) means for the call: tried again only when
+/// nothing was recorded (a 429; a 502, the proxy finding nobody behind it; a 503, Elo Pros' own
+/// "nothing was recorded, send it again"), let go when it may have been (other 5xx), final when
+/// refused (other 4xx).
+fn answered(code: u16, text: String) -> Posted {
+    match code {
+        429 | 502 | 503 => Posted::Passing(text),
+        500..=599 => Posted::Unknown(text),
+        _ => Posted::Refused(text),
+    }
 }
 
 /// What became of the signed POSTs since start (in `NetStats`, for `/status`).
@@ -179,7 +198,8 @@ pub struct Signed {
 impl Signed {
     /// Calls to `origin` (`https://elopros.com`, no trailing slash needed), signed with `key`.
     pub fn new(origin: &str, key: Arc<ServerKey>, stats: Arc<NetStats>) -> Option<Self> {
-        let http = reqwest::Client::builder().timeout(POST_TIMEOUT).build().ok()?;
+        let http =
+            reqwest::Client::builder().timeout(POST_TIMEOUT).connect_timeout(CONNECT_TIMEOUT).build().ok()?;
         let origin = origin.trim_end_matches('/').to_string();
         Some(Self { http, origin, key, stats })
     }
@@ -197,12 +217,18 @@ impl Signed {
     }
 
     /// POSTs `body` (JSON) to `path` (without `/api`), signed afresh each try, trying again what
-    /// may pass ([`TRIES`] in all). The answer, or why not (counted either way, never fatal).
+    /// surely never landed ([`TRIES`] in all). The answer, or why not (counted, never fatal).
     pub async fn post(&self, path: &str, body: &str) -> Result<String, String> {
+        self.post_tries(path, body, TRIES).await
+    }
+
+    /// [`Signed::post`] with `tries` in all (at least one).
+    pub async fn post_tries(&self, path: &str, body: &str, tries: u32) -> Result<String, String> {
         let counts = self.counts();
+        let tries = tries.max(1);
         let mut wait = Duration::from_secs(1);
         let mut last = String::new();
-        for attempt in 0..TRIES {
+        for attempt in 0..tries {
             match self.post_once(path, body).await {
                 Posted::Taken(text) => {
                     counts.sent.fetch_add(1, Ordering::Relaxed);
@@ -212,25 +238,28 @@ impl Signed {
                     counts.refused.fetch_add(1, Ordering::Relaxed);
                     return Err(why);
                 }
+                Posted::Unknown(why) => {
+                    counts.failed.fetch_add(1, Ordering::Relaxed);
+                    return Err(format!("not tried again (it may have landed): {why}"));
+                }
                 Posted::Passing(why) => last = why,
             }
-            if attempt + 1 < TRIES {
+            if attempt + 1 < tries {
                 tokio::time::sleep(wait).await;
                 wait *= 2;
             }
         }
         counts.failed.fetch_add(1, Ordering::Relaxed);
-        Err(format!("not taken after {TRIES} tries: {last}"))
+        Err(format!("not taken after {tries} tries: {last}"))
     }
 
-    /// One signed POST, no retry. One idempotency key for one body, whatever the try.
+    /// One signed POST, no retry.
     pub async fn post_once(&self, path: &str, body: &str) -> Posted {
         let at = crate::pilots::unix_now();
         let mut req = self
             .http
             .post(format!("{}/api{path}", self.origin))
             .header("Content-Type", "application/json")
-            .header("Idempotency-Key", sha256_hex(body.as_bytes()))
             .body(body.to_string());
         for (k, v) in self.key.headers("POST", path, body.as_bytes(), at, &nonce()) {
             req = req.header(k, v);
@@ -239,14 +268,12 @@ impl Signed {
             Ok(res) if res.status().is_success() => Posted::Taken(res.text().await.unwrap_or_default()),
             Ok(res) => {
                 let code = res.status();
-                let text = clip(&res.text().await.unwrap_or_default());
-                if code.is_server_error() || code.as_u16() == 429 {
-                    Posted::Passing(format!("{code}: {text}"))
-                } else {
-                    Posted::Refused(format!("{code}: {text}"))
-                }
+                let text = format!("{code}: {}", clip(&res.text().await.unwrap_or_default()));
+                answered(code.as_u16(), text)
             }
-            Err(e) => Posted::Passing(format!("no answer: {}", clip(&e.to_string()))),
+            // No connection was made: nothing went out.
+            Err(e) if e.is_connect() => Posted::Passing(format!("no connection: {}", clip(&e.to_string()))),
+            Err(e) => Posted::Unknown(format!("no answer: {}", clip(&e.to_string()))),
         }
     }
 
@@ -255,7 +282,7 @@ impl Signed {
     pub async fn check(&self) {
         match self.post_once("/serverkeys/check", "").await {
             Posted::Taken(_) => tracing::info!(who = %self.who(), "Elo Pros takes this server's signature"),
-            Posted::Refused(why) | Posted::Passing(why) => {
+            Posted::Refused(why) | Posted::Passing(why) | Posted::Unknown(why) => {
                 tracing::warn!(who = %self.who(), "Elo Pros didn't take this server's signature: {why}")
             }
         }
@@ -288,6 +315,20 @@ mod tests {
         assert_ne!(a, b);
         assert_eq!(a.len(), 22);
         assert!(a.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'));
+    }
+
+    /// Only what surely never landed is sent again: a report isn't idempotent.
+    #[test]
+    fn only_what_never_landed_is_tried_again() {
+        let kind = |code| match answered(code, String::new()) {
+            Posted::Passing(_) => "again",
+            Posted::Unknown(_) => "let go",
+            Posted::Refused(_) => "final",
+            Posted::Taken(_) => "taken",
+        };
+        assert_eq!([kind(429), kind(502), kind(503)], ["again"; 3]);
+        assert_eq!([kind(500), kind(504)], ["let go"; 2]);
+        assert_eq!([kind(400), kind(401), kind(409), kind(422)], ["final"; 4]);
     }
 
     #[test]

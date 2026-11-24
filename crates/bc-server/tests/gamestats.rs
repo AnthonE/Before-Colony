@@ -1,7 +1,8 @@
 //! Stats reported to Elo Pros, against a stand-in for it that checks every request's signature the
 //! way `meter/serverkeys.py` does: a signed-in pilot who trades on the Exchange and flies a sortie
-//! is reported under their wallet, an agent as one and with no board scores; a guest never is; and
-//! a server with no key reports nothing at all.
+//! is reported under their wallet, an agent as one and with no board scores; a guest never is; what
+//! the reporter holds still goes out as the server shuts down; and a server with no key reports
+//! nothing at all.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -178,6 +179,61 @@ async fn a_pilots_play_is_reported_signed_and_a_guests_is_not() -> anyhow::Resul
     keyed.close().await;
     guest.close().await;
     server.shutdown();
+    Ok(())
+}
+
+/// The pilot's line on `/online.json`, waiting up to two seconds for it to read `want`.
+async fn line(b: &mut BotClient, http: &str, want: &str) -> anyhow::Result<String> {
+    let mut got = String::new();
+    for _ in 0..20 {
+        let doc: serde_json::Value = reqwest::get(format!("{http}/online.json")).await?.json().await?;
+        got = doc["online"][0]["status"].as_str().unwrap_or_default().to_string();
+        if got == want {
+            break;
+        }
+        b.run_for(Duration::from_millis(100), &mut |_| bc_proto::InputCmd::default()).await?;
+    }
+    Ok(got)
+}
+
+/// Under survival rules the line follows the pilot: on foot in the bay, at the Exchange's books,
+/// out flying. And nothing goes out on the clock here (an hour's flush): what they did reaches Elo
+/// Pros only because a shutdown posts what's held, and waits for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_line_follows_the_pilot_and_what_is_held_goes_out_at_shutdown() -> anyhow::Result<()> {
+    let took = Took::default();
+    let origin = elo_pros(took.clone()).await?;
+    let cfg = Config { elo_flush: Duration::from_secs(3_600), ..config(&origin, true)? };
+    let server = bc_server::start(cfg).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut secret = [0u8; 32];
+    secret[31] = 3;
+    let wallet = LocalWallet::from_secret(&secret).expect("key three");
+    let address = bc_proto::auth::PlayerId::from(wallet.address()).as_str().to_string();
+    let mut keyed = BotClient::connect_as(&bot(&http, "Keyed-3"), Some(&wallet)).await?;
+    keyed.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar()).await?;
+    assert_eq!(line(&mut keyed, &http, "In the colony").await?, "In the colony");
+    let steel = Item::Material(Material::Steel);
+    keyed.request(&Request::Watch { item: Some(steel) }).await?;
+    assert_eq!(line(&mut keyed, &http, "At the Exchange").await?, "At the Exchange");
+    keyed.request(&Request::Watch { item: None }).await?;
+    assert_eq!(line(&mut keyed, &http, "In the colony").await?, "In the colony");
+    trade_and_fly(&mut keyed).await?;
+    assert_eq!(line(&mut keyed, &http, "Flying").await?, "Flying");
+    // The sale went through; the session's next second's settling takes its fill and hands the
+    // tally over, and the reporter holds it.
+    let sold = |c: &bc_client_core::ClientCore| c.hangar.notes.iter().any(|(t, _)| t.starts_with("SOLD"));
+    if let Err(e) = keyed.wait_until(5.0, "the sale's note", sold).await {
+        panic!("{e}: {:?}", keyed.core.hangar.notes);
+    }
+    keyed.run_for(Duration::from_millis(1_500), &mut |_| bc_proto::InputCmd::default()).await?;
+    assert!(took.reports.lock().unwrap().is_empty(), "nothing on the clock");
+    assert!(server.shutdown_flushed(Duration::from_secs(15)).await, "the last post finished");
+    let got = rows(&took);
+    assert_eq!(total(&got, &address, "sorties"), 1, "{got:?}");
+    assert!(total(&got, &address, "fills") >= 1, "{got:?} {:?}", keyed.core.hangar.notes);
+    assert!(took.refused.lock().unwrap().is_empty());
+    keyed.close().await;
     Ok(())
 }
 

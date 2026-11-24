@@ -2370,8 +2370,9 @@ impl Session<'_> {
         if settle {
             // (Every move of place sends it; a second's look catches any that doesn't.)
             self.show_status();
-            self.report_tally();
+            // (Settled first: the fills it takes go with this second's tally.)
             let (notes, handed) = self.settle(true);
+            self.report_tally();
             if !notes.is_empty() {
                 for n in &notes {
                     self.note(n.clone(), true).await?;
