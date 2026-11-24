@@ -255,6 +255,12 @@ pub struct Streamer {
     spent: Slowest,
     /// The pieces in sight not built yet.
     missing: u32,
+    /// The frames the latest fill has taken: one a frame that began with a piece in sight still to
+    /// build, counted afresh after a frame that began with none (`town_fill_frames`). Streamed
+    /// within the frame's budget, a fill takes several; built all at once (a showcase's held
+    /// clock), one.
+    fill_frames: u32,
+    filling: bool,
     /// Pieces built whose signs wait for the letters to be measured (`station::SignAtlas`).
     unsigned: Vec<(Piece, Entity)>,
 }
@@ -353,6 +359,8 @@ pub struct TownStats {
     /// The pieces in sight still to build, and the pieces built (shown or kept).
     pub missing: u32,
     pub cached: u32,
+    /// The frames the latest fill of the pieces in sight took (or has taken so far).
+    pub fill_frames: u32,
     /// The people and the cars drawn.
     pub people: u32,
     pub cars: u32,
@@ -536,6 +544,9 @@ fn stream_town(
         }
     }
     if !view.active {
+        if streamer.filling {
+            streamer.filling = false;
+        }
         return;
     }
     let s = &mut *streamer;
@@ -558,6 +569,11 @@ fn stream_town(
     if s.building.as_ref().is_some_and(|(p, _)| !s.sight.contains(p)) {
         s.building = None;
     }
+    let to_build = s.sight.iter().any(|p| !s.pieces.contains_key(p));
+    if to_build {
+        s.fill_frames = if s.filling { s.fill_frames + 1 } else { 1 };
+    }
+    s.filling = to_build;
     let layer = RenderLayers::layer(CITY_LAYER);
     let mut fresh = Vec::new();
     while start.elapsed().as_secs_f32() * 1000.0 <= budget {
@@ -1198,8 +1214,8 @@ fn light_town(
 }
 
 /// [`TownStats`], and `window.__bc`'s `town_cells`, `town_pieces`, `town_tris`, `town_ms` (the build's),
-/// `town_life_ms`, `town_missing`, `town_cached`, `town_people`, `town_cars` and `town_draws` from
-/// it.
+/// `town_life_ms`, `town_missing`, `town_cached`, `town_fill_frames`, `town_people`, `town_cars` and
+/// `town_draws` from it.
 fn publish_stats(
     view: Res<TownView>,
     streamer: Res<Streamer>,
@@ -1224,6 +1240,7 @@ fn publish_stats(
             life_ms: life.spent.ms(),
             missing: streamer.missing,
             cached: streamer.pieces.len() as u32,
+            fill_frames: streamer.fill_frames,
             people: life.drawn.0,
             cars: life.drawn.1,
             draws: draws as u32,
@@ -1242,6 +1259,7 @@ fn publish_stats(
     status.set("town_life_ms", now.life_ms);
     status.set("town_missing", now.missing);
     status.set("town_cached", now.cached);
+    status.set("town_fill_frames", now.fill_frames);
     status.set("town_people", now.people);
     status.set("town_cars", now.cars);
     status.set("town_draws", now.draws);

@@ -47,6 +47,10 @@ test("the town's crowded street, streamed in and held", async ({ page }, info) =
   );
   // (And the moment it was done: the sampler may not have caught it before it stopped.)
   const loaded = [...(await town.stop()), await town.now()].filter((x) => x.town_cells > 0);
+  // How many frames the fill took, as the client counted them (`town_fill_frames`): the sampler
+  // only gets in between frames that come in bunches, and has seen a fill of several only once
+  // it was done.
+  const filled: number = (await bc(page)).town_fill_frames ?? 0;
   const done = loaded.findIndex((x) => x.town_cells >= CELLS && x.town_missing === 0);
   const fill = loaded.slice(0, done < 0 ? loaded.length : done + 1);
   const span = (xs: typeof fill) => (xs.length ? xs[xs.length - 1] : undefined);
@@ -71,7 +75,7 @@ test("the town's crowded street, streamed in and held", async ({ page }, info) =
     backend: s.backend,
     fill: {
       secs: fill.length ? (span(fill)!.at - fill[0].at) / 1000 : 0,
-      frames: fill.length ? span(fill)!.frames - fill[0].frames : 0,
+      frames: filled,
       samples: fill.length,
       town_ms: quantiles(fill.map((x) => x.town_ms)),
       life_ms: quantiles(fill.map((x) => x.town_life_ms)),
@@ -110,8 +114,7 @@ test("the town's crowded street, streamed in and held", async ({ page }, info) =
   expect(s.town_people).toBeGreaterThan(20);
   expect(s.town_cars).toBeGreaterThan(5);
   // Streamed: over frames, cells still to build after the first.
-  expect(report.fill.frames).toBeGreaterThanOrEqual(2);
-  expect(fill.some((x) => x.town_missing > 0)).toBe(true);
+  expect(filled).toBeGreaterThanOrEqual(2);
   for (const x of [...loaded, ...held]) expect(x.town_ms).toBeLessThanOrEqual(4 * BUDGET_MS);
   for (const x of held) {
     expect(x.town_tris).toBeLessThanOrEqual(TRIS);
