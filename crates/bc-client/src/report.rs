@@ -3,7 +3,8 @@
 //! `Screenshot` (the world as drawn, never the page's HTML over it), halves it until it is at
 //! most [`MAX_WIDTH`] wide, and hands it to the page as RGBA (`window.bcReportShot(width, height,
 //! rgba)`). The browser encodes the PNG, so the client carries no encoder of its own. A frame that
-//! never comes (the page waits two seconds) is a report without a picture.
+//! never comes (the page waits a few frames' time, two seconds at least) is a report without a
+//! picture.
 
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;

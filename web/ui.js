@@ -818,8 +818,13 @@
       "entities", "unresolved_bodies", "last_error"],
   };
   const REPORT_KINDS = ["look", "world", "verb", "net", "numbers", "other"];
-  // How long the page waits for the game's picture before sending without one.
-  const SHOT_WAIT_MS = 2000;
+  // How long the page waits for the game's picture before sending without one: a few of its frames
+  // (the picture is read back a frame or two after it's asked for, and a page drawing in software
+  // takes seconds over one), at least two seconds and at most thirty.
+  function shotWait() {
+    const fps = Number(window.__bc?.fps) || 0;
+    return Math.min(30_000, Math.max(2_000, fps > 0 ? 8_000 / fps : 2_000));
+  }
   const composer = { open: false, kind: "look", busy: false, shot: Promise.resolve(null) };
   let shotWaiting = null;
 
@@ -854,7 +859,7 @@
         if (shotWaiting === finish) shotWaiting = null;
         done(b64);
       };
-      const timer = setTimeout(() => finish(null), SHOT_WAIT_MS);
+      const timer = setTimeout(() => finish(null), shotWait());
       shotWaiting = finish;
       send("report", { open: composer.open, shot: true });
     });
@@ -901,8 +906,18 @@
   function openReport() {
     if (composer.open) return;
     composer.open = true;
-    // The picture first, of the world as it is now; and the game stands aside.
-    composer.shot = takeShot();
+    // The picture first, of the world as it is now; and the game stands aside. The head says
+    // once it's taken (`data-shot`: taking, taken or none).
+    const box = $("report");
+    const shot = takeShot();
+    composer.shot = shot;
+    box.dataset.shot = "taking";
+    $("report-shot").textContent = "";
+    shot.then((b64) => {
+      if (composer.shot !== shot) return;
+      box.dataset.shot = b64 ? "taken" : "none";
+      $("report-shot").textContent = b64 ? "A PICTURE OF THE SCREEN GOES WITH IT" : "";
+    });
     if (!(ready && view.screen === "playing")) send("report", { open: true });
     pickKind(composer.kind);
     reportNote("");

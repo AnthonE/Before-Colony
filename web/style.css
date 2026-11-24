@@ -747,6 +747,7 @@ html.front-up #boot { display: none; }
   color: var(--amber);
 }
 .report-head .note { letter-spacing: 0.04em; color: var(--label); font-weight: 400; }
+.report-shot { min-height: 1.2em; margin-top: var(--s1); font-size: var(--t-label); color: var(--label); }
 .report-kinds { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s3) 0; }
 .report-kinds button { padding: var(--s1) var(--s3); font-size: var(--t-label); }
 .report-kinds button[aria-checked="true"] {

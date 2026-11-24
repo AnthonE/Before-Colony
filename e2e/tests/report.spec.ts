@@ -64,6 +64,9 @@ test("F7 files a report with the frame, and nothing of who the pilot is", async 
   await expect(page.locator("#report-input")).toBeFocused();
   // The game stands aside: the pointer goes free, the keys aren't the suit's.
   await until("the pointer let go", async () => ((await bc(page)).click_to_fly === false ? true : undefined), 10_000);
+  // The game's picture of the frame, taken as it opened (a few of its frames: seconds in software).
+  await expect(page.locator("#report")).toHaveAttribute("data-shot", "taken", { timeout: 60_000 });
+  await expect(page.locator("#report-shot")).toContainText("PICTURE");
   await page.keyboard.press("Tab"); // the next kind: THE WORLD
   await page.keyboard.type("the lamp post by the lift floats a hand above the kerb");
   await page.keyboard.press("Enter");
@@ -98,6 +101,18 @@ test("F7 files a report with the frame, and nothing of who the pilot is", async 
     expect(text, `the report holds ${word}`).not.toContain(word);
   }
   expect(Object.keys(doc.place)).not.toContain("name");
+
+  // An agent files the same way (`scripts/pt report`): marked as an agent's, with the frame.
+  const got = await page.evaluate(() => (window as any).bcReport.file("verb", "a playtest agent's line"));
+  expect(got.seen).toBe(1);
+  const agent = await until(
+    "the agent's report",
+    () => kept().find((f) => f.name === `bc-report-${got.id}.json`)?.doc,
+    10_000,
+  );
+  expect(agent.build.runtime).toBe("agent");
+  expect(agent.issue_title).toBe("[verb] a playtest agent's line");
+  expect(agent.read_first).toBe("docs/CONTROLS.md");
 });
 
 test("a trap files one crash report, once", async ({ page }) => {
