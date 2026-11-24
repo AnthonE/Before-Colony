@@ -38,11 +38,15 @@ The First Hour, now; 0.3 alongside), and `docs/NOW.md` lists each lane's items i
 | **ring**: the ring, the hub, the base and its buildings | `docs/RING.md` | `crates/bc-sim/src/content/base.rs`, `crates/bc-client-core/src/muster.rs`, `crates/bc-client/src/base.rs` |
 | **sim**: flight, combat, the suits, the tick | `docs/DESIGN.md`, `docs/LOCK.md` | `crates/bc-sim`, `crates/bc-sector` |
 | **net** and **proto**: the wire, sessions, sectors | `docs/NETCODE.md`, `docs/SCALE.md`, `docs/PROTOCOL.md` | `crates/bc-proto`, `crates/bc-server/src/net` |
+| **server**: what the server runs off the tick: the plaza, the Watch's dispatch, the pilots' stores, the dev HTTP | `docs/ARCHITECTURE.md` | `crates/bc-server` |
 | **econ**: the hangar, the fabricator, the Exchange, the Charter Board | `docs/DESIGN.md`, `docs/FLOOR.md` | `crates/bc-econ` |
 | **client** and **page**: drawing, the frame, the screens | `docs/UI.md`, `docs/ARCHITECTURE.md` | `crates/bc-client`, `crates/bc-client-core`, `web` |
 | **sound** | the sound track in `docs/PHASES.md` | `crates/bc-sound` |
 | **model**: the suits' designs | `docs/DESIGN.md` | `crates/bc-model` |
 | **bot**: agents that play | the README's "Agents" | `crates/bc-bot` |
+| **e2e**: the browser suites, against a real server | `CLAUDE.md`'s "Commands" and "Traps" | `e2e`, `scripts/e2e.sh`, `.github/workflows/e2e.yml` |
+
+An item in two lanes (`sim + server`) crosses both.
 
 In-game text in any lane follows `docs/STORY.md` (setting, voice and naming); a binding follows
 `docs/CONTROLS.md`.
@@ -91,10 +95,12 @@ anyway: a PR waits for the lane like any other.
   `Wallet:` line names too (or a wallet linked to the PR author's GitHub at
   <https://elopros.com/login.html>).
 - **An agent's own key can sign it.** A `bc_bot::key` file (64 hex digits, its owner's only) is the
-  format the Elo Pros builder skill's signer reads (scry-forge's `skills/elo-builder/scripts/elo_sign.py`;
-  the platform side in one link: <https://elopros.com/skill.md>).
-- The owner reviews, merges what earns it, and pays in ELO at the pool's price on the day it's
-  paid, by public transfer: the chain is the receipt.
+  format the Elo Pros builder skill's signer reads: elo-pros-launcher's
+  `skills/elo-builder/scripts/elo_sign.py`, in the public platform mirror
+  <https://github.com/AnthonE/elo-pros-launcher> (the platform side in one link:
+  <https://elopros.com/skill.md>).
+- The owner reviews, merges what earns it, and pays in the reserve, at the pool's mark on the day
+  it's paid (the board's row names the coin), by public transfer: the chain is the receipt.
 - **Once player reports land** (`docs/NOW.md` §rep), a merged PR that names the reports it fixes
   (`Closes reports: <fingerprint>`, one line) can pay whoever reported them too; that share is the
   owner's to set.
@@ -106,9 +112,9 @@ endpoint can pay. Which means the next section isn't etiquette: it is the pay sc
 
 The owner, of Gates: *"not any ai slop but the best here."* Green is the **floor**, not the bar.
 `CONTRIBUTING.md`, "What gets a PR closed", is the list a PR is judged by even with every check
-green: allocation or locks smuggled into the tick, a test or golden edited to pass, a wire change
-without its bump, more than one change, landscaping dressed as work, code that ignores the idiom
-round it.
+green: allocation or locks smuggled into the tick, a test or golden edited to pass, an incompatible
+wire change without its bump, more than one change, landscaping dressed as work, code that ignores
+the idiom round it.
 
 Small, sharp, finished. **A flat rate makes that list the only filter**: a one-line fix is paid
 like a system, so the question at review is never "was it big enough?". Volume isn't a strategy;
@@ -131,7 +137,7 @@ The law is `CLAUDE.md`, "What CI will stop you on"; these are reminders.
 7. The page and the client agree (`crates/bc-client-core/tests/page_contract.rs`).
 8. `bc-client` compiles only for wasm: only the two wasm clippies see it.
 9. `crates/fx` is Gates' (`crates/fx/tests/vendored.rs`).
-10. A wire change bumps `PROTOCOL_VERSION` in the same PR.
+10. An incompatible wire change bumps `PROTOCOL_VERSION` in the same PR.
 
 And the rules that stay: the server decides (`SECURITY.md`); signatures and resume tokens are never
 logged; a suit's weapons are safe inside the colony but in the Blast Hall; no name from another
