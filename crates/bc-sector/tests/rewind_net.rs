@@ -3,7 +3,8 @@
 //! session's part played here (the link's round trip on the lease, as QUIC measures it). An
 //! honest client is never cut at 20, 100 or 200 ms, jitter, loss and a sudden drop in delay
 //! included; a backtracker (a client claiming a view older than it saw) is cut to what its link
-//! explains; a link not measured is left alone; and the tick still never allocates.
+//! explains, placeholders sent far ahead for its commands' ticks or not; a link not measured is
+//! left alone; and the tick still never allocates.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use std::cmp::Reverse;
@@ -15,7 +16,10 @@ use bc_alloc::CountingAlloc;
 use bc_client_core::{ClientConfig, ClientCore, InputContext};
 use bc_proto::buttons::FLIGHT_ASSIST;
 use bc_proto::control::ControlMsg;
-use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PilotKind};
+use bc_proto::{
+    Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PACKET_KIND_BITS, PROTOCOL_VERSION, PacketKind,
+    PilotKind, SnapshotReader, packet_kind,
+};
 use bc_sector::{Comeback, Control, InputMsg, SectorConfig, SlotState, read_packet};
 use bc_sim::SimConfig;
 use bc_sim::config::{REWIND_SLACK_Q4, TICK_HZ, interp_delay_ticks, rewind_floor_q4};
@@ -27,6 +31,9 @@ static ALLOC: CountingAlloc = CountingAlloc;
 
 const HZ: f64 = TICK_HZ as f64;
 
+/// A packet on its way: when it's due (µs), its number, how long it takes (µs), and its bytes.
+type InFlight = Reverse<(u64, u64, u64, Vec<u8>)>;
+
 /// One direction of a link: packets delivered at `send + base ± jitter`, some lost; its delay
 /// can change mid-run.
 struct Link {
@@ -34,7 +41,7 @@ struct Link {
     base: f64,
     jitter: f64,
     loss: f32,
-    queue: BinaryHeap<Reverse<(u64, u64, Vec<u8>)>>, // (deliver µs, seq, bytes)
+    queue: BinaryHeap<InFlight>,
     seq: u64,
 }
 
@@ -46,17 +53,19 @@ impl Link {
         if self.rng.next_f32() < self.loss {
             return;
         }
-        let at = now + self.base + f64::from(self.rng.signed()) * self.jitter;
+        let delay = (self.base + f64::from(self.rng.signed()) * self.jitter).max(0.0);
         self.seq += 1;
-        self.queue.push(Reverse(((at * 1e6) as u64, self.seq, bytes)));
+        self.queue.push(Reverse((((now + delay) * 1e6) as u64, self.seq, (delay * 1e6) as u64, bytes)));
     }
-    fn deliver(&mut self, now: f64) -> Vec<Vec<u8>> {
+    /// The packets due by `now`, each with the time it took (s).
+    fn deliver(&mut self, now: f64) -> Vec<(Vec<u8>, f64)> {
         let mut out = Vec::new();
-        while let Some(Reverse((at, _, _))) = self.queue.peek() {
+        while let Some(Reverse((at, _, _, _))) = self.queue.peek() {
             if *at as f64 / 1e6 > now {
                 break;
             }
-            out.push(self.queue.pop().unwrap().0.2);
+            let Reverse((_, _, delay, bytes)) = self.queue.pop().unwrap();
+            out.push((bytes, delay as f64 / 1e6));
         }
         out
     }
@@ -75,6 +84,10 @@ struct Run {
     measured: bool,
     /// The client claims its views this many ticks older than it saw them.
     backtrack: u32,
+    /// Ahead of each packet, the client sends a placeholder for the tick this many ahead of the
+    /// sector's (and reads its input health off its real commands alone), so each real command
+    /// lands on a placeholder sent seconds before it.
+    placeholders: Option<u32>,
     secs: f64,
 }
 
@@ -87,6 +100,7 @@ impl Run {
             step: None,
             measured: true,
             backtrack: 0,
+            placeholders: None,
             secs: 20.0,
         }
     }
@@ -140,6 +154,29 @@ fn weaving_pilot(ctx: &InputContext) -> InputCmd {
     }
 }
 
+/// A placeholder for `tick`: anything at all, the real command to come in its place later.
+fn placeholder(tick: u32) -> InputCmd {
+    InputCmd { tick, view_tick_q4: tick << 4, buttons: FLIGHT_ASSIST, ..InputCmd::default() }.quantized()
+}
+
+/// Rewrites a snapshot's input health as a patched client reads it: off its real commands alone
+/// (`newest_real`), its placeholders far ahead being no lead at all. Else its clock would steer
+/// its real commands late to bring that lead down.
+fn patch_health(bytes: &mut [u8], newest_real: u32) {
+    if packet_kind(bytes) != Some(PacketKind::Snapshot) {
+        return;
+    }
+    let tick = SnapshotReader::new(bytes).expect("snapshot").header().tick;
+    let health = (i64::from(newest_real) - i64::from(tick)).clamp(-128, 127) as i8;
+    // The header: its kind, tick, seq, stream and the input tick acked, then the health's 8 bits.
+    let at = PACKET_KIND_BITS as usize + 32 + 16 + 8 + 32;
+    for i in 0..8 {
+        let (byte, bit) = ((at + i) / 8, (at + i) % 8);
+        bytes[byte] = (bytes[byte] & !(1 << bit)) | ((((health as u8) >> i) & 1) << bit);
+    }
+    assert_eq!(SnapshotReader::new(bytes).expect("snapshot").header().input_health, health);
+}
+
 fn fly(run: Run) -> Seen {
     let cfg = SectorConfig {
         sim: SimConfig { target_drones: 0, seed: 1, ..SimConfig::default() },
@@ -168,9 +205,13 @@ fn fly(run: Run) -> Seen {
         frame: FrameId::Argo,
         faction: Faction::Colonies,
     });
-    // QUIC's smoothed round trip: an eighth of each new sample.
+    // QUIC's smoothed round trip: an eighth of each new sample, a packet's way up and the newest
+    // snapshot's way down.
     let mut srtt = run.rtt;
     let mut rtt_us = 0;
+    let mut down_way = way;
+    // The newest real command delivered (the placeholders aside).
+    let mut newest_real = 0;
     // Commands heard but not yet taken in by a tick (their views as claimed), and those taken in:
     // the tick that was next when each first arrived.
     let mut heard: HashMap<u32, u32> = HashMap::new();
@@ -186,16 +227,22 @@ fn fly(run: Run) -> Seen {
             up.base = rtt / 2.0;
             down.base = rtt / 2.0;
         }
-        for bytes in up.deliver(t) {
+        for (bytes, up_way) in up.deliver(t) {
             let mut packet = InputPacket::decode(&bytes).expect("input decodes");
             for cmd in &mut packet.cmds[..packet.count as usize] {
                 // As far back as the wire carries (15 15/16 ticks before its tick).
                 let oldest = (cmd.tick << 4).saturating_sub(255);
                 cmd.view_tick_q4 = cmd.view_tick_q4.saturating_sub(run.backtrack << 4).max(oldest);
                 heard.entry(cmd.tick).or_insert(cmd.view_tick_q4);
+                newest_real = newest_real.max(cmd.tick);
+            }
+            if let Some(ahead) = run.placeholders {
+                let mut early = InputPacket { count: 1, ..packet };
+                early.cmds[0] = placeholder(sector.sim.next_tick() + ahead);
+                let _ = lease.input.push(InputMsg { packet: early, recv_us: (t * 1e6) as u64 });
             }
             if run.measured {
-                srtt += (up.base + down.base - srtt) / 8.0;
+                srtt += (up_way + down_way - srtt) / 8.0;
                 let rtt = Duration::from_secs_f64(srtt);
                 rtt_us = rtt.as_micros() as u32;
                 lease.set_link_rtt(rtt);
@@ -251,10 +298,14 @@ fn fly(run: Run) -> Seen {
                 client.on_control(&w[..n]);
             }
             while let Some(n) = read_packet(&mut egress.rings[slot as usize], &mut buf) {
+                if run.placeholders.is_some() {
+                    patch_health(&mut buf[..n], newest_real);
+                }
                 down.send(t, buf[..n].to_vec());
             }
         }
-        for bytes in down.deliver(t) {
+        for (bytes, way) in down.deliver(t) {
+            down_way = way;
             client.on_datagram(&bytes, t);
         }
         // A browser at 60 Hz: inputs polled, then a frame drawn.
@@ -309,33 +360,57 @@ fn an_honest_client_is_never_cut_when_its_delay_drops() {
     assert_eq!(seen.cut, 0, "an honest client was cut as its delay fell");
 }
 
+/// A backtracker's every claim put on its floor, from where its command arrived as it is, and none
+/// looking back further than its link explains.
+fn assert_cut_to_its_link(seen: &Seen, rtt: f64) {
+    // Most of its claims went past the floor (far away, the wire's 16 ticks leave less room to
+    // backtrack past what the link explains), and each was put on it.
+    let beyond = seen.taken.iter().filter(|c| c.claimed < rewind_floor_q4(c.arrived, c.rtt_us)).count();
+    assert!(
+        beyond > seen.taken.len() / 2 && seen.cut as usize >= beyond,
+        "{beyond} beyond, {} cut",
+        seen.cut
+    );
+    for c in &seen.taken {
+        let floor = rewind_floor_q4(c.arrived, c.rtt_us);
+        assert_eq!(c.applied, floor.max(c.claimed).min(c.tick << 4), "{c:?}");
+    }
+    // From where it arrived, no further back than rtt/2 + interp and the slack, at the round trip
+    // QUIC measured then (a sixteenth for the rounding)...
+    let slack = f64::from(REWIND_SLACK_Q4) / 16.0;
+    for c in &seen.taken {
+        let measured = f64::from(c.rtt_us) / 1e6;
+        let explained = measured * 0.5 * HZ + interp_delay_ticks(measured) + slack;
+        let back = f64::from(c.arrived) - f64::from(c.applied) / 16.0;
+        assert!(
+            back <= explained + 1.0 / 16.0 + 1e-9,
+            "it looked back {back:.2} ticks (explained {explained:.2}): {c:?}"
+        );
+        // ...which is the link's, near enough.
+        assert!((measured - rtt / 1e3).abs() < 0.005, "QUIC measured {measured} s of a {rtt} ms link");
+    }
+    assert_eq!(seen.allocations, 0, "the tick allocated");
+}
+
 #[test]
 fn a_backtracker_is_cut_to_what_its_link_explains() {
     for rtt in [20.0, 100.0, 200.0] {
         let seen = fly(Run { backtrack: 12, ..Run::honest(rtt, 5.0) });
         report(&format!("backtracking 12 ticks at {rtt} ms"), &seen);
-        // Most of its claims went past the floor (far away, the wire's 16 ticks leave less room to
-        // backtrack past what the link explains), and each was put on it.
-        let beyond = seen.taken.iter().filter(|c| c.claimed < rewind_floor_q4(c.arrived, c.rtt_us)).count();
-        assert!(
-            beyond > seen.taken.len() / 2 && seen.cut as usize >= beyond,
-            "{beyond} beyond, {} cut",
-            seen.cut
-        );
-        for c in &seen.taken {
-            let floor = rewind_floor_q4(c.arrived, c.rtt_us);
-            assert_eq!(c.applied, floor.max(c.claimed).min(c.tick << 4), "{c:?}");
-        }
-        // From where it arrived, no further back than rtt/2 + interp and the slack.
-        let rtt_s = rtt / 1e3;
-        let explained = rtt_s * 0.5 * HZ + interp_delay_ticks(rtt_s) + f64::from(REWIND_SLACK_Q4) / 16.0;
-        let back =
-            seen.taken.iter().map(|c| f64::from(c.arrived) - f64::from(c.applied) / 16.0).fold(0.0, f64::max);
-        assert!(
-            back <= explained + 0.1,
-            "at {rtt} ms it still looked back {back:.2} ticks (explained {explained:.2})"
-        );
-        assert_eq!(seen.allocations, 0, "the tick allocated");
+        assert_cut_to_its_link(&seen, rtt);
+    }
+}
+
+#[test]
+fn placeholders_sent_far_ahead_lend_a_backtracker_no_arrival() {
+    // A placeholder for each tick two seconds before it, the real command (claiming 12 ticks more
+    // than it saw) in its place at the last moment: had the real one kept the placeholder's
+    // arrival, its floor would sit two seconds low and nothing would be cut.
+    for rtt in [20.0, 100.0, 200.0] {
+        let seen = fly(Run { backtrack: 12, placeholders: Some(58), ..Run::honest(rtt, 5.0) });
+        report(&format!("placeholders, backtracking 12 ticks at {rtt} ms"), &seen);
+        assert!(seen.taken.len() > 400, "too few commands taken: {}", seen.taken.len());
+        assert_cut_to_its_link(&seen, rtt);
     }
 }
 

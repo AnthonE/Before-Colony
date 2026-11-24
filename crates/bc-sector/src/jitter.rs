@@ -8,8 +8,9 @@ const SLOTS: usize = 64;
 #[derive(Clone, Copy)]
 pub struct JitterBuffer {
     cmds: [InputCmd; SLOTS],
-    /// The tick that was next when each command first arrived (its later copies don't move it):
-    /// how far back its view may honestly be (`bc_sim::config::rewind_floor_q4`).
+    /// The tick that was next when each command first arrived as it is (its later copies don't move
+    /// it, a changed one does): how far back its view may honestly be
+    /// (`bc_sim::config::rewind_floor_q4`).
     arrived: [u32; SLOTS],
     valid: u64,
     /// Newest command tick received.
@@ -36,7 +37,9 @@ impl JitterBuffer {
             return false;
         }
         let k = cmd.tick as usize % SLOTS;
-        if self.valid & (1 << k) == 0 || self.cmds[k].tick != cmd.tick {
+        // Only a copy keeps the first one's arrival: an honest client resends a command as it was,
+        // so one that changed (a placeholder sent far ahead, then the real thing) arrived now.
+        if self.valid & (1 << k) == 0 || self.cmds[k] != cmd {
             self.arrived[k] = next;
         }
         self.cmds[k] = cmd;
@@ -46,7 +49,7 @@ impl JitterBuffer {
     }
 
     /// Removes and returns the command for `tick`, if it arrived, with the tick that was next when
-    /// it first did.
+    /// it first did as it is.
     #[inline]
     pub fn take(&mut self, tick: u32) -> Option<(InputCmd, u32)> {
         let k = tick as usize % SLOTS;
@@ -73,6 +76,13 @@ mod tests {
         assert!(j.insert(cmd(105), 103));
         assert_eq!(j.take(105).map(|(c, at)| (c.tick, at)), Some((105, 100)));
         assert!(j.take(105).is_none());
+        // A command that changed is not a copy: it arrived when it changed (else a placeholder sent
+        // far ahead would lend the real command its early arrival, and a deep view with it).
+        assert!(j.insert(cmd(108), 100));
+        let older = InputCmd { view_tick_q4: (108 - 12) << 4, ..cmd(108) };
+        assert!(j.insert(older, 104));
+        assert!(j.insert(older, 105));
+        assert_eq!(j.take(108).map(|(c, at)| (c.view_tick_q4, at)), Some(((108 - 12) << 4, 104)));
         // The next command in its slot is its own, taken or not before it.
         let lap = SLOTS as u32;
         assert!(j.insert(cmd(105 + lap), 110));

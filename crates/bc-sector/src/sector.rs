@@ -585,8 +585,8 @@ impl Sector {
         for client in self.clients.iter_mut().filter(|c| c.active) {
             let cmd = match client.jitter.take(next) {
                 Some((mut cmd, arrived)) => {
-                    // No further back than its link explains (a backtracker's claim is cut; the
-                    // sim's MAX_REWIND_TICKS still caps the rest).
+                    // No further back than its link explains, from when it arrived as it is (a
+                    // backtracker's claim is cut; the sim's MAX_REWIND_TICKS still caps the rest).
                     if client.rtt_us > 0 {
                         let floor = rewind_floor_q4(arrived, client.rtt_us).min(cmd.tick << 4);
                         if cmd.view_tick_q4 < floor {
