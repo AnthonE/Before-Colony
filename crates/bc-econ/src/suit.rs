@@ -76,8 +76,12 @@ pub struct Suit {
     #[serde(default, skip_serializing_if = "Weathering::is_new")]
     pub weathering: Weathering,
     /// How its pilot painted it at the maintenance console (`crate::livery`): none, its frame's
-    /// own livery.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// own livery. A slug this build doesn't know reads as the frame's own (`read_leniently`).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::livery::read_leniently"
+    )]
     pub paint: Option<Paint>,
 }
 

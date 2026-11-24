@@ -9,7 +9,7 @@
 
 use bc_proto::control::Livery;
 use bc_sim::content::cosmetics::{self, Cosmetic, EYES, Owned, PAINTS, decal, livery_lacks};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::hangar::{Bay, Done, Hangar};
 
@@ -68,8 +68,25 @@ impl Paint {
     }
 }
 
+/// Paint `slug`'s index, if this build has it.
+fn paint_by_slug(slug: &str) -> Option<u8> {
+    PAINTS.iter().find(|sw| sw.slug == slug).map(|sw| sw.paint)
+}
+
+fn eye_by_slug(slug: &str) -> Option<u8> {
+    EYES.iter().find(|sw| sw.slug == slug).map(|sw| sw.paint)
+}
+
+/// Decal `slug`'s id ("none" is 0), if this build has it.
+fn decal_by_slug(slug: &str) -> Option<u8> {
+    if slug == "none" {
+        return Some(0);
+    }
+    cosmetics::DECALS.iter().find(|d| d.slug == slug).map(|d| d.id)
+}
+
 macro_rules! slug_serde {
-    ($m:ident, $table:expr, $what:literal) => {
+    ($m:ident, $table:expr, $find:path, $what:literal) => {
         mod $m {
             use serde::{Deserialize, Deserializer, Serializer};
 
@@ -82,7 +99,7 @@ macro_rules! slug_serde {
 
             pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u8, D::Error> {
                 let slug = String::deserialize(d)?;
-                $table.iter().find(|sw| sw.slug == slug).map(|sw| sw.paint).ok_or_else(|| {
+                $find(&slug).ok_or_else(|| {
                     serde::de::Error::custom(format!(concat!("no such ", $what, ": {}"), slug))
                 })
             }
@@ -90,11 +107,11 @@ macro_rules! slug_serde {
     };
 }
 
-slug_serde!(paint_slug, bc_sim::content::cosmetics::PAINTS, "paint");
-slug_serde!(eye_slug, bc_sim::content::cosmetics::EYES, "sensor glow");
+slug_serde!(paint_slug, bc_sim::content::cosmetics::PAINTS, super::paint_by_slug, "paint");
+slug_serde!(eye_slug, bc_sim::content::cosmetics::EYES, super::eye_by_slug, "sensor glow");
 
 mod decal_slug {
-    use bc_sim::content::cosmetics::{DECALS, decal};
+    use bc_sim::content::cosmetics::decal;
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(id: &u8, s: S) -> Result<S::Ok, S::Error> {
@@ -103,15 +120,37 @@ mod decal_slug {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u8, D::Error> {
         let slug = String::deserialize(d)?;
-        if slug == "none" {
-            return Ok(0);
-        }
-        DECALS
-            .iter()
-            .find(|d| d.slug == slug)
-            .map(|d| d.id)
-            .ok_or_else(|| serde::de::Error::custom(format!("no such decal: {slug}")))
+        super::decal_by_slug(&slug).ok_or_else(|| serde::de::Error::custom(format!("no such decal: {slug}")))
     }
+}
+
+/// A suit's paint as a record holds it (`Suit::paint`), read so that a slug this build doesn't
+/// know (an older or a newer build's) never fails the record, as a request's [`Paint`] does: the
+/// frame's own stands in for it. An unknown decal is none, the rest as painted; an unknown paint or
+/// glow leaves the suit in its frame's own livery (none), since which colour that is depends on
+/// the side it flies for, which the record's suit doesn't say.
+pub(crate) fn read_leniently<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Paint>, D::Error> {
+    #[derive(Deserialize)]
+    struct Slugs {
+        #[serde(default)]
+        body: String,
+        #[serde(default)]
+        trim: String,
+        #[serde(default)]
+        accent: String,
+        #[serde(default)]
+        eye: String,
+        #[serde(default)]
+        decal: Option<String>,
+    }
+    let Some(p) = Option::<Slugs>::deserialize(d)? else { return Ok(None) };
+    let decal = p.decal.as_deref().and_then(decal_by_slug).unwrap_or(0);
+    let (Some(body), Some(trim), Some(accent), Some(eye)) =
+        (paint_by_slug(&p.body), paint_by_slug(&p.trim), paint_by_slug(&p.accent), eye_by_slug(&p.eye))
+    else {
+        return Ok(None);
+    };
+    Ok(Some(Paint { body, trim, accent, eye, decal }))
 }
 
 /// Why `c` stops a pilot who lacks it.
@@ -346,5 +385,34 @@ mod tests {
         let old = serde_json::to_value(Suit::complete(FrameId::Argo)).unwrap();
         assert!(old.get("paint").is_none(), "{old}");
         assert_eq!(serde_json::from_value::<Suit>(old).unwrap().paint, None);
+    }
+
+    /// A record from an older or newer build, its suit painted in a slug this one doesn't know,
+    /// loads: the frame's own stands in for what isn't known.
+    #[test]
+    fn a_record_with_a_paint_this_build_doesnt_know_loads() {
+        let mut h = hangar();
+        let p = Paint { body: paint::RED, trim: paint::YELLOW, decal: 1, ..Paint::of(argo(), 0) };
+        h.paint(p, argo()).unwrap();
+        let record = serde_json::to_value(&h).unwrap();
+        let with = |at: &str, slug: &str| {
+            let mut r = record.clone();
+            r["bay"]["suit"]["paint"][at] = slug.into();
+            serde_json::from_value::<Hangar>(r).map(|h| painted(&h))
+        };
+        assert_eq!(with("body", "red").unwrap(), Some(p), "as it was saved");
+        // An unknown decal is none; an unknown paint or glow, the frame's own livery.
+        assert_eq!(with("decal", "a-later-decal").unwrap(), Some(Paint { decal: 0, ..p }));
+        for at in ["body", "trim", "accent", "eye"] {
+            assert_eq!(with(at, "a-later-paint").unwrap(), None, "{at}");
+        }
+        let mut r = record.clone();
+        r["bay"]["suit"]["paint"] = serde_json::Value::Null;
+        assert_eq!(serde_json::from_value::<Hangar>(r).map(|h| painted(&h)).unwrap(), None);
+        // A request still says what it is: no such paint.
+        assert!(serde_json::from_value::<Paint>(record["bay"]["suit"]["paint"].clone()).is_ok());
+        let mut bad = record["bay"]["suit"]["paint"].clone();
+        bad["body"] = "a-later-paint".into();
+        assert!(serde_json::from_value::<Paint>(bad).is_err());
     }
 }
