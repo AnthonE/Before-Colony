@@ -245,7 +245,9 @@
         gain.connect(panner).connect(window.bcVoiceBus);
         gain.gain.value = 0;
       }
-      l = { next: 0, gain, panner, radio, t: 0, heard: performance.now(), dec: null, pcm: null };
+      // `queued`: its buffers still to play (or playing).
+      l = { next: 0, gain, panner, radio, t: 0, heard: performance.now(), dec: null, pcm: null,
+        queued: new Set() };
       l.dec = new AudioDecoder({
         output: (ad) => this.play(l, ad),
         // Made again by their next frame.
@@ -294,11 +296,18 @@
       ad.close();
       buf.copyToChannel(l.pcm, 0);
       const now = ctx.currentTime;
-      // Behind by more than the cap, or caught up: start again at the preroll.
+      // Behind by more than the cap, or caught up: start again at the preroll. Behind, what's still
+      // waiting to play is dropped, not played under the new.
+      if (l.next - now > MAX_LAG_S) {
+        for (const q of l.queued) { try { q.stop(); } catch { /* ended already */ } }
+        l.queued.clear();
+      }
       if (l.next < now || l.next - now > MAX_LAG_S) l.next = now + PREROLL_S;
       const s = ctx.createBufferSource();
       s.buffer = buf;
       s.connect(l.gain);
+      l.queued.add(s);
+      s.onended = () => l.queued.delete(s);
       s.start(l.next);
       l.next += n / ad.sampleRate;
       this.heard++;
