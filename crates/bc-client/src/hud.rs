@@ -164,16 +164,32 @@ pub fn footed(core: &ClientCore) -> Footed {
     }
 }
 
-/// Whether the own suit, just let go of `body`, climbed out of its grip on the thrusters: Space
-/// held (so it rose past the release height), the body still there, and the suit no faster over it
-/// than a grip holds. Any other letting go, still armed, the pilot didn't ask for.
-fn lifted_off(core: &ClientCore, body: Body) -> bool {
-    let p = &core.predict;
-    let f = &p.mover().flight;
-    let bodies = p.bodies(p.tick + 1);
+/// Whether the own suit, let go of `body` at `pos` moving at `vel` after tick `tick`, climbed out of
+/// its grip on the thrusters: Space held (so it rose past the release height), the body still there,
+/// and the suit no faster over it than a grip holds. Any other letting go, still armed, the pilot
+/// didn't ask for.
+fn lifted_off(core: &ClientCore, body: Body, pos: Vec3, vel: Vec3, tick: u32) -> bool {
+    let bodies = core.predict.bodies(tick + 1);
     core.last_cmd.thrust[1] > 0
         && bodies.alive(body)
-        && bodies.pose(body).is_some_and(|b| (f.vel - b.point_vel(f.pos)).length() <= RELEASE_SPEED)
+        && bodies.pose(body).is_some_and(|b| (vel - b.point_vel(pos)).length() <= RELEASE_SPEED)
+}
+
+/// How the own suit stood on the last tick it held on, and the first tick it was free, as the
+/// prediction flew them (the last few seconds). A page drawing a frame a second or slower can see
+/// it go from the ground straight to flying: standing, the hop and the climb out of the grip all
+/// fell between two of its frames.
+fn letting_go(core: &ClientCore) -> Option<(Footing, &bc_client_core::predict::Sample)> {
+    let p = &core.predict;
+    let mut free = None;
+    for t in (p.tick.saturating_sub(5 * bc_sim::TICK_HZ)..=p.tick).rev() {
+        let s = p.sample(t)?;
+        if s.footing != Footing::Free {
+            return free.map(|f| (s.footing, f));
+        }
+        free = Some(s);
+    }
+    None
 }
 
 /// The hide spot the own suit is in, as the server last had it: its name.
@@ -1401,7 +1417,14 @@ pub fn update_hud(
     {
         let form = &core.predict.form;
         let can_grip = frame(form.frame).has_legs() && !form.changing();
-        match let_go(was, lifted_off(core, body), can_grip) {
+        let (was, lifted) = match letting_go(core) {
+            Some((before, free)) => (before, lifted_off(core, body, free.pos, free.vel, free.tick)),
+            None => {
+                let (f, tick) = (&core.predict.mover().flight, core.predict.tick);
+                (was, lifted_off(core, body, f.pos, f.vel, tick))
+            }
+        };
+        match let_go(was, lifted, can_grip) {
             LetGo::Flying => ui.toast("FLYING"),
             LetGo::Transformed => {}
             LetGo::Lost => lurk.lost_at = Some(now),
