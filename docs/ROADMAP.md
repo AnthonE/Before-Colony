@@ -254,11 +254,17 @@ debrief's `PATROL` line work before the militia's hangar is built (patrols come 
 today, so a fresh server has none). It's a new faucet and undercuts the hangar's point: the
 owner's call.
 
-**Liveries.** Body, trim, accent and eye colours chosen at the suit's maintenance console from a
-palette, carried on the suit (`bc_econ::suit::Suit.paint`), paid for in credits (a sink), and drawn
-for everyone: sent with the roster on the control stream (it changes rarely), so the snapshot pays
-nothing; `suits_vis::livery` takes it when there is one. Tests: econ (paint costs, survives strip and
-refit), the hangar e2e paints a suit.
+**Liveries.** *Built (November 2026).* Body, trim, accent and eye colours and a decal on the right
+shoulder, chosen at the suit's maintenance console (its PAINT slot) from
+`bc_sim::content::cosmetics`' swatches, tried on the suit in the gantry before paying, carried on the
+suit (`bc_econ::suit::Suit.paint`), paid for in credits (`livery::PAINT_CR`, a sink), and drawn for
+everyone: sent with the roster on the control stream (it changes rarely), so the snapshot pays
+nothing; `suits_vis::livery_of` takes it when there is one. A suit never painted wears its frame's
+own. Some swatches and decals come with a cosmetic the pilot's wallet holds on Elo Pros (read with
+the Pill as they sign in, `bc-server`'s `elo`), and a suit shows them only while it does. Tests:
+econ (`livery`: costs, the cosmetic's gate, kept through strip and refit), the server's
+`tests/livery.rs` (painted, refused, seen on the roster). To do: the hangar e2e painting a suit, the
+store's shop of the cosmetics (`elo.json`), cosmetics earned in play.
 
 **Drone offensives.** The patrol scales with the pilots out (`SimConfig::target_drones` as a base plus
 a share per awake pilot, within the sector's suits), and now and then an offensive: a wing of drones
