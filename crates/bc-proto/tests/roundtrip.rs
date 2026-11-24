@@ -430,9 +430,12 @@ proptest! {
                                            talker in any::<u16>(), payload in prop::collection::vec(any::<u8>(), 1..=bc_proto::voice::VOICE_MAX_BYTES)) {
         use bc_proto::voice::{Via, VoiceFrame, VOICE_DOWN_MAX};
         let f = VoiceFrame::new(seq, end, &payload).unwrap();
-        let mut buf = [0u8; VOICE_DOWN_MAX];
+        // A byte past the longest, for the one over.
+        let mut buf = [0u8; VOICE_DOWN_MAX + 1];
         let n = f.encode_up(&mut buf).unwrap();
         prop_assert_eq!(VoiceFrame::decode_up(&buf[..n]).unwrap(), f);
+        prop_assert!(VoiceFrame::decode_up(&buf[..n - 1]).is_err());
+        prop_assert!(VoiceFrame::decode_up(&buf[..n + 1]).is_err());
         let (talker, via) = if radio { (talker % 1_024, Via::Radio) } else { (talker, Via::Air) };
         let down = f.relayed(talker, via);
         let n = down.encode_down(&mut buf).unwrap();
@@ -441,6 +444,7 @@ proptest! {
         prop_assert_eq!(back.payload(), &payload[..]);
         // One byte short, or one over, is refused.
         prop_assert!(VoiceFrame::decode_down(&buf[..n - 1]).is_err());
+        prop_assert!(VoiceFrame::decode_down(&buf[..n + 1]).is_err());
     }
 }
 

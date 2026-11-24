@@ -133,7 +133,11 @@ fn storage() -> Option<web_sys::Storage> {
 
 fn load_mutes() -> HashSet<String> {
     let text = storage().and_then(|s| s.get_item(MUTES).ok().flatten()).unwrap_or_default();
-    serde_json::from_str::<Vec<String>>(&text).unwrap_or_default().into_iter().collect()
+    serde_json::from_str::<Vec<String>>(&text)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|n| !n.is_empty())
+        .collect()
 }
 
 fn save_mutes(mutes: &HashSet<String>) {
@@ -207,10 +211,20 @@ fn install_up(voice: &mut Voice, net: &NetState) {
 
 /// `/mute` and `/unmute`: answered here (a toast), never sent (`chat.rs` keeps them off the radio).
 fn mute(voice: &mut Voice, m: Mute, near: &[String], now: f64) -> String {
-    let talking: Vec<String> =
-        voice.talkers.values().filter(|t| t.talking(now)).map(|t| t.name.clone()).collect();
+    // Only who's known by name: a talker not yet resolved ("") is no callsign to keep, and muting
+    // "" would silence every talker not yet resolved.
+    let anyone = voice.talkers.values().any(|t| t.talking(now));
+    let talking: Vec<String> = voice
+        .talkers
+        .values()
+        .filter(|t| t.talking(now) && !t.name.is_empty())
+        .map(|t| t.name.clone())
+        .collect();
     let said = match m {
-        Mute::Mute(None) if talking.is_empty() => return "VOICE: NOBODY IS TALKING (/MUTE NAME)".into(),
+        Mute::Mute(None) if !anyone => return "VOICE: NOBODY IS TALKING (/MUTE NAME)".into(),
+        Mute::Mute(None) if talking.is_empty() => {
+            return "VOICE: NOBODY TO MUTE BY NAME YET (/MUTE NAME)".into();
+        }
         Mute::Mute(None) => {
             voice.mutes.extend(talking.iter().map(|n| n.to_lowercase()));
             format!("VOICE: MUTED {}", talking.join(", "))

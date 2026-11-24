@@ -55,6 +55,9 @@ pub struct PilotStats {
     pub alive: AtomicU64,
     /// Credits the pilot has earned (a signed-in pilot keeps them).
     pub credits: AtomicU64,
+    /// How far that suit's sensors reach, m (`f32` bits): its frame's range, tuned
+    /// (`Sim::sensor_reach`: sensor upgrades, damage). Its radio's range (the server's voice).
+    reach: AtomicU64,
     /// Where the suit is in the sector's frame (`f32` bits an axis): what the session shows its
     /// pilot round it off the tick (the colony's people, for a suit inside).
     pos: [AtomicU64; 3],
@@ -70,6 +73,15 @@ impl PilotStats {
     /// Where the suit was at the end of a recent tick (an axis may be a tick newer than another).
     pub fn pos(&self) -> glam::Vec3 {
         glam::Vec3::from_array(self.pos.each_ref().map(|a| f32::from_bits(a.load(Ordering::Relaxed) as u32)))
+    }
+
+    pub fn set_reach(&self, m: f32) {
+        self.reach.store(u64::from(m.to_bits()), Ordering::Relaxed);
+    }
+
+    /// How far the suit's sensors (and radio) reached at the end of a recent tick, m.
+    pub fn reach(&self) -> f32 {
+        f32::from_bits(self.reach.load(Ordering::Relaxed) as u32)
     }
 }
 
