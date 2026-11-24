@@ -94,12 +94,18 @@ done
 sha="$(git rev-parse --short=10 HEAD)"
 version="$(grep -m1 -oP '^version = "\K[^"]+' Cargo.toml)"
 ID="${version}-g${sha}"
-[ -z "$(git status --porcelain --untracked-files=no)" ] || ID="${ID}-dirty-$(date -u +%Y%m%d%H%M%S)"
+commit="$sha"
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  ID="${ID}-dirty-$(date -u +%Y%m%d%H%M%S)"
+  commit="${sha}-dirty"
+fi
 
 cat > "$OUT/config.js" <<JS
 // Written by scripts/publish-web.sh (build ${ID}): this page is served from another site than the
 // game server, so it names it. \`?server=host:port\` and \`?http=url\` still override it.
 window.BC_SERVER = window.BC_SERVER || { wt: "${SERVER}", http: "${HTTP}" };
+// What this page was built from: a player's report names it (ui.js, boot.js).
+window.BC_BUILD = { version: "${version}", commit: "${commit}" };
 JS
 cat > "$OUT/build.json" <<JSON
 {"id": "${ID}", "commit": "$(git rev-parse HEAD)", "protocol": ${want}, "variants": "${variants[*]}", "server": "${SERVER}", "http": "${HTTP}", "built": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}

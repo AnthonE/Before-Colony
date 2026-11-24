@@ -6,4 +6,9 @@
 // `http`: the game server's HTTP side (`status`, `cert-hash`), ending in "/".
 // `?server=host:port` and `?http=url` on the page's address override them; `?pin=1` pins the
 // certificate the server's `cert-hash` names (a self-signed dev server on another host).
+// `reports`: where the page files a player's report (F7) and a crash, if not the game server's
+// `bugs`: the Elo Pros intake (`https://elopros.com/api/bugs`) takes the same body.
 window.BC_SERVER = window.BC_SERVER || {};
+// What the page was built from, `{version, commit}` (window.BC_BUILD): scripts/build-web.sh appends
+// it to the copy in web/dist, and scripts/publish-web.sh writes it into the one it stages. A report
+// names it; without it a report says `dev` and `unknown`.
