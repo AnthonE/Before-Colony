@@ -1292,10 +1292,10 @@ impl Session<'_> {
             }
         }
         // Down on foot (`crate::brawl`): they go nowhere and take nothing till they're up (a lift, a
-        // car, a fare, a trainer), whatever their client says.
+        // car, a fare, a trainer, a home's door, keypad or panel), whatever their client says.
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
         if self.game.brawl.is_down(self.id, tick)
-            && matches!(
+            && (matches!(
                 req,
                 Request::LeaveTown
                     | Request::RideAcross { .. }
@@ -1306,7 +1306,7 @@ impl Session<'_> {
                     | Request::TakeLeft { .. }
                     | Request::TakeFare { .. }
                     | Request::BoardTrainer
-            )
+            ) || req.home().is_some())
         {
             return self.note("you're down", false).await;
         }
@@ -1888,7 +1888,9 @@ impl Session<'_> {
         }
         let mine = self.game.plaza.recent(self.id, crate::brawl::RECENT, now);
         let claim = (x_cm as f32 / 100.0, s_cm as f32 / 100.0, yaw_mrad as f32 / 1_000.0);
-        let Some(from) = crate::brawl::claimed(claim, &mine, now) else {
+        let from =
+            crate::brawl::claimed(claim, &mine, now).filter(|p| self.game.plaza.could_step(self.id, p));
+        let Some(from) = from else {
             brawl.refused();
             return self.note("you're not where you swung from", false).await;
         };
@@ -1900,6 +1902,8 @@ impl Session<'_> {
             return self.note("the blow missed", false).await;
         };
         let name = self.game.plaza.name(pilot).unwrap_or_default().to_uppercase();
+        // (Before it lands: whether the one struck had hurt the striker first.)
+        let provoked = brawl.provoked(self.id, pilot, tick);
         let hurt = brawl.hurt(pilot, damage, self.id, &self.callsign, tick);
         let line = match hurt {
             Hurt::Shielded => return self.note(format!("{name} JUST GOT HERE: LEAVE THEM BE"), false).await,
@@ -1910,8 +1914,9 @@ impl Session<'_> {
         tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, victim = pilot, damage, ?hurt, "a blow on foot");
         if self.place == Place::Town {
             let at = (from.x, from.s);
-            // (Hitting back at whoever hurt them lately is self-defence: the Watch minds nothing.)
-            if !brawl.provoked(self.id, pilot, tick) {
+            // (Hitting back at whoever started on them lately is self-defence: the Watch minds
+            // nothing.)
+            if !provoked {
                 let o =
                     if matches!(hurt, Hurt::Down | Hurt::Out) { Offence::Downed } else { Offence::Assault };
                 let saw = self.game.plaza.others_near(self.id, pilot, at, WITNESS, now);
@@ -1934,6 +1939,12 @@ impl Session<'_> {
         }
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
         let now = Instant::now();
+        // Somebody lying there already isn't run down again (the client never asks it,
+        // `bc_client_core::town::struck_pilot`): asked twice in one pass, it's once.
+        if self.game.brawl.is_down(pilot, tick) {
+            self.game.brawl.refused();
+            return Ok(());
+        }
         let mine = self.game.plaza.recent(self.id, crate::brawl::RECENT, now);
         let theirs = self.poses_of(pilot, now);
         if let Err(why) = crate::brawl::runs_down(&mine, &theirs, now) {
@@ -1941,6 +1952,10 @@ impl Session<'_> {
             tracing::debug!(session = self.id, victim = pilot, why, "a run-down not taken");
             return Ok(());
         }
+        // (Before it's taken: whether the one run down had hurt the driver first.)
+        let provoked = self.game.brawl.provoked(self.id, pilot, tick);
+        // A new arrival who runs somebody down has struck first: their own shield's given up.
+        self.game.brawl.unshield(self.id);
         let hurt = self.game.brawl.run_down(pilot, self.id, &self.callsign, tick);
         if hurt == Hurt::Shielded {
             return Ok(());
@@ -1949,7 +1964,7 @@ impl Session<'_> {
         if self.place == Place::Town
             && let Some((_, at)) = mine.first()
         {
-            if !self.game.brawl.provoked(self.id, pilot, tick) {
+            if !provoked {
                 self.game.watch.offend(self.id, &self.callsign, Offence::HitSomeone, (at.x, at.s), tick);
             }
             self.game.street.scare_at((at.x, at.s), crate::street::RUN_FROM_HIT, tick);

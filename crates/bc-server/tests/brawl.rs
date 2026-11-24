@@ -305,10 +305,13 @@ async fn a_car_knocks_a_pilot_down_a_friend_lifts_them_and_again_so_soon_they_re
         pagan,
     )
     .await?;
+    // Asked again at once, on the same fresh poses: somebody lying there isn't run down twice.
+    a.request(&Request::RunDown { pilot: pagan }).await?;
     b.wait_until(5.0, "run down", is_down_core).await?;
     assert_eq!(b.core.hangar.hurt.as_ref().and_then(|h| h.by.clone()).as_deref(), Some("Maren"));
     a.wait_until(5.0, "the Watch", |c| c.hangar.heat >= 1).await?;
     all(&mut [&mut a, &mut b, &mut c], 0.5).await?;
+    assert!(is_down(&b) && !b.core.hangar.in_hangar(), "down once, not out");
     assert!(seen(&c, pagan).is_some_and(|p| p.down()));
     assert!(seen(&c, maren).is_some_and(|p| p.driving()));
 

@@ -1251,9 +1251,11 @@ pub struct Brawling {
     down_heard: (u64, f64),
 }
 
-/// A blow is thrown at most once in this, s (`bc_sim::colony::brawl::COOL_TICKS`), and its swing
-/// plays this long.
-const BLOW_COOL: f64 = bc_sim::colony::brawl::COOL_TICKS as f64 / bc_sim::TICK_HZ as f64;
+/// A blow is thrown at most once in this, s: the server's `bc_sim::colony::brawl::COOL_TICKS` and a
+/// tenth (it counts whole ticks between blows as each is heard, and the wire's jitter shortens
+/// one gap as often as it lengthens another: a blow mashed on its very edge would be refused, its
+/// swing played for nothing). Its swing plays this long.
+const BLOW_COOL: f64 = bc_sim::colony::brawl::COOL_TICKS as f64 / bc_sim::TICK_HZ as f64 + 0.1;
 const SWING: f64 = 0.3;
 /// Lying down: the eye this near the ground, m, rolled this far, rad, easing down over this long, s
 /// (Gates' wounded view).
@@ -2798,8 +2800,7 @@ pub fn drive_onfoot(
         }
     }
     ui.sequence = me.seq != Seq::Walking;
-    // (Down, helping somebody up, somebody down at hand, or a blow that would land: those first,
-    // anywhere on foot.)
+    // (Down, helping somebody up, or somebody down at hand: those first, anywhere on foot.)
     ui.prompt = match me.seq {
         Seq::Walking if down => {
             let h = g.core.hangar.hurt.clone().unwrap_or_default();
@@ -2819,14 +2820,6 @@ pub fn drive_onfoot(
         Seq::Walking if afoot && let Some(id) = me.brawl.help => {
             let name = g.core.hangar.people.get(&id).map_or(String::new(), |n| n.to_uppercase());
             format!("E  HOLD TO HELP {name} UP")
-        }
-        Seq::Walking
-            if afoot
-                && me.town.as_ref().is_none_or(|t| t.drive.is_none())
-                && let Some(id) = me.brawl.target =>
-        {
-            let name = g.core.hangar.people.get(&id).map_or(String::new(), |n| n.to_uppercase());
-            format!("F  STRIKE {name}")
         }
         Seq::Walking if on_foot => me
             .focus
@@ -2915,6 +2908,20 @@ pub fn drive_onfoot(
         s if s.skippable() => "SPACE  SKIP".into(),
         _ => String::new(),
     };
+    // A blow that would land, after whatever E would do there (a car, a lift's door: never hidden
+    // by somebody standing in front).
+    if me.seq == Seq::Walking
+        && afoot
+        && !down
+        && me.brawl.helping.is_none()
+        && me.town.as_ref().is_none_or(|t| t.drive.is_none())
+        && g.core.pose().is_some_and(|p| !p.seated())
+        && let Some(id) = me.brawl.target
+    {
+        let name = g.core.hangar.people.get(&id).map_or(String::new(), |n| n.to_uppercase());
+        let strike = format!("F  STRIKE {name}");
+        ui.prompt = if ui.prompt.is_empty() { strike } else { format!("{} · {strike}", ui.prompt) };
+    }
     // Indoors (the bay, the city, a sequence there): the bay's line, and how fed the pilot is once
     // the server has said. Flying, the HUD has the corner.
     ui.bay_line = if inside {

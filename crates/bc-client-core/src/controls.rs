@@ -90,6 +90,8 @@ pub const BINDINGS: &[Binding] = &[
         "Use: the fabricator, the stores, the exchange, the suit's console, the cockpit, the airlock (out onto Bay Row, the base's deck; with the colony open, the cap lift down into it: the Charter strip's, unless Q chose another)",
     ),
     b(Group::OnFoot, "E (on Bay Row)", "At your own airlock's door: back into your bay"),
+    b(Group::OnFoot, "F (on Bay Row)", "Strike whoever stands before you in reach, as in the town"),
+    b(Group::OnFoot, "E held (on Bay Row)", "Beside a pilot who's down: help them up, as in the town"),
     b(Group::Town, "W / A / S / D", "Walk the streets (Shift runs, Space jumps, as in the bay)"),
     b(
         Group::Town,
@@ -100,6 +102,16 @@ pub const BINDINGS: &[Binding] = &[
         Group::Town,
         "E (by a car)",
         "Take a car from the kerb. It's somebody's: in sight of the Watch, that's noticed",
+    ),
+    b(
+        Group::Town,
+        "F",
+        "Strike whoever stands before you in reach (the prompt names them; from behind it's worth two). Enough put a pilot down; another while they're down, or soon after they're up, knocks them out and up to their bay. Hitting back at whoever started it is free; the Watch minds the rest",
+    ),
+    b(
+        Group::Town,
+        "E held (by someone down)",
+        "Help them up: six seconds at their side (before a car or a lift's door in reach)",
     ),
     b(Group::Town, "W / S", "At the wheel: throttle / brake (held at a stop: reverse)"),
     b(Group::Town, "A / D", "At the wheel: steer"),

@@ -44,14 +44,20 @@ const GAP: f32 = 0.3;
 /// width, and a little.
 pub const RUN_REACH: f32 = 3.5;
 
-/// How `a` and `b` lie apart over their floor, m (round the decks the short way).
-fn apart(a: &PersonPose, b: &PersonPose) -> f32 {
+/// Where `b` lies from `a` over their floor, `(x, s)`, m (round the decks the short way).
+fn offset(a: &PersonPose, b: &PersonPose) -> (f32, f32) {
     let ds = match a.strip {
         RING_DECK => deck::round_from(RING, a.s, b.s),
         BASE_DECK => deck::round_from(BASE, a.s, b.s),
         _ => b.s - a.s,
     };
-    (b.x - a.x).hypot(ds)
+    (b.x - a.x, ds)
+}
+
+/// How `a` and `b` lie apart over their floor, m.
+fn apart(a: &PersonPose, b: &PersonPose) -> f32 {
+    let (dx, ds) = offset(a, b);
+    dx.hypot(ds)
 }
 
 /// On foot: nothing ridden or driven, not sitting (as `bc_client_core::brawl` has it).
@@ -61,8 +67,10 @@ fn afoot(p: &PersonPose) -> bool {
 
 /// Where a striker stood for a blow, if what they say of it (`(x, s)` on their floor, the way they
 /// faced) could be: near where the newest of their poses of the last moment (`recent`, newest
-/// first, each as it was heard) had them on foot, as far as they could have gone since. That pose,
-/// there and facing so.
+/// first, each as it was heard) had them on foot, as far as they could have gone since, with
+/// nothing solid between (`brawl::clear_between`: never a step through a wall to strike whoever's
+/// beyond it). That pose, there and facing so. (Whether the plaza would have let them stand there
+/// is its own to say: `Plaza::could_step`.)
 pub fn claimed(claim: (f32, f32, f32), recent: &[(Instant, PersonPose)], now: Instant) -> Option<PersonPose> {
     let (x, s, yaw) = claim;
     // The newest: an older one allows more, and the newest has to allow it anyway.
@@ -70,12 +78,23 @@ pub fn claimed(claim: (f32, f32, f32), recent: &[(Instant, PersonPose)], now: In
         recent.first().filter(|(at, p)| now.saturating_duration_since(*at) <= RECENT && afoot(p))?;
     let there = PersonPose { x, s, yaw, ..*p };
     let age = now.saturating_duration_since(*at).as_secs_f32();
-    (apart(p, &there) <= CLAIM_SPEED * age + CLAIM_SLACK).then_some(there)
+    let (dx, ds) = offset(p, &there);
+    (dx.hypot(ds) <= CLAIM_SPEED * age + CLAIM_SLACK && brawl::clear_between(p, dx, ds)).then_some(there)
+}
+
+/// Whether the newest of `victim`'s poses has them on foot: somebody who's just got into a car or
+/// sat down isn't struck or run down where they stood a moment before.
+fn afoot_now(victim: &[(Instant, PersonPose)]) -> bool {
+    victim.first().is_some_and(|(_, p)| afoot(p))
 }
 
 /// What a blow from `from` takes off whoever `victim`'s poses of the last moment (newest first) had
-/// on foot, if it lands on any of them (`brawl::lands`): the most it would.
+/// on foot, if it lands on any of them (`brawl::lands`): the most it would. (On foot still, by the
+/// newest.)
 pub fn lands_on(from: &PersonPose, victim: &[(Instant, PersonPose)], now: Instant) -> Option<u8> {
+    if !afoot_now(victim) {
+        return None;
+    }
     victim
         .iter()
         .filter(|(at, p)| now.saturating_duration_since(*at) <= RECENT && afoot(p))
@@ -86,7 +105,7 @@ pub fn lands_on(from: &PersonPose, victim: &[(Instant, PersonPose)], now: Instan
 /// Whether a driver's car knocked down the pilot on foot whose poses of the last moment are
 /// `victim`, by the driver's own (`driver`, newest first): at the wheel, their poses unbroken lately
 /// (none more than [`GAP`] apart, the last no older), as fast as [`HIT_SPEED`] by them, and one of
-/// them within [`RUN_REACH`] of one of the victim's. Why not, if not.
+/// them within [`RUN_REACH`] of one of the victim's (on foot still, by the newest). Why not, if not.
 pub fn runs_down(
     driver: &[(Instant, PersonPose)],
     victim: &[(Instant, PersonPose)],
@@ -113,6 +132,9 @@ pub fn runs_down(
     let speed = apart(then, last) / last_at.saturating_duration_since(*then_at).as_secs_f32();
     if speed < HIT_SPEED {
         return Err("too slow");
+    }
+    if !afoot_now(victim) {
+        return Err("nobody there");
     }
     let near = mine.iter().filter(|(_, d)| d.driving()).any(|(_, d)| {
         victim
@@ -270,10 +292,18 @@ impl Brawls {
         self.with(id, |e| e.brawl.strike(tick)).unwrap_or(Ok(()))
     }
 
-    /// Whether `victim` hurt `id` lately (hitting back at them is self-defence).
+    /// Whether a blow (or a car) from `id` at `victim` at tick `tick` is hitting back: `victim` hurt
+    /// them lately, and started on them first (`brawl::self_defence`). Asked before it lands.
     pub fn provoked(&self, id: u16, victim: u16, tick: u32) -> bool {
         let Ok(inner) = self.inner.lock() else { return false };
-        inner.get(&id).is_some_and(|e| e.brawl.provoked_by(victim, tick))
+        let Some(me) = inner.get(&id) else { return false };
+        let them = inner.get(&victim).map_or_else(Brawl::default, |e| e.brawl);
+        brawl::self_defence(&me.brawl, id, &them, victim, tick)
+    }
+
+    /// `id` gives up a new arrival's shield (they ran somebody down: striking first).
+    pub fn unshield(&self, id: u16) {
+        self.with(id, |e| e.brawl.unshield());
     }
 
     /// Whether `id` can't be hurt at tick `tick` (newly arrived).
@@ -434,6 +464,43 @@ mod tests {
     }
 
     #[test]
+    fn a_striker_against_a_wall_cant_say_they_swung_from_past_it() {
+        use glam::Vec3;
+        // Somewhere in the town a striker stands against a wall (solid at chest height within half a
+        // metre ahead), with open ground past it near enough for their word to reach, and a pilot
+        // a blow from there would land on 1.5 m further on.
+        let chest = |x: f32, s: f32| {
+            deck::solid(RING, Vec3::new(x - 0.05, 1.1, -s - 0.05), Vec3::new(x + 0.05, 1.4, -s + 0.05))
+        };
+        let open = |x: f32, s: f32| {
+            !deck::solid(RING, Vec3::new(x - 0.3, 0.1, -s - 0.3), Vec3::new(x + 0.3, 1.8, -s + 0.3))
+        };
+        let base = at(0.0, 0.0);
+        let (x, s, d) = (0..400)
+            .flat_map(|j| (0..4_000).map(move |i| (base.x + 0.25 * i as f32, base.s - 200.0 + j as f32)))
+            .find_map(|(x, s)| {
+                if !open(x, s) || !(1..=5).any(|k| chest(x + 0.1 * k as f32, s)) {
+                    return None;
+                }
+                let past = (6..50).map(|k| 0.1 * k as f32).find(|d| open(x + d, s) && !chest(x + d, s))?;
+                let claim = past + 0.5;
+                let clear_on = |d: f32| (0..=15).all(|k| !chest(x + d + 0.1 * k as f32, s));
+                (claim <= 5.0 && open(x + claim, s) && open(x + claim + 1.5, s) && clear_on(claim))
+                    .then_some((x, s, claim))
+            })
+            .expect("a wall in the town with open ground just past it");
+        let now = Instant::now();
+        let me = PersonPose { x, s, ..base };
+        let mine = vec![(now - Duration::from_millis(550), me)];
+        let victim = PersonPose { x: x + d + 1.5, s, yaw: FRAC_PI_2, ..base };
+        let beyond = PersonPose { x: x + d, ..me };
+        assert!(brawl::lands(&beyond, &victim).is_some(), "the blow from past the wall would land");
+        assert_eq!(claimed((x + d, s, FRAC_PI_2), &mine, now), None, "through the wall");
+        // The same word on their own side of it: taken.
+        assert!(claimed((x, s, FRAC_PI_2), &mine, now).is_some());
+    }
+
+    #[test]
     fn a_blow_lands_on_where_the_other_was_drawn_a_moment_ago() {
         let now = Instant::now();
         // They've run off +x: 1.5 m ahead of the striker a moment ago, 3 m now; their back to them.
@@ -443,6 +510,10 @@ mod tests {
         // Further off all along: missed.
         let gone = heard(now, 8, |_| at(4.0, 0.0));
         assert_eq!(lands_on(&me, &gone, now), None);
+        // At a wheel by their newest: not struck where they stood.
+        let mut sat = them.clone();
+        sat[0].1.ride = RIDE_CAR;
+        assert_eq!(lands_on(&me, &sat, now), None);
     }
 
     #[test]
@@ -465,6 +536,10 @@ mod tests {
         assert_eq!(runs_down(&driver, &far, now), Err("nobody there"));
         let walking = heard(now, 9, |k| at(-1.5 - k as f32, 0.0));
         assert_eq!(runs_down(&walking, &victim, now), Err("you're not at a wheel"));
+        // Into a car of their own just now: not where they stood a moment ago.
+        let mut got_in = victim.clone();
+        got_in[0].1.ride = RIDE_CAR;
+        assert_eq!(runs_down(&driver, &got_in, now), Err("nobody there"));
     }
 
     #[test]

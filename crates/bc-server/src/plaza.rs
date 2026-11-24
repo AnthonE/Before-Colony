@@ -113,6 +113,9 @@ struct Person {
     /// Their last poses taken, and when, oldest overwritten first (`recent_at` the next to go).
     recent: [Option<(Instant, PersonPose)>; RECENT_POSES],
     recent_at: usize,
+    /// Knocked down (`crate::brawl`): where they fell, their last pose taken before. Every pose of
+    /// theirs till they're up is held to it, never to the last (which would let them creep off).
+    fell: Option<PersonPose>,
     /// Reach carried from their last pose, s (at most [`BANK`]).
     bank: f32,
     refused: u32,
@@ -469,6 +472,7 @@ impl Plaza {
                     heard_tick: 0,
                     recent: [None; RECENT_POSES],
                     recent_at: 0,
+                    fell: None,
                     bank: 0.0,
                     refused: 0,
                     said: None,
@@ -499,16 +503,22 @@ impl Plaza {
             me.heard_tick = t;
         }
         let down = self.down(id, tick);
+        if !down {
+            me.fell = None;
+        }
         let why = match me.pose {
             _ if pose.strip != me.strip => Some(Why::Strip),
             _ if pose.ride >= RIDE_DOWN => Some(Why::Claim),
             _ if !possible(&pose) => Some(Why::Wall),
             Some(_) if (seq.wrapping_sub(me.seq) as i16) <= 0 => return Verdict::Stale,
-            // Down: lying where they fell, on foot, till they're up.
+            // Down: lying where they fell, on foot, till they're up (held to that spot, not to their
+            // last pose: a pose a little on from each last would walk them off).
             Some(last) if down => {
+                let fell = *me.fell.get_or_insert(last);
                 let still = mode(&pose) == Mode::Foot
-                    && mode(&last) == Mode::Foot
-                    && apart(&last, &pose) <= DOWN_SLACK;
+                    && mode(&fell) == Mode::Foot
+                    && apart(&fell, &pose) <= DOWN_SLACK
+                    && (pose.h - fell.h).abs() <= DOWN_SLACK;
                 (!still).then_some(Why::Down)
             }
             Some(last) => {
@@ -610,6 +620,16 @@ impl Plaza {
         me.heard = now;
         me.heard_tick = tick;
         Verdict::Taken
+    }
+
+    /// Whether `id` could stand at `there` by the plaza's own limits, from their last pose taken: on
+    /// their floor, out of its walls ([`possible`]), and not into a home they may not go into (a
+    /// striker's word of where they swung from, `crate::brawl::claimed`).
+    pub fn could_step(&self, id: u16, there: &PersonPose) -> bool {
+        let Ok(all) = self.people.lock() else { return false };
+        let Some(me) = all.get(&id) else { return false };
+        let Some(last) = me.pose else { return false };
+        there.strip == me.strip && possible(there) && self.may_cross(me, &last, there)
     }
 
     /// `id`'s poses taken within `within` of `now`, newest first, each with when it was heard.
@@ -836,6 +856,7 @@ impl Plaza {
                     heard_tick: 0,
                     recent: [None; RECENT_POSES],
                     recent_at: 0,
+                    fell: None,
                     bank: 0.0,
                     refused: 0,
                     said: None,
@@ -997,6 +1018,8 @@ mod tests {
         let (s, x) = plan.point(-homes::SPINE * 0.5 - 1.5, 2.0);
         let in_wall = PersonPose { s, x, ..lift(0) };
         assert_eq!(plaza.accept(1, seq, in_wall, now, 0), Verdict::Implausible, "in the lift's block");
+        // Nor said to be where a blow was thrown from (`crate::brawl::claimed`).
+        assert!(!plaza.could_step(1, &in_wall) && plaza.could_step(1, &lift(0)));
     }
 
     #[test]
@@ -1035,6 +1058,9 @@ mod tests {
         let step_in = t0 + Duration::from_millis(400);
         assert_eq!(plaza.accept(1, 2, pose(flat.inside), step_in, 0), Verdict::Taken, "its holder");
         assert_eq!(plaza.accept(2, 2, pose(flat.inside), step_in, 0), Verdict::Implausible, "a stranger");
+        // Nor said to be just inside it to throw a blow at whoever's there (`crate::brawl::claimed`).
+        assert!(!plaza.could_step(2, &pose(flat.inside)) && plaza.could_step(2, &pose(flat.outside)));
+        assert!(plaza.could_step(1, &pose(flat.inside)));
         // The door opened, anyone may.
         register.with(|h| h.door(flat.id, "0xada", true)).unwrap();
         assert_eq!(
@@ -1462,6 +1488,44 @@ mod tests {
         assert_eq!(plaza.accept(2, 2, in_town(-3.0, 2.0), t4, up + 30), Verdict::Taken);
         assert!(plaza.others_near(1, 3, (x - 3.0, gate + 2.0), 5.0, t4));
         assert!(!plaza.others_near(1, 2, (x - 3.0, gate + 2.0), 5.0, t4));
+    }
+
+    #[test]
+    fn a_pilot_down_cant_creep_off_a_little_at_a_time_or_float_up() {
+        let brawls = std::sync::Arc::new(crate::brawl::Brawls::default());
+        let plaza = Plaza::default().with_brawl(brawls.clone());
+        let t0 = Instant::now();
+        let (x, t) = town::out_of_the_lift(0);
+        let gate = town::deck_s(t);
+        let in_town = |dx: f32| PersonPose { strip: RING_DECK, ..at(0, gate, x + dx) };
+        plaza.enter_town(1, "Maren");
+        plaza.enter_town(2, "Pagan");
+        let tick = 3_000;
+        assert_eq!(plaza.accept(1, 1, in_town(0.0), t0, tick), Verdict::Taken);
+        assert_eq!(plaza.accept(2, 1, in_town(-3.0), t0, tick), Verdict::Taken);
+        brawls.enter(1, 100, 0, tick);
+        brawls.run_down(1, 2, "Pagan", tick + 1);
+        // Twenty poses, each 0.4 m on from the last (off across the square) and a fifteenth of a
+        // second after it, and one a little up: they lie where they fell.
+        assert!(possible(&in_town(-5.0)), "the square's open there");
+        let mut seq = 2;
+        for k in 1..=20u16 {
+            let now = t0 + Duration::from_millis(67 * u64::from(k));
+            let pose = in_town(-0.4 * f32::from(k));
+            if possible(&pose) {
+                plaza.accept(1, seq, pose, now, tick + 2 * u32::from(k));
+            }
+            seq += 1;
+        }
+        let now = t0 + Duration::from_millis(67 * 21);
+        plaza.accept(1, seq, PersonPose { h: 0.45, ..in_town(-0.3) }, now, tick + 44);
+        plaza.accept(1, seq + 1, PersonPose { h: 1.5, ..in_town(0.0) }, now, tick + 45);
+        // Seen lying, and where they're seen is within a hand of where they fell.
+        let lying = seen_at(&plaza, 2, now, tick + 46);
+        assert!(lying.iter().any(|(id, p)| *id == 1 && p.down()), "{lying:?}");
+        let me = plaza.pose_of(1).expect("where they are");
+        let still = (me.x - x).abs() <= DOWN_SLACK && (me.s - gate).abs() <= DOWN_SLACK;
+        assert!(still && me.h.abs() <= DOWN_SLACK, "{me:?}");
     }
 
     #[test]
