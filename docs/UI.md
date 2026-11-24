@@ -107,6 +107,28 @@ full: what it is, its rows, how you fire it (a key against each mount and the sp
 as it would launch with it, and the one thing to do, amber, at the pane's foot. ↑↓ choose, Enter
 does it. Its states are the gallery's `suit*` scenes.
 
+## Reports
+
+F7 (or REPORT A BUG on the pause menu and the controls sheet) opens a one-line composer low over the
+world: a row of kinds (LOOKS WRONG, THE WORLD, CONTROLS, LAG, NUMBERS, OTHER; Tab steps them), a
+line for what happened, Enter to send, Esc to close. The page owns it (`web/ui.js`, "Reports"), so
+it works while the game doesn't; the game is only told (`report`), and its keys and the pointer
+stand aside. As it opens the game takes the frame with Bevy's `Screenshot` (`bc-client`'s
+`report.rs`: the world, not the page over it), halved to at most 960 wide, and the page makes the
+PNG; the composer says when it's taken, and sends without it after a few frames' time (two seconds
+at least). A report carries the build (`window.BC_BUILD`, which `scripts/build-web.sh` and
+`scripts/publish-web.sh` write), the doc to read first (by its kind and where the pilot is), an
+allowlist of `window.__bc`'s fields (where they stand, the frame rate and the graphics, the link's
+counts), the browser and its GPU, and the console's last errors: never the pilot's sign-in, wallet,
+callsign or resume token (the picture is the world as drawn, so it can show what's drawn in it). A
+send that fails keeps the words. A crash files itself once a page
+(`boot.js`): a trap after a panic, a lost graphics context, or a boot that never started, as a
+beacon. Both go to the game server's `POST /bugs` (`bc-server`'s `bugs.rs`, there with a data dir),
+which writes `bc-report-<id>.json` and `.png` under `<data dir>/reports/` in the document the Elo
+Pros intake takes (`scripts/publish-web.sh --reports <url>` points a published page at that intake
+instead); `scripts/reports.py` ranks them by fingerprint, and `scripts/pt report` files one as an
+agent.
+
 ## Next
 
 - The Orrery's panel as instruments too: its picks' confidence and the threat as bars.

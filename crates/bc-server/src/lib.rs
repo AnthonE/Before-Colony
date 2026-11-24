@@ -12,6 +12,7 @@
 // (`/status`'s `json!` is deep.)
 #![recursion_limit = "256"]
 
+pub mod bugs;
 pub mod charter;
 pub mod config;
 pub mod crowd;
@@ -27,6 +28,7 @@ pub mod pilots;
 pub mod plaza;
 pub mod proving;
 pub mod radio;
+pub mod secret;
 pub mod street;
 pub mod telemetry;
 pub mod visitors;
@@ -154,6 +156,9 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         };
         Arc::new(scare) as http::ScareFn
     });
+    if let Some(d) = &cfg.data_dir {
+        tracing::info!(dir = %d.join("reports").display(), "players' reports: POST /bugs");
+    }
     let http_state = http::HttpState {
         // A CA-issued certificate is validated by the browser: nothing to pin.
         cert_hash_hex: pinned.then(|| hex::encode(cert_hash)),
@@ -177,11 +182,15 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         cors_origins: cfg.cors_origins.clone().into(),
         incident,
         scare,
+        // Players' reports, beside the pilots' records (none without a data dir).
+        bugs: cfg.data_dir.as_ref().map(|d| Arc::new(bugs::Intake::new(d.join("reports"), cfg.reports))),
     };
     let router = http::router(http_state);
     let mut http_shutdown = shutdown_rx.clone();
     tokio::spawn(async move {
-        let serve = axum::serve(listener, router).with_graceful_shutdown(async move {
+        // Each request knows its peer: `/bugs` counts a sender's share by it.
+        let app = router.into_make_service_with_connect_info::<SocketAddr>();
+        let serve = axum::serve(listener, app).with_graceful_shutdown(async move {
             let _ = http_shutdown.changed().await;
         });
         if let Err(e) = serve.await {

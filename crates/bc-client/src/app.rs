@@ -170,6 +170,8 @@ pub fn run() {
                 Update,
                 (crate::voice::drive_voice, crate::audio::play_sound).chain().in_set(Vis::Audio),
             )
+            // F7's picture of the frame, for the page's report.
+            .add_systems(Update, crate::report::shoot)
             .add_systems(
                 Update,
                 (

@@ -264,14 +264,14 @@ impl Plugin for GfxPlugin {
 pub const TIER_KEY: KeyCode = KeyCode::KeyO;
 
 /// F10 or O: next tier (kept in the settings, in game mode). O is a letter, so not while the
-/// radio's line is open: what's typed there is never a key.
+/// radio's line or the report composer is open: what's typed there is never a key.
 fn cycle_tier(
     keys: Res<ButtonInput<KeyCode>>,
     mut gfx: ResMut<Gfx>,
     ui: Option<ResMut<crate::page::Ui>>,
     settings: Option<ResMut<crate::settings::SettingsRes>>,
 ) {
-    let typing = ui.as_ref().is_some_and(|ui| ui.chat);
+    let typing = ui.as_ref().is_some_and(|ui| ui.chat || ui.report);
     if keys.just_pressed(KeyCode::F10) || (keys.just_pressed(TIER_KEY) && !typing) {
         let next = gfx.tier.next();
         gfx.set_tier(next);

@@ -238,6 +238,13 @@ tap ejects at once and a hold blows the suit up instead.
      habit to follow. Of the letters still free (I, K and O), O is for options, and it is out of
      reach of the left hand on W A S D, so a fight never presses it by mistake. While the radio's
      line is open it is a letter, not a key.
+   - **F7 reports a bug** (Gates' key for it). The page owns it, as it does F1: a one-line composer
+     opens over the world, and the game's keys and the pointer stand aside while it's up. Its second
+     way is a button, not a key: REPORT A BUG on the pause menu and on the controls sheet. I, the
+     one letter still free, stays free: a letter a fight can brush would throw the pointer lock away
+     mid-fight. F7 is also the browsers' caret-browsing key; the page takes it first
+     (`preventDefault` in the capture phase). Whether a headed Firefox or Chrome still asks about
+     caret browsing hasn't been checked by hand yet.
 7. **Ctrl is down, and Ctrl+W closes the tab.** Holding Ctrl with W is Ctrl+W, which closes the
    browser tab. Browsers reserve that shortcut outside fullscreen, and itch.io players report tabs
    closing on them exactly this way [C1]. Down was C alone for that; the owner put Ctrl back

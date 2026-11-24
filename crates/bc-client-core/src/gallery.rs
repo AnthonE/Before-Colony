@@ -44,6 +44,10 @@ pub struct Scene {
     /// The suit console's open slot (`bcUi.suitSlot`): the page keeps it, the game never says.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slot: Option<&'static str>,
+    /// The report composer (F7) open, its kind and what's typed (`bcUi.report`): the page's own, as
+    /// the slot is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<Value>,
 }
 
 /// Everything the gallery shows.
@@ -75,7 +79,7 @@ fn survival(place: &'static str) -> View {
 }
 
 fn scene(name: &'static str, about: &'static str, expect: &'static str, view: View) -> Scene {
-    Scene { name, about, expect, view, hangar: None, front: None, slot: None }
+    Scene { name, about, expect, view, hangar: None, front: None, slot: None, report: None }
 }
 
 /// A server's `/status`, as much of it as the front screen reads: its rules, who's up, and the
@@ -214,6 +218,7 @@ fn terminal(
         hangar: Some(hangar(at, true, home)),
         front: None,
         slot: None,
+        report: None,
     }
 }
 
@@ -375,6 +380,13 @@ pub fn gallery() -> Gallery {
             paused(View { on_foot: true, ..survival("city") }),
         ),
         scene("help", "The controls sheet, flying.", "#help", View { help: true, ..playing() }),
+        Scene {
+            report: Some(serde_json::json!({
+                "kind": "world",
+                "words": "the lamp post by Hub Gate's lift floats a hand above the kerb",
+            })),
+            ..scene("report", "F7: the report composer, a line typed.", "#report", survival("town"))
+        },
         scene(
             "settings",
             "The settings panel, from the menu.",

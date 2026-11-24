@@ -157,8 +157,11 @@ pub struct Config {
     pub flight: Flight,
     /// The fabricator and foundry work this many times faster than their recipes say.
     pub craft_speed: f64,
-    /// Where pilot records and the exchange are kept (none: in memory, for this run only).
+    /// Where pilot records and the exchange are kept (none: in memory, for this run only), and
+    /// players' reports (`<data dir>/reports`, `POST /bugs`: none, no such route).
     pub data_dir: Option<PathBuf>,
+    /// How many reports `POST /bugs` takes: per address, in all, and bytes a day (`crate::bugs`).
+    pub reports: crate::bugs::Limits,
     /// The colony is open (survival): pilots may ride the cap lifts down into its city. That
     /// inside is the retired cylinder's (`docs/RING.md`), opened only by the server's `--colony`;
     /// this default stays closed, so a test that doesn't ask for the colony gets no second sector.
@@ -211,6 +214,7 @@ impl Default for Config {
             flight: Flight::Anime,
             craft_speed: 1.0,
             data_dir: None,
+            reports: crate::bugs::Limits::default(),
             colony: false,
             start: Start::Bay,
             limits: crate::net::admit::Limits::default(),

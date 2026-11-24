@@ -86,9 +86,13 @@ struct Args {
     /// The fabricator and foundry work this many times faster than their recipes say.
     #[arg(long, default_value_t = 1.0)]
     craft_speed: f64,
-    /// Keep pilot records and the exchange in this directory (otherwise they last one run).
+    /// Keep pilot records and the exchange in this directory (otherwise they last one run); and
+    /// take players' reports (`POST /bugs`), kept in its `reports/`.
     #[arg(long)]
     data_dir: Option<PathBuf>,
+    /// Reports `POST /bugs` takes from one address in ten minutes (behind nginx, its X-Real-IP).
+    #[arg(long, default_value_t = bc_server::bugs::Limits::default().per_address)]
+    reports_per_address: u32,
     /// Open the colony's inside: the bays' airlocks lead to the cap lifts, down into the
     /// cylinder's city, and suits fly inside it. That inside is retired (`docs/RING.md`): it's
     /// closed by default and kept behind this flag for the browser suites until it's cleared.
@@ -171,6 +175,10 @@ fn main() -> anyhow::Result<()> {
         flight: args.flight,
         craft_speed: args.craft_speed.max(0.01),
         data_dir: args.data_dir,
+        reports: bc_server::bugs::Limits {
+            per_address: args.reports_per_address.max(1),
+            ..bc_server::bugs::Limits::default()
+        },
         colony: args.rules == Ruleset::Survival && args.colony,
         start: args.start,
         floor_visitors: floor_visitors(

@@ -23,8 +23,24 @@ pub struct DevHooksPlugin;
 
 impl Plugin for DevHooksPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DevStatus>().add_systems(Last, publish);
+        app.init_resource::<DevStatus>().add_systems(Startup, stamp).add_systems(Last, publish);
     }
+}
+
+/// What the page was built from (`window.BC_BUILD`, which `scripts/build-web.sh` and
+/// `scripts/publish-web.sh` write into its config), as `build_version` and `build_commit`: a
+/// report names them. Without it (a page served straight from `web/`), this crate's version and
+/// `unknown`.
+fn stamp(mut status: ResMut<DevStatus>) {
+    let baked = web_sys::window()
+        .map(|w| js_sys::Reflect::get(&w, &JsValue::from_str("BC_BUILD")).unwrap_or(JsValue::UNDEFINED))
+        .unwrap_or(JsValue::UNDEFINED);
+    let field =
+        |key: &str| js_sys::Reflect::get(&baked, &JsValue::from_str(key)).ok().and_then(|v| v.as_string());
+    let version = field("version").unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+    let commit = field("commit").unwrap_or_else(|| "unknown".to_string());
+    status.set("build_version", version);
+    status.set("build_commit", commit);
 }
 
 /// Below this frame rate every frame publishes: frames come in bunches on a page drawing in

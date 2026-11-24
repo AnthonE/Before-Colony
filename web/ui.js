@@ -827,6 +827,181 @@
     }));
   }
 
+  // --- Reports (F7, or REPORT A BUG on the menu and the controls sheet): a line of what's wrong and
+  // its kind, sent with the build, where the pilot is, the frame rate and the link's counts, and
+  // the frame they were looking at (the game's own picture of it: crates/bc-client/src/report.rs),
+  // to the game server's `bugs` (crates/bc-server/src/bugs.rs) in the document the Elo Pros
+  // intake takes too (boot.js, `bcReports`). The page owns the composer, so it works while the
+  // game doesn't; the game is only told, so its keys and the pointer stand aside. Nothing in it
+  // says who the pilot is: only these fields of window.__bc go, never its sign-in, its wallet or
+  // its resume token. ---
+  const REPORT_FIELDS = {
+    place: ["screen", "panel", "place", "mode", "frame", "camera", "alive", "pos", "speed", "footing",
+      "surface_body", "feet", "deck_feet", "city_feet", "city_room", "interior", "district", "strip",
+      "town_feet", "town_district", "town_driving", "town_speed", "driving", "terminal"],
+    vitals: ["fps", "frames", "gfx", "gfx_tier", "backend", "city_ms", "town_ms", "life_ms", "town_draws",
+      "town_tris", "audio_state"],
+    net: ["link", "welcomed", "rtt_ms", "snapshots", "max_snapshot", "reconnects", "prediction_error_m",
+      "entities", "unresolved_bodies", "last_error"],
+  };
+  const REPORT_KINDS = ["look", "world", "verb", "net", "numbers", "other"];
+  // How long the page waits for the game's picture before sending without one: a few of its frames
+  // (the picture is read back a frame or two after it's asked for, and a page drawing in software
+  // takes seconds over one), at least two seconds and at most thirty.
+  function shotWait() {
+    const fps = Number(window.__bc?.fps) || 0;
+    return Math.min(30_000, Math.max(2_000, fps > 0 ? 8_000 / fps : 2_000));
+  }
+  const composer = { open: false, kind: "look", busy: false, shot: Promise.resolve(null) };
+  let shotWaiting = null;
+
+  // The game hands its frame over here (report.rs): `w` by `h`, RGBA. The page makes the PNG.
+  window.bcReportShot = (w, h, rgba) => {
+    const done = shotWaiting;
+    shotWaiting = null;
+    if (!done) return;
+    try {
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0);
+      c.toBlob((blob) => {
+        if (!blob) return done(null);
+        const r = new FileReader();
+        r.onload = () => done(String(r.result).split(",")[1] || null);
+        r.onerror = () => done(null);
+        r.readAsDataURL(blob);
+      }, "image/png");
+    } catch (_) {
+      done(null);
+    }
+  };
+
+  // The frame as it is now, a base64 PNG; null when there's no world to show (or it took too long).
+  function takeShot() {
+    if (!ready || view.screen !== "playing") return Promise.resolve(null);
+    return new Promise((done) => {
+      const finish = (b64) => {
+        clearTimeout(timer);
+        if (shotWaiting === finish) shotWaiting = null;
+        done(b64);
+      };
+      const timer = setTimeout(() => finish(null), shotWait());
+      shotWaiting = finish;
+      send("report", { open: composer.open, shot: true });
+    });
+  }
+
+  // A report of `kind`, in the player's (or an agent's) `words`, with the allowlisted fields.
+  function reportDoc(kind, words, runtime) {
+    const b = window.__bc || {};
+    const doc = window.bcReports.doc(kind, words, words, "", runtime, {
+      screen: view.screen,
+      panel: view.panel,
+      place: view.place || b.place,
+    });
+    for (const [part, keys] of Object.entries(REPORT_FIELDS)) {
+      const o = {};
+      for (const k of keys) if (b[k] !== undefined && b[k] !== null && b[k] !== "") o[k] = b[k];
+      if (Object.keys(o).length) doc[part] = o;
+    }
+    doc.machine = window.bcReports.machine();
+    doc.errors = window.bcBoot?.errors?.() || [];
+    return doc;
+  }
+
+  // Files a report, with `shot` (a promise of the frame, or null), and says what the intake said:
+  // `{id, fingerprint, seen, shot}`, or throws why not.
+  async function fileReport(kind, words, runtime, shot) {
+    const doc = reportDoc(kind, words, runtime);
+    return window.bcReports.send(doc, await shot);
+  }
+
+  function reportNote(text, bad) {
+    const n = $("report-note");
+    n.textContent = text;
+    n.classList.toggle("error", !!bad);
+  }
+
+  function pickKind(kind) {
+    composer.kind = REPORT_KINDS.includes(kind) ? kind : "look";
+    for (const b of document.querySelectorAll("#report-kinds [data-kind]")) {
+      b.setAttribute("aria-checked", String(b.dataset.kind === composer.kind));
+    }
+  }
+
+  function openReport() {
+    if (composer.open) return;
+    composer.open = true;
+    // The picture first, of the world as it is now; and the game stands aside. The head says
+    // once it's taken (`data-shot`: taking, taken or none).
+    const box = $("report");
+    const shot = takeShot();
+    composer.shot = shot;
+    box.dataset.shot = "taking";
+    $("report-shot").textContent = "";
+    shot.then((b64) => {
+      if (composer.shot !== shot) return;
+      box.dataset.shot = b64 ? "taken" : "none";
+      $("report-shot").textContent = b64 ? "A PICTURE OF THE SCREEN GOES WITH IT" : "";
+    });
+    if (!(ready && view.screen === "playing")) send("report", { open: true });
+    pickKind(composer.kind);
+    reportNote("");
+    show($("report"), true);
+    $("report-input").focus();
+  }
+
+  function closeReport() {
+    if (!composer.open) return;
+    composer.open = false;
+    show($("report"), false);
+    $("report-input").blur();
+    send("report", { open: false });
+    canvas()?.focus();
+  }
+
+  async function sendReport() {
+    if (composer.busy) return;
+    const words = $("report-input").value.trim();
+    if (!words) {
+      reportNote("SAY WHAT'S WRONG, IN A FEW WORDS", true);
+      return;
+    }
+    composer.busy = true;
+    reportNote("SENDING…");
+    try {
+      const got = await fileReport(composer.kind, words, "browser", composer.shot);
+      // Sent: the words go. A draft that wasn't stays for the next try.
+      $("report-input").value = "";
+      const many = got.seen > 1 ? ` · ${got.seen} REPORTS OF THIS NOW` : "";
+      reportNote(`SENT · ${got.id || "THANK YOU"}${many}`);
+      setTimeout(() => {
+        if (!composer.busy) closeReport();
+      }, 1400);
+    } catch (e) {
+      reportNote(`NOT SENT: ${String(e.message || e).toUpperCase()} · YOUR WORDS ARE KEPT`, true);
+    } finally {
+      composer.busy = false;
+    }
+  }
+
+  // The gallery's way in: the composer open on `r.kind`, `r.words` typed (null: closed).
+  function reportIn(r) {
+    if (!r) return closeReport();
+    pickKind(r.kind);
+    openReport();
+    $("report-input").value = r.words || "";
+  }
+
+  // For the agents' playtests (`scripts/pt report`): a report as the composer would file it, with
+  // the frame, from an agent.
+  window.bcReport = {
+    open: openReport,
+    close: closeReport,
+    file: (kind, words) => fileReport(kind, String(words || ""), "agent", takeShot()),
+  };
+
   // --- The game's view. ---
   function update(v) {
     view = v;
@@ -2685,7 +2860,7 @@
     suitSlot = slot || "";
     suitMount = -1;
   };
-  window.bcUi = { init, update, settings: renderSettings, catalogue: catalogueIn, hangar: hangarIn, front, suitSlot: suitSlotIn };
+  window.bcUi = { init, update, settings: renderSettings, catalogue: catalogueIn, hangar: hangarIn, front, suitSlot: suitSlotIn, report: reportIn };
 
   // --- What the player does. ---
   document.addEventListener("DOMContentLoaded", () => {
@@ -2717,6 +2892,31 @@
       }
       e.stopPropagation();
     });
+    // The report composer: Enter sends, Esc closes, Tab (and a click) picks the kind; what's typed
+    // here isn't the game's.
+    $("report-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        sendReport();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        closeReport();
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        const at = REPORT_KINDS.indexOf(composer.kind) + (e.shiftKey ? -1 : 1);
+        pickKind(REPORT_KINDS[(at + REPORT_KINDS.length) % REPORT_KINDS.length]);
+      }
+      e.stopPropagation();
+    });
+    for (const b of document.querySelectorAll("#report-kinds [data-kind]")) {
+      b.addEventListener("click", () => {
+        pickKind(b.dataset.kind);
+        $("report-input").focus();
+      });
+    }
+    $("report-send").addEventListener("click", sendReport);
+    $("report-close").addEventListener("click", closeReport);
+    for (const b of document.querySelectorAll("[data-report]")) b.addEventListener("click", openReport);
     $("term-body").addEventListener("click", onTerminalClick);
     $("term-body").addEventListener("input", onTerminalInput);
     for (const t of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) $("term-body").addEventListener(t, suitPointer);
@@ -2813,6 +3013,19 @@
   window.addEventListener(
     "keydown",
     (e) => {
+      // F7 is the report composer's, anywhere (and never the browser's caret browsing); while it's
+      // open, every key is its own.
+      if (e.key === "F7") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat) (composer.open ? closeReport : openReport)();
+        return;
+      }
+      if (composer.open) {
+        // Esc closes it from wherever the focus went (its line handles its own).
+        if (e.key === "Escape" && e.target !== $("report-input")) closeReport();
+        return;
+      }
       if (view.panel === "terminal" && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && suitKey(e)) {
         e.preventDefault();
         e.stopPropagation();

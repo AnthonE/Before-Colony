@@ -116,7 +116,7 @@ canvas#bc {
   inherits: true;
   initial-value: 12px;
 }
-.card, .front-pane, .frame, .prompt, .debrief, .map, .term-body .slot, .term-body .step-n, .refit .rc, .refit .callout, .refit-pad {
+.card, .front-pane, .frame, .prompt, .debrief, .map, .report, .term-body .slot, .term-body .step-n, .refit .rc, .refit .callout, .refit-pad {
   --ticks:
     linear-gradient(var(--tick), var(--tick)) left top / var(--tick-len) 1px no-repeat,
     linear-gradient(var(--tick), var(--tick)) left top / 1px var(--tick-len) no-repeat,
@@ -738,6 +738,42 @@ html.front-up #boot { display: none; }
 .voice-me.live { color: var(--cyan); box-shadow: inset 2px 0 0 var(--cyan); }
 .voice-talking > div { color: var(--white); box-shadow: inset 2px 0 0 var(--amber); }
 .voice-talking > div::before { content: "◖ "; color: var(--amber); }
+/* --- F7: the report composer (ui.js, "Reports"). Low in the view, over everything, the world
+   still in sight above it (its picture is taken as it opens). --- */
+.report {
+  --tick: var(--amber);
+  position: fixed;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
+  width: min(640px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: var(--s4) var(--s5);
+  background: var(--ticks), var(--scan), var(--glass-deep);
+  backdrop-filter: blur(6px);
+  color: var(--white);
+}
+.report-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s3);
+  font-family: var(--label-font);
+  font-size: var(--t-small);
+  font-weight: 600;
+  letter-spacing: 0.36em;
+  color: var(--amber);
+}
+.report-head .note { letter-spacing: 0.04em; color: var(--label); font-weight: 400; }
+.report-shot { min-height: 1.2em; margin-top: var(--s1); font-size: var(--t-label); color: var(--label); }
+.report-kinds { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s3) 0; }
+.report-kinds button { padding: var(--s1) var(--s3); font-size: var(--t-label); }
+.report-kinds button[aria-checked="true"] {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+}
+.report-input { width: 100%; box-sizing: border-box; font-size: var(--t-body); padding: var(--s2) 2px; }
 
 /* --- On foot in the hangar bay or the city (survival rules). --- */
 .bay-line {

@@ -68,6 +68,8 @@ Doing
 Notes
   note <text>              add a finding to notes.md, with the last screenshot's path
   notes                    print notes.md
+  report <kind> <words>    file it as a player's F7 report would (kind: look world verb net numbers
+                           other), with the frame; the world keeps it (scripts/reports.py <its data>/reports)
 
 Env: PT_SESSION (default pt), BC_HTTP_PORT (8080), PT_HEADED (1: a headed browser under xvfb-run, the
      default where it's installed, with the pointer lock a player has; 0: headless, the lock refused),
@@ -509,6 +511,16 @@ async function serve() {
     eval: async (...js) => {
       const r = await page.evaluate(js.join(" "));
       return JSON.stringify(r, null, 1) ?? "undefined";
+    },
+    report: async (kind, ...words) => {
+      // A report as F7's composer files it (the page's `bcReport`), from an agent: the build,
+      // where it stands, the frame, and these words. The world's server keeps it under its data
+      // dir (`scripts/pt up` gives it one); `scripts/reports.py` ranks them.
+      const kinds = ["look", "world", "verb", "net", "numbers", "other"];
+      const text = words.join(" ").trim();
+      if (!kinds.includes(kind) || !text) throw new Error(`report <${kinds.join("|")}> <words>`);
+      const got = await page.evaluate(([k, w]) => window.bcReport.file(k, w), [kind, text]);
+      return `filed ${got.id} (fingerprint ${got.fingerprint}, ${got.seen} of it, ${got.shot ? "with" : "no"} picture)`;
     },
     note: async (...words) => {
       const text = words.join(" ").trim();

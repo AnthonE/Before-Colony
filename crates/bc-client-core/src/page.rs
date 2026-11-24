@@ -532,6 +532,15 @@ pub enum Cmd {
         #[serde(default)]
         zoom: f32,
     },
+    /// F7 (or the menu's REPORT A BUG): the page's report composer is up (`open`: no keys reach the
+    /// suit, and the pointer goes free) or has closed; and `shot`, take the frame now and hand it
+    /// to the page (`window.bcReportShot`) to send with it.
+    Report {
+        #[serde(default)]
+        open: bool,
+        #[serde(default)]
+        shot: bool,
+    },
 }
 
 impl Cmd {
@@ -563,6 +572,11 @@ mod tests {
             Some(Cmd::SuitView { on: true, yaw: 0.5, zoom: 1.2 })
         );
         assert!(matches!(Cmd::parse(r#"{"cmd":"hangar","req":{"t":"sign"}}"#), Some(Cmd::Hangar { .. })));
+        assert_eq!(
+            Cmd::parse(r#"{"cmd":"report","open":true,"shot":true}"#),
+            Some(Cmd::Report { open: true, shot: true })
+        );
+        assert_eq!(Cmd::parse(r#"{"cmd":"report"}"#), Some(Cmd::Report { open: false, shot: false }));
         assert_eq!(Cmd::parse(r#"{"cmd":"warp"}"#), None);
         assert_eq!(Cmd::parse("not json"), None);
     }
