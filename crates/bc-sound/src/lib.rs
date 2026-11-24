@@ -145,6 +145,10 @@ cues!(
     PushOff,
     GoDark,
     PowerUp,
+    // A suit's radio (proximity voice in space; last, so every cue before keeps its seed): its
+    // squelch opening as a transmission comes in or the pilot keys it, and closing as it ends.
+    RadioOpen,
+    RadioClose,
 );
 
 /// How many cues there are.
@@ -239,6 +243,8 @@ impl Cue {
             Cue::PushOff => def(Cockpit, 7, 0.0, 0.3, 0.55, 0.04),
             Cue::GoDark => def(Cockpit, 8, 0.0, 1.0, 0.5, 0.0),
             Cue::PowerUp => def(Cockpit, 8, 0.0, 1.0, 0.5, 0.0),
+            Cue::RadioOpen => def(Cockpit, 6, 0.0, 0.08, 0.3, 0.03),
+            Cue::RadioClose => def(Cockpit, 6, 0.0, 0.08, 0.35, 0.03),
         }
     }
 

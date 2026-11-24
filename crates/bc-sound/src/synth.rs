@@ -109,6 +109,8 @@ pub fn render(cue: Cue) -> Vec<f32> {
         Cue::PushOff => push_off(&mut r),
         Cue::GoDark => reactor(&mut r, false),
         Cue::PowerUp => reactor(&mut r, true),
+        Cue::RadioOpen => squelch(&mut r, false),
+        Cue::RadioClose => squelch(&mut r, true),
     };
     normalize(&mut out, PEAK);
     out
@@ -627,6 +629,31 @@ fn launch(r: &mut Rng) -> Vec<f32> {
         out.push((lp_y * 2.0 * env + ignite) * edges(i, n));
     }
     out
+}
+
+/// A suit radio's squelch: a burst of static held to the radio's band (300 Hz to 3.4 kHz), cut
+/// off sharply as the carrier quiets it. Opening, a short tick of it; closing, a longer tail with
+/// the faint chirp of the carrier dropping.
+fn squelch(r: &mut Rng, close: bool) -> Vec<f32> {
+    let dur = if close { 0.16 } else { 0.07 };
+    let n = samples(dur);
+    let (mut lo, mut hi) = (Lp::new(3_400.0), Lp::new(300.0));
+    let mut phase = 0.0f32;
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let x = r.noise();
+            let band = lo.run(x) - hi.run(x);
+            let body = attack(t, 0.002) * (-t / (dur * 0.5)).exp();
+            let chirp = if close {
+                phase += TAU * (1_800.0 - 900.0 * t / dur) / SR;
+                phase.sin() * 0.2 * (-((t - 0.03).max(0.0)) / 0.04).exp() * attack(t, 0.03)
+            } else {
+                0.0
+            };
+            (band * 2.5 * body + chirp) * edges(i, n)
+        })
+        .collect()
 }
 
 /// A menu tick.

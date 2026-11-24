@@ -4,6 +4,19 @@ Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagra
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
 
+v49 (from v48): proximity voice (`bc_proto::voice`; the server's `voice`). Kind 5, Voice, both ways,
+one Opus frame (opaque to the wire, at most 160 B) per datagram, in whole bytes: up, the kind and
+flags (END: the last frame of a press of the talk key) in the first byte, then seq (u16) and the
+payload's length (u8) and the payload (4 B + payload); down, the flags (END, and RADIO: over a
+suit's radio, not through the air), then the talker (u16: through the air the plaza's id, their
+session's; over the radio their suit's entity slot, never a session's id), seq, length and payload
+(6 B + payload, at most 166 B). The server takes only one 20 ms Opus frame (its TOC byte, RFC 6716
+§3.1) within the talker's own bucket (50 a second, 10 at once), and sends it on to whoever it
+picked: the people on the talker's floor within 30 m on foot, the live suits within the talker's
+frame's sensor range in space (none in the bay or flying inside the colony), at most 8 talkers a
+listener, never an agent unless the server says so; nothing else of it, and nothing of the payload,
+is kept or logged (`/status`'s `voice` counts).
+
 v47 (from v46): the Watch's heat is the server's (`docs/OPEN_CITY.md`, "Heat and the Watch";
 `bc_sim::colony::watch`'s tables, the server's `watch`). A person in a plaza datagram takes 3 bits
 more after their pose, their heat (0 to 5), which the server writes from the heat it holds: 15.25
@@ -536,6 +549,7 @@ their own screen has it (`transit::train` is a closed form of the tick).
 |---|---|---|
 | kind 3, Pose (client → server, 15 Hz in the city or on the base's deck) | kind (4), seq (u16), strip (2: a strip, or 3 the base's deck), the pose (97) | 15 B |
 | kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), floor (3), then until the bits run out: per person their session's id (16), how long before the tick their pose was heard (6 bits, 10 ms steps), the pose (97) and their heat (3: 0 to 5, the server's; v47) | 5 B + 15.25 B a person, at most 48 (737 B) |
+| kind 5, Voice (both ways, 50 Hz while talking; v49) | up: kind (4), flags (4: END), seq (u16), length (u8), the Opus frame; down: kind (4), flags (4: END, RADIO), the talker (u16), seq, length, the frame | up 4 B, down 6 B, + the frame (at most 160 B) |
 
 A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
 (`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s over the reach

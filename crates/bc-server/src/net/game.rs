@@ -159,6 +159,8 @@ pub struct GameShared {
     pub radio: Arc<crate::radio::Radio>,
     /// The wallets on now, for the store (`/online.json`).
     pub online: Arc<crate::online::Online>,
+    /// Proximity voice: every session's ear, and the relay's counts (`crate::voice`).
+    pub voice: Arc<crate::voice::Relay>,
     /// Where a wallet's items are read (`Config::elo_origin`; off: nobody shows any).
     pub(super) elo: Option<Arc<crate::elo::Items>>,
     /// The suits left in hide spots have been put back (or let go): a suit the sector puts back
@@ -330,6 +332,7 @@ pub struct StatusView {
     sessions: Arc<super::sessions::Sessions>,
     inside: Option<Arc<SectorShared>>,
     radio: Arc<crate::radio::Radio>,
+    voice: Arc<crate::voice::Relay>,
 }
 
 /// Owns the sector and egress threads.
@@ -489,6 +492,7 @@ impl GameRuntime {
             sessions: super::sessions::Sessions::new(cfg.max_sessions),
             radio: Arc::new(crate::radio::Radio::default()),
             online: Arc::new(crate::online::Online::default()),
+            voice: Arc::new(crate::voice::Relay::new(cfg.voice, cfg.voice_agents)),
             restore_over: Arc::new(AtomicBool::new(false)),
         };
         // The exchange's, the Charter Board's, the Proving Ground's and the register of homes'
@@ -591,6 +595,7 @@ impl GameRuntime {
             sessions: self.shared.sessions.clone(),
             inside: self.shared.inside.as_ref().map(|i| i.sector.clone()),
             radio: self.shared.radio.clone(),
+            voice: self.shared.voice.clone(),
         }
     }
 
@@ -903,6 +908,8 @@ impl StatusView {
             "units": self.dispatch.out(),
             "stops": self.dispatch.stops(),
         });
+        // Proximity voice: frames relayed and refused, counted (never who, never what).
+        status["voice"] = self.voice.json();
         status["sessions"] = sessions;
         status
     }

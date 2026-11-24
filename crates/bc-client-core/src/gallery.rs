@@ -397,6 +397,35 @@ pub fn gallery() -> Gallery {
             },
         ),
         scene(
+            "voice",
+            "Proximity voice's corner: talking in the town, with two people near talking too.",
+            "#voice",
+            View {
+                on_foot: true,
+                voice: Some(crate::page::VoiceView {
+                    on_air: true,
+                    radio: false,
+                    mic: "on",
+                    talking: vec!["KESTREL".into(), "VEGA-7".into()],
+                }),
+                ..survival("town")
+            },
+        ),
+        scene(
+            "voice-radio",
+            "Proximity voice in a suit: someone on the radio, and the microphone not allowed.",
+            "#voice",
+            View {
+                voice: Some(crate::page::VoiceView {
+                    on_air: false,
+                    radio: true,
+                    mic: "denied",
+                    talking: vec!["MAREN ASH".into()],
+                }),
+                ..survival("space")
+            },
+        ),
+        scene(
             "on-foot",
             "On foot in the bay, at a terminal.",
             "#use",

@@ -134,6 +134,8 @@ mod transport;
 mod ui_panel;
 #[cfg(target_arch = "wasm32")]
 mod view;
+#[cfg(target_arch = "wasm32")]
+mod voice;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {

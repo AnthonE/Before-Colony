@@ -73,6 +73,8 @@ mechs and nothing to do.
 - **Hanging out needs a way to talk.** A VRChat world is a room full of voices. Ours was silent,
   with no chat, emote, wave or seat anywhere. Since P0 there's the colony's radio (in the city,
   what's said shows over the speaker's head) and seats out in front of The Arrival, our bar;
+  since 0.3, proximity voice (push-to-talk on `: through the air to whoever's within 30 m on
+  foot, over a suit's radio to the suits in its sensor range; `/mute` on the client);
   still no emote or wave, and inside, its counter has the Almagest's Most Wanted pinned up behind the
   bar and its menu, the colony's staff's meals (`LIFE.md`, L1). Pilots pass each other in flight suits of their own colours;
   together they can talk and sit, and nothing more.

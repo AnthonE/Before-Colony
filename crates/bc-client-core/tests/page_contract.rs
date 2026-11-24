@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use bc_client_core::gallery::gallery;
-use bc_client_core::page::{Cmd, MapAt, Radar, View};
+use bc_client_core::page::{Cmd, MapAt, Radar, View, VoiceView};
 use serde_json::Value;
 
 fn repo(path: &str) -> String {
@@ -90,6 +90,7 @@ fn full_view() -> Value {
         map: Some(MapAt::default()),
         map_goal: Some("exchange"),
         radar: Some(Radar::default()),
+        voice: Some(VoiceView::default()),
         ..View::default()
     };
     serde_json::to_value(v).unwrap()
@@ -111,6 +112,8 @@ fn the_page_reads_only_what_the_view_sends_and_reads_all_of_it() {
     let r = reads(body(&js, "function drawRadar(r)"), "r");
     assert_sent("the radar", &r, &keys(&full_view()["radar"]));
     assert_eq!(r, keys(&full_view()["radar"]), "the radar's fields, all drawn");
+    let vc = reads(body(&js, "function renderVoice(vc)"), "vc");
+    assert_eq!(vc, keys(&full_view()["voice"]), "voice's corner: every field, and only those");
 }
 
 #[test]

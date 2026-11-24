@@ -30,6 +30,7 @@ pub mod radio;
 pub mod street;
 pub mod telemetry;
 pub mod visitors;
+pub mod voice;
 pub mod watch;
 
 use std::net::SocketAddr;

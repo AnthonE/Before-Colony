@@ -174,6 +174,12 @@ pub struct Config {
     /// The dev HTTP's hooks for tests (`--dev-hooks`): `/dev/incident` raises one of the Watch's
     /// incidents by hand. Off by default, and in every deployment: the route isn't there at all.
     pub dev_hooks: bool,
+    /// Proximity voice is relayed (`crate::voice`): off (`--no-voice`), every frame is dropped and
+    /// counted, the kill switch if it's abused.
+    pub voice: bool,
+    /// Agents' sessions are sent people's voices too (`--voice-agents`). Off: people's voices are
+    /// for people.
+    pub voice_agents: bool,
 }
 
 impl Default for Config {
@@ -210,6 +216,8 @@ impl Default for Config {
             limits: crate::net::admit::Limits::default(),
             floor_visitors: None,
             dev_hooks: false,
+            voice: true,
+            voice_agents: false,
         }
     }
 }

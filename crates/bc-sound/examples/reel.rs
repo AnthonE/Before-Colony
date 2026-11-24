@@ -102,6 +102,9 @@ fn main() {
     r.add(Cue::Grab, 40.5, 1.0, 0.0);
     r.add(Cue::Stow, 41.3, 1.0, 0.0);
     r.add(Cue::LowFuel, 42.3, 1.0, 0.0);
+    // Someone on the radio, and the pilot answering.
+    r.add(Cue::RadioOpen, 42.8, 1.0, 0.0);
+    r.add(Cue::RadioClose, 43.2, 1.0, 0.0);
     r.add(Cue::Dock, 43.5, 1.0, 0.0);
     r.add(Cue::Sale, 44.4, 1.0, 0.0);
     r.add(Cue::MusicCalm, 44.0, 0.6, 6.0);

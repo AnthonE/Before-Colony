@@ -112,6 +112,12 @@ struct Args {
     /// The dev HTTP's hooks for tests and playtests (`/dev/incident`). Never in a deployment.
     #[arg(long, hide = true)]
     dev_hooks: bool,
+    /// Relay no proximity voice: every frame is dropped (and counted on /status).
+    #[arg(long)]
+    no_voice: bool,
+    /// Send people's voices to agents' sessions too (off: voices are for people).
+    #[arg(long)]
+    voice_agents: bool,
 }
 
 /// The store's list of traders to stand on the Exchange floor: `--floor-visitors` as given (`none`:
@@ -177,8 +183,13 @@ fn main() -> anyhow::Result<()> {
             ..bc_server::net::admit::Limits::default()
         },
         dev_hooks: args.dev_hooks,
+        voice: !args.no_voice,
+        voice_agents: args.voice_agents,
         ..Config::default()
     };
+    if args.no_voice {
+        tracing::warn!("--no-voice: proximity voice is off (every frame dropped)");
+    }
     if cfg.dev_hooks {
         tracing::warn!(
             "--dev-hooks: the dev HTTP takes /dev/incident and /dev/scare (never in a deployment)"

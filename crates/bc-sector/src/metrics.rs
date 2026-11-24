@@ -50,6 +50,9 @@ pub struct PilotStats {
     pub frame: AtomicU64,
     /// Suit entity slot + 1 (0 = none).
     pub suit: AtomicU64,
+    /// 1 while that suit is alive (0: a wreck, its pilot dead or ejected): whether its radio is on
+    /// (the server's proximity voice).
+    pub alive: AtomicU64,
     /// Credits the pilot has earned (a signed-in pilot keeps them).
     pub credits: AtomicU64,
     /// Where the suit is in the sector's frame (`f32` bits an axis): what the session shows its

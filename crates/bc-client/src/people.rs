@@ -34,11 +34,17 @@ pub const OWN: u16 = u16::MAX;
 #[derive(Resource, Default)]
 pub struct Crowd(pub Vec<(u16, String, PersonPose)>);
 
+/// Where each person drawn has their head this frame, in the render's frame (the camera's), by
+/// slot: where their voice comes from (`voice.rs`).
+#[derive(Resource, Default)]
+pub struct Heads(pub HashMap<u16, Vec3>);
+
 pub struct PeoplePlugin;
 
 impl Plugin for PeoplePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Crowd>()
+            .init_resource::<Heads>()
             .init_resource::<AvatarLib>()
             .add_systems(Startup, (setup_people, setup_benches))
             .add_systems(Update, draw_people.in_set(crate::view::Vis::Suits))
@@ -652,7 +658,9 @@ fn name_tags(
     cams: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut tags: Query<(&mut Node, &mut Visibility, &mut Text)>,
     spoken: Option<Res<crate::chat::Spoken>>,
+    mut heads: ResMut<Heads>,
 ) {
+    heads.0.clear();
     let Ok((cam, cam_tf)) = cams.single() else { return };
     let now = crate::net::now_s();
     // Where the eye is in the city: someone on another floor of a home's building, or behind a
@@ -676,6 +684,7 @@ fn name_tags(
         let on_deck = f.floor >= BASE_DECK;
         let head =
             if on_deck { tf.translation } else { origin.place(placed.0) } + tf.rotation * Vec3::Y * 2.05;
+        heads.0.insert(f.id, head - tf.rotation * Vec3::Y * 0.45);
         let seen = on_deck
             || match (eye, land(placed.0.as_vec3())) {
                 (Some(e), Some(c)) if e.strip == c.strip => {

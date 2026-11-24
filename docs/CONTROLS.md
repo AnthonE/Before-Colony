@@ -200,6 +200,12 @@ tap ejects at once and a hold blows the suit up instead.
      (`bc_client_core::dock`), so the dock's refusals come only where they teach something. One
      press goes one place, decided once a frame. On the chart Enter still sets a course.
    - **Still open:** T, the other usual chat key, stays throw.
+   - **Proximity voice talks on ` (Backquote) and the mouse's back button**, held (or a press on, a
+     press off: SETTINGS > SOUND), as push-to-talk does in the shooters our players come from.
+     Both were bound nowhere: V (Gates' talk key) is melee and flight assist, B stows, and T and
+     Enter are throw and the radio. Bevy's keys are physical positions, so ` stays the key left
+     of 1 on any layout. The page keeps the back button from taking the browser Back. Typed
+     into the radio's line, `/mute NAME` silences someone and `/unmute` everyone (never sent).
 4. **The lock moves you; it doesn't aim for you.** Most licensed anime-mech games lock on: the 2v2
    arena brawlers, the kit-building brawlers, even the cockpit-pod arcade game [A1]. Lock-on is
    also the most common complaint in mech games: too strong, unreliable, or grabbing the wrong target
