@@ -127,11 +127,9 @@ enum Switch {
     Off,
 }
 
-/// Whether the space sector keeps open space (`--pvp`): as asked, else the ruleset's default.
-fn pvp(flag: Option<Switch>, rules: Ruleset) -> bool {
-    match flag {
-        Some(switch) => switch == Switch::On,
-        None => rules == Ruleset::Survival,
+impl Switch {
+    fn on(self) -> bool {
+        self == Switch::On
     }
 }
 
@@ -198,10 +196,10 @@ fn main() -> anyhow::Result<()> {
             ..bc_server::net::admit::Limits::default()
         },
         dev_hooks: args.dev_hooks,
-        pvp: pvp(args.pvp, args.rules),
+        pvp: args.pvp.map(Switch::on),
         ..Config::default()
     };
-    if cfg.pvp {
+    if cfg.pvp_on() {
         tracing::info!("open space (--pvp): past the colony's reach pilots harm pilots of any side");
     }
     if cfg.dev_hooks {
@@ -276,7 +274,7 @@ mod tests {
     fn open_space_is_survivals_and_asked_for_under_arcade() {
         let law = |argv: &[&str]| {
             let a = Args::parse_from(argv);
-            pvp(a.pvp, a.rules)
+            Config { rules: a.rules, pvp: a.pvp.map(Switch::on), ..Config::default() }.pvp_on()
         };
         assert!(law(&["bc-server"]), "survival: on");
         assert!(!law(&["bc-server", "--rules", "arcade"]), "arcade: off");

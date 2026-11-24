@@ -177,9 +177,18 @@ pub struct Config {
     /// Suits fight pilots away from the colony (`--pvp`): the space sector keeps
     /// `bc_sim::colony::reach::Law::OpenSpace`, past the colony's reach pilots harm pilots of any
     /// side and inside it none, and the Welcome says so. Off: sides (a suit harms another
-    /// side's). This default is off, so a test that doesn't ask gets the sides it always had; the
-    /// server's own is the ruleset's (`main.rs`).
-    pub pvp: bool,
+    /// side's). `None`: the ruleset's ([`Config::pvp_on`]), so the server and every test that
+    /// doesn't ask run what a deployment does.
+    pub pvp: Option<bool>,
+}
+
+impl Config {
+    /// Whether the space sector keeps open space: `pvp` as asked, else on under survival rules and
+    /// off under arcade's (which spawn every side's pilots together in open space, for the combat
+    /// suites and the load tests). The sector's law and the Welcome both ask this.
+    pub fn pvp_on(&self) -> bool {
+        self.pvp.unwrap_or(self.rules == Ruleset::Survival)
+    }
 }
 
 impl Default for Config {
@@ -216,7 +225,7 @@ impl Default for Config {
             limits: crate::net::admit::Limits::default(),
             floor_visitors: None,
             dev_hooks: false,
-            pvp: false,
+            pvp: None,
         }
     }
 }
@@ -227,6 +236,14 @@ mod tests {
 
     fn list(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn open_space_is_survivals_unless_asked() {
+        assert!(Config::default().pvp_on(), "survival: on");
+        assert!(!Config { rules: Ruleset::Arcade, ..Config::default() }.pvp_on(), "arcade: off");
+        assert!(Config { rules: Ruleset::Arcade, pvp: Some(true), ..Config::default() }.pvp_on());
+        assert!(!Config { pvp: Some(false), ..Config::default() }.pvp_on(), "survival, turned off");
     }
 
     #[test]

@@ -143,7 +143,7 @@ pub struct GameShared {
     pub plaza: Arc<crate::plaza::Plaza>,
     /// Anime flight rules (else the simulator's).
     pub anime: bool,
-    /// Open space (`Config::pvp`): the space sector keeps `Law::OpenSpace`, and its Welcome says so.
+    /// Open space (`Config::pvp_on`): the space sector keeps `Law::OpenSpace`, and its Welcome says so.
     pub pvp: bool,
     /// The Colony Exchange.
     pub market: Arc<Market>,
@@ -368,7 +368,7 @@ impl GameRuntime {
                 flight: cfg.flight.rules(),
                 // Past the colony's reach, pilots against pilots (`colony::reach`); the colony's
                 // inside harms nobody anyway.
-                law: if cfg.pvp { Law::OpenSpace } else { Law::Sides },
+                law: if cfg.pvp_on() { Law::OpenSpace } else { Law::Sides },
                 ..SimConfig::default()
             },
             max_clients: cfg.max_clients,
@@ -487,7 +487,7 @@ impl GameRuntime {
             inside,
             plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone()).with_watch(watch)),
             anime: cfg.flight == Flight::Anime,
-            pvp: cfg.pvp,
+            pvp: cfg.pvp_on(),
             market,
             charter,
             proving,
