@@ -23,7 +23,7 @@ pub(crate) const FRAME: Paint = Paint::Fixed(paint::DARK);
 pub(crate) const GUN: Paint = Paint::Fixed(paint::GUNMETAL);
 pub(crate) const STEEL: Paint = Paint::Metal(paint::GUNMETAL);
 pub(crate) const YELLOW: Paint = Paint::Fixed(paint::YELLOW);
-pub(crate) const GLASS: Paint = Paint::Fixed(paint::GLASS);
+pub(crate) const GLASS: Paint = Paint::Fixed(paint::SENSOR_GLASS);
 /// Hot nozzle throats.
 pub(crate) const THROAT: Paint = Paint::Glow(paint::YELLOW);
 

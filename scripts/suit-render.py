@@ -85,14 +85,14 @@ LIVERY_OF = {
 
 
 def load_palette(repo):
-    """The palette as the client has it, read from materials.rs when it's there (its second bank
-    grows with the designs)."""
-    path = os.path.join(repo, "crates/bc-client/src/materials.rs")
+    """The palette as the client has it, read from bc-model's paint.rs when it's there (its second
+    bank grows with the designs)."""
+    path = os.path.join(repo, "crates/bc-model/src/paint.rs")
     try:
         text = open(path).read()
     except OSError:
         return PALETTE
-    start = text.index("const PALETTE")
+    start = text.index("pub const SRGB")
     body = text[text.index("[", text.index("=", start)) + 1 : text.index("];", start)]
     out = []
     for line in body.splitlines():

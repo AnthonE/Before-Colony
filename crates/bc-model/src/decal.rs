@@ -42,8 +42,9 @@ pub fn image(id: u8) -> Option<Vec<u8>> {
                 a = a + c - a * c;
             }
             let at = (py * SIZE + px) * 4;
+            // Straight alpha: the colour as it is, not darkened at the roundel's edge.
             for k in 0..3 {
-                out[at + k] = rgb[k].round().clamp(0.0, 255.0) as u8;
+                out[at + k] = (rgb[k] / a.max(1e-6)).round().clamp(0.0, 255.0) as u8;
             }
             out[at + 3] = (a * 255.0).round() as u8;
         }
@@ -52,9 +53,12 @@ pub fn image(id: u8) -> Option<Vec<u8>> {
 }
 
 const WHITE: [u8; 3] = [236, 238, 240];
-const INK: [u8; 3] = [22, 26, 34];
+const INK: [u8; 3] = [28, 32, 40];
 const NAVY: [u8; 3] = [18, 34, 74];
 const GOLD: [u8; 3] = [226, 172, 40];
+/// Every colour a decal is drawn in (none darker than the darkest free paint: `paint`'s tests).
+#[cfg(test)]
+pub(crate) const INKS: [[u8; 3]; 4] = [WHITE, INK, NAVY, GOLD];
 
 fn r(x: f32, y: f32) -> f32 {
     (x * x + y * y).sqrt()
