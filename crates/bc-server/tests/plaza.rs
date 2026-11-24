@@ -78,14 +78,19 @@ async fn two_pilots_see_each_other_at_hub_gate() -> anyhow::Result<()> {
     let want = standing(12.0, 3.0);
     let got = seen_by_a[0].2;
     assert!((got.x - want.x).hypot(got.s - want.s) < 0.05, "{got:?} vs {want:?}");
+    // (The client's clock read either side of the status: the sector ticks on while it's asked.)
+    let before = a.core.clock.server_now(a.now());
     let status = server.status();
+    let after = a.core.clock.server_now(a.now());
     assert_eq!(status["game"]["city"]["people"], 2);
     assert_eq!(status["game"]["city"]["by_strip"][0], 2);
 
-    // The plaza's tick keeps the clock: within a tick of the sector's.
+    // The plaza's tick keeps the clock: within a tick of the sector's, when it was read.
     let sector = f64::from(status["game"]["tick"].as_u64().unwrap() as u32);
-    let est = a.core.clock.server_now(a.now());
-    assert!((est - sector).abs() < 2.0, "clock {est:.1} vs sector {sector}");
+    assert!(
+        before - 2.0 < sector && sector < after + 2.0,
+        "clock {before:.1}..{after:.1} vs sector {sector}"
+    );
 
     // A kilometre in a moment isn't passed on: Kai still sees Nico where he was.
     b.set_pose(standing(1_000.0, 3.0));
