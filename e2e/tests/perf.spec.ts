@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { bc, collectConsole } from "./util";
+import { bc, collectConsole, keepStatus } from "./util";
 import { frameClock, quantiles, townSampler, townSampling } from "./perf";
 
 // What the ring's town costs to draw (`scripts/e2e.sh perf`; docs/FREE_ROAM.md, "A client that draws
@@ -33,6 +33,7 @@ test("the town's crowded street, streamed in and held", async ({ page }, info) =
   const logs = collectConsole(page);
   await page.addInitScript(frameClock);
   await page.addInitScript(townSampling);
+  await page.addInitScript(keepStatus);
   await page.goto(`/?showcase=town&cam=9&t=480&quality=high&gfx=${info.project.name}`);
   const town = townSampler(page);
 
@@ -51,6 +52,11 @@ test("the town's crowded street, streamed in and held", async ({ page }, info) =
   // only gets in between frames that come in bunches, and has seen a fill of several only once
   // it was done.
   const filled: number = (await bc(page)).town_fill_frames ?? 0;
+  // And some cells still to build after a frame of it, in a status the page published, however
+  // briefly it stood (`keepStatus`; read now, while the fill is among the newest kept).
+  const midFill: boolean = await page.evaluate(() =>
+    ((window as any).__bcLog ?? []).some((x: any) => x?.town_cells > 0 && x?.town_missing > 0),
+  );
   const done = loaded.findIndex((x) => x.town_cells >= CELLS && x.town_missing === 0);
   const fill = loaded.slice(0, done < 0 ? loaded.length : done + 1);
   const span = (xs: typeof fill) => (xs.length ? xs[xs.length - 1] : undefined);
@@ -115,6 +121,7 @@ test("the town's crowded street, streamed in and held", async ({ page }, info) =
   expect(s.town_cars).toBeGreaterThan(5);
   // Streamed: over frames, cells still to build after the first.
   expect(filled).toBeGreaterThanOrEqual(2);
+  expect(midFill).toBe(true);
   for (const x of [...loaded, ...held]) expect(x.town_ms).toBeLessThanOrEqual(4 * BUDGET_MS);
   for (const x of held) {
     expect(x.town_tris).toBeLessThanOrEqual(TRIS);
