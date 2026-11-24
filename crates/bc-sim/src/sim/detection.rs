@@ -88,8 +88,9 @@ impl Sim {
     }
 
     /// Whether what suit `j` hides it hides from `viewer` (its jammer, and parked, hidden or
-    /// running cold): `viewer` is of another side, or a pilot out in open space with it under
-    /// `Law::OpenSpace`, who could hunt it (`colony::reach::unfriendly`). Its allies see it all.
+    /// running cold): `viewer` is of another side, or, with `j` a pilot out in open space under
+    /// `Law::OpenSpace`, a pilot who could hunt it there, on either side of the line
+    /// (`colony::reach::unfriendly`). Its allies see it all.
     pub fn unfriendly(&self, viewer: usize, j: usize) -> bool {
         crate::colony::reach::unfriendly(self.cfg.law, self.party(viewer), self.party(j))
     }

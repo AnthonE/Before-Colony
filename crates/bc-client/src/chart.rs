@@ -38,6 +38,7 @@ use std::f32::consts::FRAC_PI_2;
 use bc_client_core::chart::{
     self as view, ChartCam, Label, Pickable, Pose, clock, declutter, nice_step, pick, range,
 };
+use bc_client_core::instruments::reach_heading;
 use bc_client_core::nav::{self, Arrival, AutoNav, Course, NavState, Place};
 use bc_client_core::palette;
 use bc_client_core::sphere::{self, Lagrange};
@@ -1961,6 +1962,13 @@ pub fn chart_panels(
     let status = match (status.is_empty(), core.world.own) {
         (_, Some(o)) if o.alive && o.flags & own_flags::DOCKED != 0 => format!("DOCKED\n{status}"),
         _ => status,
+    };
+    // Under open space, which side of the colony's reach the pilot is on and how far its line is,
+    // as the HUD's arms heading says (the chart draws the line itself).
+    let interior = core.welcome.is_some_and(|w| w.interior);
+    let status = match own.filter(|_| !interior).and_then(|m| reach_heading(world.law, m.pos)) {
+        Some((line, _)) => format!("{line}\n{status}").trim_end().to_string(),
+        None => status,
     };
     let hostiles = own.map_or(0, |m| {
         world

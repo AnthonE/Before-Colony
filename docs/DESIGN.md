@@ -1541,7 +1541,8 @@ wake in their bay. A guest flying sees DISCONNECT.
   server keeps open space (`--pvp`, survival's default: `ROADMAP.md`, "Where PvP lives"). Inside
   the reach no pilot harms a pilot, so a suit asleep in it is safe from everyone but drones, which
   leave it alone. What a sleeper hides (parked dark, in a hide spot, the Eclipse) it hides from
-  anyone who could hunt it, its own side's pilots out in open space too. A sleeper destroyed stays
+  anyone who could hunt it: a sleeper out in open space hides from its own side's pilots too,
+  whether they're out there or just inside the line. A sleeper destroyed stays
   gone, and its pilot is told by whom when they're back. Parked is safer than drifting, and hidden
   safer still.
 - *Room.* At most 256 sleepers a sector; past that, or when the sector's suits run out, the longest

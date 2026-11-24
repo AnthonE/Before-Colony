@@ -3,7 +3,7 @@
 use crate::InputContext;
 use crate::salvage::route;
 use crate::world::World;
-use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, STOW};
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, SPECIAL, STOW};
 use bc_proto::{ChunkKind, FrameId, InputCmd, Part};
 use bc_sim::TICK_HZ;
 use bc_sim::ai::{self, AiState, DroneProfile, PILOT};
@@ -20,10 +20,12 @@ pub const COMBAT_ZONE: Vec3 = Vec3::new(0.0, 900.0, 0.0);
 
 /// How far off its aim a pilot of its own side must be for an agent to fire in open space, rad
 /// (about 4°); how near one may come in any direction before it fires at nothing (a blade's sweep,
-/// a flame's cone, m); and the triggers it lets go of.
+/// a flame's cone, m); and the triggers it lets go of: its guns, its blade, and the specials that
+/// strike (Full Salvo fires every ranged weapon along the aim, the Pincer Strike is a blow; the
+/// toggled ones, the Ward, the Eclipse and a transformation, are held on MODE and harm nobody).
 const CHECK_FIRE: f32 = 0.07;
 const CLOSE: f32 = 100.0;
-const TRIGGERS: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE;
+const TRIGGERS: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE | SPECIAL;
 
 /// An agent's command with its triggers let go of while a pilot of its own side out in open space
 /// with it, whom its blows would harm (`Law::OpenSpace`), is in the line of its aim nearer than
@@ -619,9 +621,17 @@ mod tests {
         world.law = Law::OpenSpace;
         assert_eq!(held(&world, shot(Vec3::Z, FIRE_PRIMARY)), FLIGHT_ASSIST, "one in the line");
         assert_eq!(held(&world, shot(Vec3::Y, MELEE)), FLIGHT_ASSIST, "one close by, off the line");
+        // A special that strikes is a trigger too (Full Salvo down the line, the Pincer Strike
+        // beside one); the toggles on MODE (the Ward, the Eclipse) harm nobody and stay held.
+        assert_eq!(held(&world, shot(Vec3::Z, SPECIAL)), FLIGHT_ASSIST, "a salvo with one in the line");
+        assert_eq!(held(&world, shot(Vec3::Y, SPECIAL)), FLIGHT_ASSIST, "a strike with one close by");
+        let mode = bc_proto::buttons::MODE;
+        assert_eq!(held(&world, shot(Vec3::Z, mode)), mode | FLIGHT_ASSIST, "a ward or a cloak");
         // Moved off: a drone in the line is fair game, and with nobody near, it fires.
         world.entities[2] = None;
         assert_eq!(held(&world, shot(-Vec3::Z, FIRE_SECONDARY)), FIRE_SECONDARY | FLIGHT_ASSIST);
         assert_eq!(held(&world, shot(Vec3::Y, FIRE_PRIMARY)), FIRE_PRIMARY | FLIGHT_ASSIST);
+        assert_eq!(held(&world, shot(-Vec3::Z, SPECIAL)), SPECIAL | FLIGHT_ASSIST, "a salvo at a drone");
+        assert_eq!(held(&world, shot(Vec3::Y, SPECIAL)), SPECIAL | FLIGHT_ASSIST, "nobody near");
     }
 }

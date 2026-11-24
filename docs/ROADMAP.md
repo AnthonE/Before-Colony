@@ -279,16 +279,21 @@ the hub, the dock and Fornax are inside it), and one rule decides every hit and 
 (`reach::harms`, `reach::hostile`). Under `Law::OpenSpace` two pilots, people or agents of any side,
 harm each other only when both are out in open space; inside the reach, or firing from it, nothing
 a pilot does lands on a pilot (drones fight by side wherever they are); a hide spot, a parked suit
-and the Eclipse hide a pilot from a same-side hunter out there too. The server's `--pvp` turns it
+and the Eclipse hide a pilot out there from a same-side hunter too, on either side of the line. The
+server's `--pvp` turns it
 on (survival's default; arcade's is off) and the Welcome says so (`OPEN_SPACE`); the HUD says
 which side of the line the pilot is on and how far it is, says so as they cross, explains a shot
 that harms nobody, marks a same-side pilot who is fair game amber and lets Y lock them; the chart
-draws the line. Agents' brains still pick targets by side, and hold fire while a pilot of their
-own side is in the line or within 100 m (the miner's too). *Not built:* an engaged timer (a pilot who dives into the reach mid-fight
-is safe at once), any cost for killing a pilot, ejected capsules as targets, crews who don't harm
-each other. Before it, every human pilot flew for the Colonies (the server decides, whatever the
-client asks, and the Welcome says so: protocol v29) and friendly fire is off, so people couldn't
-harm each other. The options were:
+draws the line and its status says which side of it the pilot is on. Agents' brains, and the
+autopilot of a suit the System has seized, still pick targets by side, hold their guns, blades and
+striking specials (Full Salvo, the Pincer Strike) while a pilot of their own side is in the line or
+within 100 m (the miner's too), and dodge whoever can harm them. *Not built:* an engaged timer (a
+pilot who dives into the reach mid-fight is safe at once), any cost for killing a pilot, ejected
+capsules as targets, crews who don't harm each other. A hold is judged at the trigger: a salvo or a
+missile already on its way still bursts on a same-side pilot out in open space who comes into it.
+Before it, every human pilot flew for the Colonies (the server decides, whatever the client asks,
+and the Welcome says so: protocol v29) and friendly fire is off, so people couldn't harm each
+other. The options were:
 1. As now: pilots against the Consortium's drones, never each other.
 2. Lawless space past the colony's reach (say, beyond 8 km of the hull): PvP there, the colony's law
    inside it (Star Citizen's armistice zones; EVE's security levels).

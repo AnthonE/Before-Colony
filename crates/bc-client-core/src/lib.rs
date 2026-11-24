@@ -482,6 +482,8 @@ impl ClientCore {
         self.world.hits_taken = old.hits_taken;
         self.world.kit = old.kit;
         self.world.bodies = old.bodies;
+        // The sector's law stays too (the Welcome said; a sortie from the bay gets no new one).
+        self.world.law = old.law;
         let (field, landmarks) = (self.predict.field.clone(), self.predict.landmarks().len() as u8);
         let (rules, interior) = (self.predict.rules(), self.predict.interior());
         self.predict = Predictor::default();
@@ -1194,5 +1196,54 @@ mod tests {
             panic!("a Hello");
         };
         assert_eq!(faction, Faction::Colonies);
+    }
+
+    /// A survival pilot docks or is lost (back in the bay) and launches again into the same
+    /// sector, which sends no new Welcome: the open space it said stays, sortie after sortie.
+    #[test]
+    fn the_sectors_law_outlasts_a_dock() {
+        use bc_econ::wire::{Place, Update};
+        use bc_sim::colony::reach::Law;
+        let mut core = ClientCore::new(ClientConfig {
+            name: "Agent-01".into(),
+            pilot: PilotKind::Agent,
+            frame: FrameId::Argo,
+            faction: Faction::Colonies,
+        });
+        core.on_control(&encode(ControlMsg::Welcome {
+            version: PROTOCOL_VERSION,
+            client_slot: 2,
+            tick: 0,
+            tick_hz: bc_sim::config::TICK_HZ as u8,
+            sector: 0,
+            orrery_allowed: false,
+            max_datagram: 1_100,
+            field_seed: 7,
+            field_rocks: 0,
+            flags: welcome_flags::SURVIVAL | welcome_flags::OPEN_SPACE,
+            landmarks: 0,
+            faction: Faction::Colonies,
+        }));
+        assert_eq!(core.world.law, Law::OpenSpace);
+        let place = |place| {
+            let json = bc_econ::wire::encode(&Update::Place {
+                place,
+                bay: 3,
+                strip: None,
+                trainer: false,
+                wake: None,
+            });
+            let mut out = vec![0u8; json.len() + 3];
+            let n = bc_proto::control::encode_hangar(&json, &mut out).unwrap();
+            out.truncate(n);
+            out
+        };
+        for (i, at) in
+            [Place::Hangar, Place::Space, Place::Hangar, Place::Space, Place::Hangar].into_iter().enumerate()
+        {
+            core.on_control(&place(at));
+            assert_eq!(core.world.law, Law::OpenSpace, "move {i}: {at:?}");
+        }
+        assert!(core.hangar.in_hangar());
     }
 }

@@ -122,11 +122,13 @@ pub fn hostile(law: Law, by: Party, on: Party) -> bool {
 }
 
 /// Whether `on` hides from `by` what it hides from its enemies (a jammer, being parked, hidden or
-/// cold) under `law`: `by` is of another side, or could hunt it (`hostile`: a pilot out in open
-/// space with it). Sensors, seekers and the jammer's shimmer go by it, so a hide spot protects a
-/// sleeper from a same-side hunter out in open space as it does from another side's.
+/// cold) under `law`: `by` is of another side, or `on` is a pilot out in open space and `by` a
+/// pilot who could hunt it there (wherever `by` is now: one parked just inside the line would
+/// otherwise watch a sleeper at an ally's sight, then cross and strike). Sensors, seekers and the
+/// jammer's shimmer go by it, so a hide spot protects a sleeper from a same-side hunter as it
+/// does from another side's. Drones go by side.
 pub fn unfriendly(law: Law, by: Party, on: Party) -> bool {
-    by.faction != on.faction || hostile(law, by, on)
+    by.faction != on.faction || (law == Law::OpenSpace && on.open && !on.drone && !by.drone)
 }
 
 /// Whether a blow `by` strikes lands on `on` under `law`, friendly fire `ff` on or off: every hit
@@ -185,6 +187,23 @@ mod tests {
         // Friendly fire still lets everything land; it never makes a lock or a ward hostile.
         assert!(harms(Law::OpenSpace, true, inside, inside));
         assert!(!hostile(Law::OpenSpace, inside, a));
+    }
+
+    #[test]
+    fn a_sleeper_out_in_open_space_hides_from_its_own_side_on_either_side_of_the_line() {
+        for by in parties() {
+            for on in parties() {
+                assert_eq!(unfriendly(Law::Sides, by, on), by.faction != on.faction, "{by:?} → {on:?}");
+            }
+        }
+        let out = Party::pilot(Faction::Colonies);
+        let inside = Party { open: false, ..out };
+        assert!(unfriendly(Law::OpenSpace, out, out), "a hunter out with it");
+        assert!(unfriendly(Law::OpenSpace, inside, out), "one just inside the line, who could cross");
+        assert!(!unfriendly(Law::OpenSpace, out, inside), "a pilot the reach shelters hides nothing");
+        assert!(!unfriendly(Law::OpenSpace, Party::drone(Faction::Colonies), out), "drones by side");
+        assert!(!unfriendly(Law::OpenSpace, out, Party::drone(Faction::Colonies)), "drones by side");
+        assert!(unfriendly(Law::OpenSpace, Party { faction: Faction::Alliance, ..inside }, inside));
     }
 
     #[test]

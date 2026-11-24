@@ -458,3 +458,82 @@ fn a_hide_spot_hides_a_sleeper_from_its_own_side_in_open_space() {
     // Sides: an ally sees it all along, and never designates it.
     assert_eq!(hunted_in_the_deep(Law::Sides), (true, true, false));
 }
+
+/// An Algol of the Colonies at `at` with its jammer on, seen by a pilot of its own side at `from`:
+/// whether its shimmer (an ally's view, `ent_flags::SPECIAL`) shows them.
+fn shimmer_seen(law: Law, at: Vec3, from: Vec3) -> bool {
+    use bc_proto::snapshot::ent_flags;
+    let mut sim = sector(law);
+    let algol = pilot(&mut sim, FrameId::Algol, Faction::Colonies, at, Vec3::Z);
+    let mate = pilot(&mut sim, FrameId::Argo, Faction::Colonies, from, at - from);
+    for _ in 0..40 {
+        sim.suits.flight[algol.idx()].vel = Vec3::ZERO;
+        press(&mut sim, algol, MODE, at + (at - from), 0, NO_SLOT);
+        still(&mut sim, mate);
+        sim.step();
+    }
+    assert!(sim.jamming(algol.idx()).is_some(), "the jammer is on");
+    sim.entity_state(algol.idx(), mate.idx()).flags & ent_flags::SPECIAL != 0
+}
+
+#[test]
+fn a_jammer_hides_its_shimmer_from_its_own_side_in_open_space() {
+    let mate = OUT + Vec3::Z * 300.0;
+    assert!(shimmer_seen(Law::Sides, OUT, mate), "sides: an ally sees it jamming");
+    assert!(!shimmer_seen(Law::OpenSpace, OUT, mate), "open space: one who could hunt it doesn't");
+    // Across the line: one parked just inside the reach could cross and strike, so it sees no
+    // more than a hunter out with it; a jammer the reach shelters hides nothing from its own side.
+    let line = |d: f32| COLONY_CENTER - Vec3::Z * (COLONY_RADIUS + REACH_M + d);
+    let (out, inside) = (line(150.0), line(-150.0));
+    assert!(past_line(out) > 0.0 && past_line(inside) < 0.0);
+    assert!(!shimmer_seen(Law::OpenSpace, out, inside), "out in open space, seen from inside");
+    assert!(shimmer_seen(Law::OpenSpace, inside, out), "sheltered, seen from outside");
+    assert!(shimmer_seen(Law::Sides, out, inside), "sides: an ally sees it either way");
+}
+
+/// A Colonies pilot whose suit the System has seized (its autopilot hunts by side) out in open
+/// space with an Almagest drone 600 m ahead, and, if `mate`, a pilot of its own side kept 60 m off
+/// its flank, under `law`: the ticks of `ticks` it pulled a trigger on.
+fn seized_pulls(law: Law, mate: bool, ticks: u32) -> u32 {
+    use bc_proto::buttons::{ORRERY, SPECIAL};
+    use bc_proto::snapshot::orrery_mode;
+    let mut sim = Sim::new(SimConfig {
+        target_drones: 0,
+        field_rocks: 0,
+        law,
+        orrery_on_all_frames: true,
+        ..SimConfig::default()
+    });
+    let me = pilot(&mut sim, FrameId::Argo, Faction::Colonies, OUT, Vec3::Z);
+    let ahead = OUT + Vec3::Z * 600.0;
+    suit(&mut sim, FrameId::Argo, Faction::Almagest, PilotKind::Drone, ahead, -Vec3::Z);
+    let flank = Vec3::X * 60.0;
+    let mate = mate.then(|| pilot(&mut sim, FrameId::Argo, Faction::Colonies, OUT + flank, Vec3::Z));
+    let i = me.idx();
+    press(&mut sim, me, ORRERY, ahead, 0, NO_SLOT);
+    sim.step();
+    sim.suits.ai[i].anchor = OUT;
+    let mut pulls = 0;
+    for _ in 0..ticks {
+        sim.suits.orrery[i].mode = orrery_mode::SEIZED;
+        sim.suits.orrery[i].timer = 90;
+        if let Some(m) = mate {
+            let f = sim.suits.flight[i];
+            sim.suits.flight[m.idx()].pos = f.pos + flank;
+            sim.suits.flight[m.idx()].vel = f.vel;
+            let at = f.pos + flank + Vec3::Z * 1_000.0;
+            press(&mut sim, m, 0, at, 0, NO_SLOT);
+        }
+        sim.step();
+        let triggers = FIRE_PRIMARY | FIRE_SECONDARY | MELEE | SPECIAL;
+        pulls += u32::from(sim.suits.is_alive(i) && sim.suits.input[i].buttons & triggers != 0);
+    }
+    pulls
+}
+
+#[test]
+fn a_seized_suit_holds_its_fire_beside_a_pilot_of_its_own_side_in_open_space() {
+    assert!(seized_pulls(Law::OpenSpace, false, 300) > 0, "with nobody near, it fires on the drone");
+    assert_eq!(seized_pulls(Law::OpenSpace, true, 300), 0, "beside a pilot of its own side, never");
+    assert!(seized_pulls(Law::Sides, true, 300) > 0, "sides: a friend is never hit, so nothing to hold");
+}

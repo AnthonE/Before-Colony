@@ -204,6 +204,11 @@ impl Perception {
         self.contacts().iter().filter(|c| c.hostile)
     }
 
+    /// Who can harm us under the sector's law ([`Contact::threat`]): what a brain dodges.
+    pub fn threats(&self) -> impl Iterator<Item = &Contact> {
+        self.contacts().iter().filter(|c| c.threat)
+    }
+
     pub fn get(&self, slot: u16) -> Option<&Contact> {
         self.contacts().iter().find(|c| c.slot == slot)
     }
