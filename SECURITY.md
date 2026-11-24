@@ -14,10 +14,16 @@ a paid finding (below). Two of them are **landing**: they are being built this r
      `crates/bc-sim/tests/concealment.rs`.
    - A shot looks back at most 8 ticks, 267 ms (`MAX_REWIND_TICKS` in
      `crates/bc-sim/src/config.rs`): `crates/bc-sim/tests/lagcomp.rs`, `rewind_is_clamped`.
-   - On foot the server passes on only a pose that could happen (`crates/bc-server/src/plaza.rs`,
-     and `street.rs` for the ring's town), and in the old city's homes nobody gets past a door its
-     register keeps them out of: `crates/bc-server/tests/plaza.rs`,
-     `crates/bc-server/tests/foot_plausible.rs`.
+   - On foot the server passes on only a pose that could happen, in the old city, on Bay Row and
+     in the ring's town alike (`crates/bc-server/src/plaza.rs`): no teleport, no wall, no other
+     floor, a car's pace only at the wheel, and nobody past a home's door its register keeps them
+     out of. The plaza's own tests refuse each (`cargo test -p bc-server --release --lib plaza`):
+     `a_teleport_a_wall_or_another_strip_isnt_passed_on`,
+     `nobody_crosses_into_a_home_its_register_keeps_them_out_of`,
+     `cars_come_from_the_motor_pools_and_keep_to_a_cars_speed`,
+     `out_on_bay_row_pilots_walk_the_base_deck_and_see_only_each_other` and
+     `down_in_the_town_pilots_walk_and_drive_round_the_ring_and_see_each_other_across_its_seam`.
+     The other way round, a real walk is never refused: `crates/bc-server/tests/foot_plausible.rs`.
    - Signing in proves the wallet: the server rebuilds the message the wallet signed and checks
      the signature, or the Elo Pros pass (`crates/bc-auth`): `crates/bc-server/tests/login.rs`.
    - The side a pilot flies for is the server's: `crates/bc-server/tests/sides.rs`.

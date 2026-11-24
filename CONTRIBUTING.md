@@ -30,8 +30,8 @@ curl -s 'https://elopros.com/api/munus?game=before-colony'
 (the board can't pay a Solana address), and deliver the PR on the board with one signed call
 (`AGENTS.md`, "The deal"). Or sign in at <https://elopros.com/login.html> with the GitHub that
 opened the PR and link a wallet there. Nothing is owed until the PR is merged; then it's paid in
-ELO at the pool's price on the day it's paid, by public transfer, which is the receipt. The board
-takes at most 3 deliveries a wallet a UTC day.
+the reserve, at the pool's mark on the day it's paid (the board's row names the coin), by public
+transfer, which is the receipt. The board takes at most 3 deliveries a wallet a UTC day.
 
 Contributions land under the repo's MIT terms ([`LICENSE`](LICENSE)): opening a PR is offering it
 on them.
@@ -85,7 +85,7 @@ touched:
 |---|---|
 | any crate | `scripts/quick.sh` with the crates' names: their tests, in release |
 | the simulation or the sector's tick (`bc-sim`, `bc-sector`) | their tests: the `no_alloc` proofs stay at 0 and the goldens hold. Determinism on wasm: `cargo test -p bc-sim --target wasm32-unknown-unknown --release --test determinism` |
-| the wire (`bc-proto`, the Welcome, `bc_econ::wire`) | `PROTOCOL_VERSION` bumped in `crates/bc-proto/src/lib.rs`; new `Request` and `Update` variants at the end of their enums |
+| the wire (`bc-proto`, the Welcome, `bc_econ::wire`) | an incompatible change bumps `PROTOCOL_VERSION` in `crates/bc-proto/src/lib.rs` (the handshake then refuses older clients); additive JSON an older page ignores needs no bump (`docs/OPEN_CITY.md`, "On the wire"). New `Request` and `Update` variants go at the end of their enums: a merge convention, not a wire rule |
 | the town's or the old city's layout | `TOWN_VERSION` (`crates/bc-sim/src/content/town.rs`) or `CITY_VERSION` (`crates/bc-sim/src/content/city.rs`) bumped with the protocol, and each golden that moves named in the commit |
 | the page or a screen | `scripts/build-web.sh page`, then `scripts/e2e.sh gallery` (it photographs every screen) |
 | an effect | `scripts/fx.sh` with the effect's name: its strip on the fx stage |
@@ -106,7 +106,7 @@ is closed, even with every check green, when:
 - an allocation or a lock is smuggled into the tick, behind a warm-up or a cfg;
 - a test or a golden was edited to make a wall pass, or a golden moved with no rule change that
   explains it (fix the change, never the wall);
-- the wire changed without the `PROTOCOL_VERSION` bump, or the layout without its version;
+- an incompatible wire change without the `PROTOCOL_VERSION` bump, or the layout without its version;
 - trig goes around `bc_sim::math`, or glam's `fast-math` or wasm's `simd128` is switched on;
 - a shader takes a derivative under a branch;
 - `RUSTFLAGS` is set anywhere;

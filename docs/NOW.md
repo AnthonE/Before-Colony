@@ -16,10 +16,14 @@ open items, each checked against its status table that day.
   `OPEN_CITY.md`'s, `peers-` for `PEERS.md`'s numbered list.
 
 Each item has a machine check and a look check (`PHASES.md`, "How we build it"); it's done when
-both pass. **Wire: yes** means the change moves the protocol: `PROTOCOL_VERSION` in
-`crates/bc-proto/src/lib.rs` goes up in the same PR, and new `Request` and `Update` variants
-(`crates/bc-econ/src/wire.rs`) go at the end of their enums. `scripts/quick.sh` is the floor for
-every item; `CONTRIBUTING.md` has the check for each kind of change.
+both pass. **Wire: yes** means the change moves the wire. An incompatible change (an encoding in
+`crates/bc-proto`, the Welcome, a message an older client would misread) bumps `PROTOCOL_VERSION`
+in `crates/bc-proto/src/lib.rs` in the same PR, and the handshake then refuses older clients;
+additive JSON an older page ignores (a new `Request` or `Update` in `crates/bc-econ/src/wire.rs`)
+needs none (`OPEN_CITY.md`, "On the wire"). New variants go at the end of their enums by
+convention, so parallel branches merge cleanly: the JSON is tagged, so their order isn't on the
+wire. `scripts/quick.sh` is the floor for every item; `CONTRIBUTING.md` has the check for each
+kind of change.
 
 ---
 
@@ -73,8 +77,8 @@ from the link the server measures (`PHASES.md`, "What we take": the rewind and t
 
 ## e2e-red · The red nightly suites *(e2e lane · house)*
 
-The nightly browser suites (`.github/workflows/e2e.yml`) have failed every night since 2026-11-19.
-0.2's exit bar wants them green seven nights running.
+The nightly browser suites (`.github/workflows/e2e.yml`) haven't had a green run since 2026-10-15
+(`gh run list --workflow e2e.yml`). 0.2's exit bar wants them green seven nights running.
 
 ---
 
@@ -167,8 +171,9 @@ The nightly browser suites (`.github/workflows/e2e.yml`) have failed every night
 
 - **Read first:** `UI.md`, its rules and "Next".
 - **Left:** the HUD's scale and opacity as settings (`crates/bc-client-core/src/settings.rs`'s
-  `KNOBS`); the Orrery's panel as instruments; the objective's marker in the view kept clear of the
-  focus tags. One a PR.
+  `KNOBS`); the Orrery's panel as instruments; at the suit's console, the chosen slot's part lit on
+  the suit itself (its paint is house work: §livery); the objective's marker in the view kept clear
+  of the focus tags. One a PR.
 - **Machine check:** `scripts/build-web.sh page`, `scripts/e2e.sh gallery`, and
   `scripts/quick.sh bc-client-core` (`page_contract.rs` reads `web/ui.js` against the page's types).
 - **Look check:** the gallery's shots of the screens it touched, before and after.
@@ -252,6 +257,29 @@ items come first in review.
 - **Look check:** `scripts/pt` buying one and finding it again.
 - **Wire:** yes.
 
+## oc-h · Homes on the ring's buildings *(town lane)*
+
+- **Read first:** `OPEN_CITY.md`, H0 to H3 (all built, in the cylinder's city) and its status table;
+  `RING.md`, "R4 on" (the town's order: homes after the first quarter) and R1.5–R1.6 (the
+  cylinder's homes refunded when it's cleared: §ring-r15); `FREE_ROAM.md`'s districts (Lock Town
+  and Terraces are homes, Old Town its low houses).
+- **Left:** the town's home lots are solid boxes (`town::each_block_box`): nobody walks into one,
+  leases it or sleeps in it. H0 first: its buildings as closed forms of the town, with lobbies,
+  stairs, lifts and flats (the cylinder's are `crates/bc-sim/src/colony/homes.rs`, worked out from
+  a city block), walked by the plaza on the town's floor (`crates/bc-server/src/plaza.rs`). Then
+  H1 (the lease, the lock and the crew, `crates/bc-econ/src/homes.rs`, with a home's id in the
+  town), H2 and H3. One phase a PR.
+- **Ask first, in a draft PR, before H1:** `RING.md` puts homes after the first quarter, whose
+  sites are still empty, and the cylinder's homes are on hold until it's cleared; whether a
+  pilot's two registers stand side by side till then is the owner's call. H0 waits on neither.
+- **Machine check:** `scripts/quick.sh bc-sim bc-server`: `TOWN_GOLDEN` and a homes golden of the
+  town's move only with the layout, named in the commit, and `TOWN_VERSION` goes up with the
+  protocol; the plaza's tests refuse a wall and a locked door in the town as they do in the city;
+  a step in `scripts/e2e.sh town webgl2` walking in at a lobby door.
+- **Look check:** `scripts/pt` in Lock Town: in at a lobby door, up the stairs, to a flat's door,
+  with a `scripts/pt shot` at each.
+- **Wire:** yes (H0 moves the town's layout; H1 on adds the homes' requests).
+
 ## oc-b1 · Businesses *(town lane)*
 
 - **Read first:** `OPEN_CITY.md`, B1.
@@ -269,6 +297,27 @@ items come first in review.
   with the rule); `scripts/e2e.sh town webgl2`.
 - **Look check:** `scripts/pt showcase town` with a patrol in shot.
 - **Wire:** yes if a patrol rides the wire as more than a unit.
+
+## oc-x2 · Incidents the whole strip sees *(town lane)*
+
+- **Read first:** `OPEN_CITY.md`, X2 ("A huge deal": begun) and its status table; `FREE_ROAM.md`
+  §4 (W), "Seen by everyone"; `crates/bc-server/src/watch.rs` (the incidents and their news).
+- **Left:** the server keeps the Watch's incidents in a fixed queue, tells everyone down in the
+  town of them (`Update::Incidents`) and makes one at `NEWS_AT` or over news; the client keeps the
+  list (`crates/bc-client-core/src/hangar.rs`) and draws nothing from it. In order: the incidents
+  on the map (`FREE_ROAM.md`: "the radio, the map"); then X2's own list: the crowd and the traffic
+  taking them as an input of their closed forms, so the same people run from the same corner on
+  every screen (today the crowd runs only from what's done near it, the server's
+  `crates/bc-server/src/street.rs`); the town's answer to a level 5; the Most Wanted at The
+  Arrival and its bounty last, when The Arrival is built. One step a PR; a step that moves heat
+  starts after §foot-pvp lands.
+- **Machine check:** the map: `scripts/quick.sh bc-client-core` and both wasm clippies. The closed
+  forms: `scripts/quick.sh bc-sim bc-server`, `STREET_GOLDEN` moved only with the rule and named
+  in the commit, a test that two clients given the same incidents see the same people run, and
+  people still cross only where no car drives (`crates/bc-sim/tests/life.rs`).
+- **Look check:** an incident raised with the dev hooks (`/dev/incident`, `--dev-hooks`), seen on
+  the map and in the street from two browsers (`scripts/pt shot`).
+- **Wire:** the map, no; the closed forms' input, yes (the incidents carried as world state).
 
 ## aquila-anim · Altair's change into Aquila, animated *(model lane)*
 
