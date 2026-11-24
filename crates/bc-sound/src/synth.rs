@@ -16,6 +16,12 @@ pub const PEAK: f32 = 0.9;
 
 const SR: f32 = SAMPLE_RATE as f32;
 
+/// The street's beds and the car's engine are rendered at half the bank's rate
+/// ([`crate::sample_rate`]): nothing in them is above a few kHz, and the browser resamples. They
+/// cost half as much to build.
+pub const BED_RATE: u32 = 24_000;
+const BR: f32 = BED_RATE as f32;
+
 /// A cue's samples at [`crate::sample_rate`]`(cue)`, normalized to [`PEAK`]: mono, or for a stereo
 /// cue ([`crate::channels`]) the left channel's samples then the right's.
 pub fn render(cue: Cue) -> Vec<f32> {
@@ -111,6 +117,17 @@ pub fn render(cue: Cue) -> Vec<f32> {
         Cue::PowerUp => reactor(&mut r, true),
         Cue::RadioOpen => squelch(&mut r, false),
         Cue::RadioClose => squelch(&mut r, true),
+        Cue::StreetStep => street_step(&mut r),
+        Cue::CarDoor => car_door(&mut r),
+        Cue::CarPass => car_pass(&mut r),
+        Cue::LiftRide => lift_ride(&mut r),
+        Cue::TrafficBed => traffic_bed(&mut r),
+        Cue::CrowdBed => crowd_bed(&mut r),
+        Cue::CarEngine => car_engine(&mut r),
+        Cue::BayHum => bay_hum(&mut r),
+        Cue::Blow => blow(&mut r),
+        Cue::Fall => fall(&mut r),
+        Cue::Downed => downed(&mut r),
     };
     normalize(&mut out, PEAK);
     out
@@ -915,6 +932,329 @@ fn cockpit_hum(r: &mut Rng) -> Vec<f32> {
     loop_seam(raw, samples(0.5))
 }
 
+// --- On foot: the town, a car, a lift, the bay ([`crate::street`]). ---
+
+/// A shoe on the town's paving: the heel, then the sole rolling down onto it, dry and short, with
+/// a little grit; far lighter than a suit's foot.
+fn street_step(r: &mut Rng) -> Vec<f32> {
+    let n = samples(0.17);
+    let mut out = vec![0.0f32; n];
+    for (start, amp, tau) in [(0.0f32, 1.0f32, 0.010f32), (0.042, 0.55, 0.018)] {
+        let mut lp = Lp::new(4_200.0);
+        let mut hp = Lp::new(650.0);
+        let from = samples(start);
+        let mut phase = 0.0f32;
+        for (k, v) in out[from..].iter_mut().enumerate() {
+            let t = k as f32 / SR;
+            let x = lp.run(r.noise());
+            let tick = (x - hp.run(x)) * (-t / tau).exp() * attack(t, 0.0006) * 1.5;
+            phase += 150.0 / SR;
+            let body = (TAU * phase).sin() * (-t / 0.016).exp() * 0.45;
+            let grit = r.noise() * (-t / 0.05).exp() * 0.06;
+            *v += (tick + body + grit) * amp;
+        }
+    }
+    for (i, v) in out.iter_mut().enumerate() {
+        *v *= edges(i, n);
+    }
+    out
+}
+
+/// A car's door: the handle's click, the door swung to with a solid thunk through the body, and
+/// the latch catching.
+fn car_door(r: &mut Rng) -> Vec<f32> {
+    let mut out = click(r);
+    for v in &mut out {
+        *v *= 0.35;
+    }
+    let mut thunk = impact(r, 0.42, 82.0, 0.09, 0.022, 1_500.0, 110.0);
+    // The body's panels: a hollow ring under the thunk.
+    let mut body = Reso::new(185.0, 7.0, SR);
+    for (i, v) in thunk.iter_mut().enumerate() {
+        let t = i as f32 / SR;
+        *v += body.run(r.noise() * (-t / 0.02).exp()) * 2.5;
+    }
+    mix_in(&mut out, &thunk, samples(0.11), 1.0);
+    mix_in(&mut out, &impact(r, 0.08, 1_900.0, 0.012, 0.004, 6_000.0, 1_500.0), samples(0.125), 0.35);
+    let n = out.len();
+    for (i, v) in out.iter_mut().enumerate() {
+        *v *= edges(i, n);
+    }
+    out
+}
+
+/// A car going by: its tyres' roar swelling and falling away, and its motor's note dropping as it
+/// passes (Doppler), the air pushed aside with it.
+fn car_pass(r: &mut Rng) -> Vec<f32> {
+    const DUR: f32 = 1.8;
+    const BY: f32 = 0.85;
+    let n = samples(DUR);
+    let mut roar = Lp::new(900.0);
+    let mut roar_hp = Lp::new(140.0);
+    let mut air_lp = Lp::new(3_200.0);
+    let mut air_hp = Lp::new(900.0);
+    let mut motor = Lp::new(520.0);
+    let mut phase = 0.0f32;
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let u = (t - BY) / 0.33;
+            let near = (-u * u).exp();
+            // Higher coming, lower going: ±9 %, the turn quick as it's alongside.
+            let doppler = 1.0 - 0.09 * ((t - BY) / 0.12).tanh();
+            phase = (phase + 88.0 * doppler / SR).fract();
+            let x = r.noise();
+            let tyres = roar.run(x);
+            let tyres = tyres - roar_hp.run(tyres);
+            let a = air_lp.run(x);
+            let air = (a - air_hp.run(a)) * near * near;
+            let note = motor.run(saw(phase) + 0.5 * saw(phase * 2.0));
+            (tyres * 2.2 * near + air * 0.6 + note * 0.35 * near) * edges(i, n)
+        })
+        .collect()
+}
+
+/// A lift's ride: the car's motor settling as it slows into the floor, the rails' rumble, a
+/// clunk as it stops, the chime and the doors drawing open.
+fn lift_ride(r: &mut Rng) -> Vec<f32> {
+    const RIDE: f32 = 1.6;
+    let n = samples(RIDE);
+    let mut rumble = Lp::new(180.0);
+    let mut rumble2 = Lp::new(120.0);
+    let mut whine_lp = Lp::new(1_400.0);
+    let mut phase = 0.0f32;
+    let mut hum = 0.0f32;
+    let mut out: Vec<f32> = (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let x = t / RIDE;
+            // Slowing: the whine falls as the motor eases off, and dies away into the stop.
+            phase = (phase + (430.0 - 170.0 * x) / SR).fract();
+            hum = (hum + 50.0 / SR).fract();
+            let whine = whine_lp.run(saw(phase)) * 0.25 + (TAU * hum).sin() * 0.35;
+            let rails = rumble2.run(rumble.run(r.noise()) * 3.0) * 3.0;
+            let env = attack(t, 0.2) * (1.0 - x).max(0.0).powf(0.7);
+            (whine + rails) * env
+        })
+        .collect();
+    mix_in(&mut out, &impact(r, 0.3, 68.0, 0.08, 0.02, 1_200.0, 120.0), samples(RIDE - 0.1), 0.7);
+    mix_in(&mut out, &chime(&[(659.25, 0.0, 0.5), (987.77, 0.14, 0.75)]), samples(RIDE + 0.05), 0.5);
+    let mut doors = whoosh(r, 0.7, 1_100.0, 380.0);
+    for v in &mut doors {
+        *v *= 0.35;
+    }
+    mix_in(&mut out, &doors, samples(RIDE + 0.25), 1.0);
+    let n = out.len();
+    for (i, v) in out.iter_mut().enumerate() {
+        *v *= edges(i, n);
+    }
+    out
+}
+
+/// Bed samples at [`BED_RATE`].
+fn bed_samples(secs: f32) -> usize {
+    (secs * BR).round().max(1.0) as usize
+}
+
+/// The town's traffic, as a bed: a low roar of tyres on the roads round about, its hiss on top,
+/// each swelling and easing as the traffic does. The swells are whole cycles of the loop (Gates'
+/// `bed()`), so the seam joins two stretches of noise at the same level, not a jump.
+fn traffic_bed(r: &mut Rng) -> Vec<f32> {
+    const LOOP: f32 = 9.0;
+    const FADE: f32 = 1.5;
+    let f0 = 1.0 / LOOP;
+    let mut brown = 0.0f32;
+    let mut roar = Lp::at_rate(320.0, BR);
+    let mut roar2 = Lp::at_rate(170.0, BR);
+    let mut roar_hp = Lp::at_rate(30.0, BR);
+    let mut hiss_lp = Lp::at_rate(2_600.0, BR);
+    let mut hiss_hp = Lp::at_rate(650.0, BR);
+    let mut swell = (1.0f32, 1.0f32);
+    let raw: Vec<f32> = (0..bed_samples(LOOP + FADE))
+        .map(|i| {
+            let t = i as f32 / BR;
+            if i % 32 == 0 {
+                swell = (
+                    0.72 + 0.18 * (TAU * f0 * t).sin() + 0.1 * (TAU * 3.0 * f0 * t + 1.1).sin(),
+                    0.6 + 0.25 * (TAU * 2.0 * f0 * t + 2.3).sin() + 0.15 * (TAU * 5.0 * f0 * t + 0.4).sin(),
+                );
+            }
+            let x = r.noise();
+            brown = (brown + x * 0.05) * 0.995;
+            let low = roar2.run(roar.run(brown));
+            let low = low - roar_hp.run(low);
+            let h = hiss_lp.run(x);
+            let hiss = h - hiss_hp.run(h);
+            low * 6.0 * swell.0 + hiss * 0.3 * swell.1
+        })
+        .collect();
+    loop_seam(raw, bed_samples(FADE))
+}
+
+/// The voices a vowel is shaped by: its first two formants, Hz.
+const VOWELS: [(f32, f32); 6] =
+    [(730.0, 1_090.0), (530.0, 1_840.0), (270.0, 2_290.0), (570.0, 840.0), (300.0, 870.0), (640.0, 1_190.0)];
+
+/// The town's people, as a bed: a murmur of a few voices talking, none of them words. Each speaks
+/// in phrases of syllables (a buzz through two formants, a vowel each syllable) with pauses
+/// between, at its own pitch and distance; a little air under them.
+fn crowd_bed(r: &mut Rng) -> Vec<f32> {
+    const LOOP: f32 = 7.0;
+    const FADE: f32 = 1.0;
+    const VOICES: usize = 7;
+    let n = bed_samples(LOOP + FADE);
+    let mut out = vec![0.0f32; n];
+    for v in 0..VOICES {
+        let pitch = 95.0 + 140.0 * r.unit();
+        let level = 0.35 + 0.65 * r.unit() * if v < 2 { 1.0 } else { 0.6 };
+        let mut src = Lp::at_rate(1_100.0, BR);
+        let mut phase = r.unit();
+        // Where its next syllable starts, samples.
+        let mut at = (r.unit() * 0.8 * BR) as usize;
+        while at < n {
+            // A phrase of a few syllables, then a pause.
+            let syllables = 3 + (r.unit() * 7.0) as u32;
+            for _ in 0..syllables {
+                let len = bed_samples(0.11 + 0.17 * r.unit());
+                let amp = level * (0.55 + 0.45 * r.unit());
+                let (f1, f2) = VOWELS[(r.unit() * VOWELS.len() as f32) as usize % VOWELS.len()];
+                let mut res1 = Reso::new(f1 * (0.9 + 0.2 * r.unit()), 6.0, BR);
+                let mut res2 = Reso::new(f2 * (0.9 + 0.2 * r.unit()), 9.0, BR);
+                let glide = 0.12 * r.noise();
+                for k in 0..len.min(n.saturating_sub(at)) {
+                    let u = k as f32 / len as f32;
+                    phase = (phase + pitch * (1.0 + glide * u) / BR).fract();
+                    let buzz = src.run(saw(phase)) + r.noise() * 0.08;
+                    // A syllable swells and falls: no clicks where the vowel changes.
+                    let env = 4.0 * u * (1.0 - u);
+                    out[at + k] += (res1.run(buzz) + 0.6 * res2.run(buzz)) * env * amp;
+                }
+                at += len;
+            }
+            at += bed_samples(0.25 + 0.75 * r.unit());
+        }
+    }
+    // Across a square: a little air, and the edge taken off.
+    let mut air = Lp::at_rate(400.0, BR);
+    let mut far = Lp::at_rate(2_400.0, BR);
+    for v in out.iter_mut() {
+        *v = far.run(*v) + air.run(r.noise()) * 0.05;
+    }
+    loop_seam(out, bed_samples(FADE))
+}
+
+/// The car's motor at its own pace (the street's playback rate drives it with speed): a growl on
+/// a 45 Hz firing note with its harmonics, a sub under it, a faint electric whine and the
+/// intake's breath, through a low-pass. Every note is whole cycles of the 2 s loop, and the
+/// filters run a lap before the one kept, so it goes round without a seam.
+fn car_engine(r: &mut Rng) -> Vec<f32> {
+    const LOOP: f32 = 2.0;
+    let n = bed_samples(LOOP);
+    let fade = bed_samples(0.4);
+    let breath = loop_seam((0..n + fade).map(|_| r.noise()).collect(), fade);
+    let tone: Vec<f32> = (0..n)
+        .map(|i| {
+            let t = i as f32 / BR;
+            let firing = 0.7 + 0.3 * (TAU * 45.0 * t).sin();
+            let growl = saw(45.0 * t) * 0.55 + saw(90.0 * t + 0.3) * 0.22 + (TAU * 22.5 * t).sin() * 0.35;
+            let whine = (TAU * 360.0 * t).sin() * 0.05;
+            (growl + breath[i] * 0.25) * firing + whine
+        })
+        .collect();
+    let mut lp = Lp::at_rate(650.0, BR);
+    let mut lp2 = Lp::at_rate(420.0, BR);
+    let mut out = vec![0.0f32; n];
+    for lap in 0..2 {
+        for (i, x) in tone.iter().enumerate() {
+            let y = lp2.run(lp.run(*x));
+            if lap == 1 {
+                out[i] = y;
+            }
+        }
+    }
+    out
+}
+
+/// The bay's machinery: the air handlers' fans (their blades' beat in the noise), the mains hum
+/// and the deep note of the ring's own works. The notes and the beat are whole cycles of the loop;
+/// only the noise is crossfaded at its seam.
+fn bay_hum(r: &mut Rng) -> Vec<f32> {
+    const LOOP: f32 = 6.0;
+    const FADE: f32 = 1.0;
+    let n = bed_samples(LOOP);
+    let mut fan_lp = Lp::at_rate(1_100.0, BR);
+    let mut fan_hp = Lp::at_rate(90.0, BR);
+    let mut hiss_hp = Lp::at_rate(3_000.0, BR);
+    let raw = (0..bed_samples(LOOP + FADE))
+        .map(|_| {
+            let x = r.noise();
+            let f = fan_lp.run(x);
+            (f - fan_hp.run(f)) * 1.4 + (x - hiss_hp.run(x)) * 0.05
+        })
+        .collect();
+    let fans = loop_seam(raw, bed_samples(FADE));
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / BR;
+            let beat = 0.85 + 0.15 * (TAU * 14.0 * t).sin();
+            let mains = (TAU * 60.0 * t).sin() * 0.3
+                + (TAU * 120.0 * t).sin() * 0.14
+                + (TAU * 180.0 * t).sin() * 0.05;
+            let works = (TAU * 31.0 * t).sin() * 0.18;
+            fans[i] * beat + mains + works
+        })
+        .collect()
+}
+
+// --- Fights on foot: a blow, a fall, a pilot downed (named for whoever sounds them). ---
+
+/// A blow landing: a slap on top and a dull thud under it.
+fn blow(r: &mut Rng) -> Vec<f32> {
+    let mut out = impact(r, 0.28, 92.0, 0.05, 0.007, 4_500.0, 1_100.0);
+    mix_in(&mut out, &boom(r, 0.25, 58.0, 0.06), 0, 0.6);
+    let n = out.len();
+    for (i, v) in out.iter_mut().enumerate() {
+        *v *= edges(i, n);
+    }
+    out
+}
+
+/// A body hitting the floor: a heavy thud, the slap of limbs, a smaller bounce and a scuff.
+fn fall(r: &mut Rng) -> Vec<f32> {
+    let mut out = impact(r, 0.45, 68.0, 0.1, 0.02, 1_600.0, 110.0);
+    mix_in(&mut out, &impact(r, 0.12, 240.0, 0.02, 0.008, 5_000.0, 1_200.0), samples(0.035), 0.5);
+    mix_in(&mut out, &impact(r, 0.25, 84.0, 0.06, 0.015, 1_400.0, 120.0), samples(0.17), 0.4);
+    let mut scuff = whoosh(r, 0.3, 1_300.0, 550.0);
+    for v in &mut scuff {
+        *v *= 0.3;
+    }
+    mix_in(&mut out, &scuff, samples(0.2), 1.0);
+    let n = out.len();
+    for (i, v) in out.iter_mut().enumerate() {
+        *v *= edges(i, n);
+    }
+    out
+}
+
+/// The pilot's own, downed: they hit the floor, and their ears ring.
+fn downed(r: &mut Rng) -> Vec<f32> {
+    let mut out = fall(r);
+    mix_in(&mut out, &boom(r, 0.9, 44.0, 0.25), 0, 0.5);
+    let ring: Vec<f32> = (0..samples(2.0))
+        .map(|i| {
+            let t = i as f32 / SR;
+            let tone = (TAU * 3_150.0 * t).sin() + 0.3 * (TAU * 3_163.0 * t).sin();
+            tone * attack(t, 0.12) * (-t / 0.8).exp() * 0.3
+        })
+        .collect();
+    mix_in(&mut out, &ring, samples(0.04), 1.0);
+    let n = out.len();
+    for (i, v) in out.iter_mut().enumerate() {
+        *v *= edges(i, n);
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------------------------
 // Primitives.
 // ---------------------------------------------------------------------------------------------
@@ -965,6 +1305,29 @@ impl Lp {
     pub(crate) fn run(&mut self, x: f32) -> f32 {
         self.y += self.a * (x - self.y);
         self.y
+    }
+}
+
+/// A two-pole resonator: a band `q` wide about `hz` (a formant, a panel's ring).
+pub(crate) struct Reso {
+    b0: f32,
+    a1: f32,
+    a2: f32,
+    y1: f32,
+    y2: f32,
+}
+
+impl Reso {
+    pub(crate) fn new(hz: f32, q: f32, rate: f32) -> Self {
+        let r = (-PI * hz / q.max(0.1) / rate).exp();
+        Self { b0: 1.0 - r, a1: 2.0 * r * (TAU * hz / rate).cos(), a2: -r * r, y1: 0.0, y2: 0.0 }
+    }
+
+    pub(crate) fn run(&mut self, x: f32) -> f32 {
+        let y = self.b0 * x + self.a1 * self.y1 + self.a2 * self.y2;
+        self.y2 = self.y1;
+        self.y1 = y;
+        y
     }
 }
 
@@ -1102,5 +1465,33 @@ mod tests {
         for cue in [Cue::BeamRifle, Cue::Explosion, Cue::ThrusterLoop] {
             assert_eq!(render(cue), render(cue));
         }
+    }
+
+    /// The street's cues are built in the first frames (a new pilot wakes in the town), one whole
+    /// cue between two frames' budgets: none may cost much more than the cockpit's hum already
+    /// does (about 10 ms native, the slowest of them the crowd's; `examples/cost.rs` lists them
+    /// all). Timed only optimised, with room for a busy machine.
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn the_streets_cues_are_cheap_to_build() {
+        // What a cue costs at boot is the sound it renders, so that's what's held: each the length
+        // of a short loop at most, and all of them less than the cockpit's few loops together. (Not
+        // a stopwatch: a loaded machine would fail it for nothing.)
+        let mut total = 0;
+        for cue in [
+            Cue::StreetStep,
+            Cue::CarDoor,
+            Cue::CarPass,
+            Cue::LiftRide,
+            Cue::TrafficBed,
+            Cue::CrowdBed,
+            Cue::CarEngine,
+            Cue::BayHum,
+        ] {
+            let n = render(cue).len();
+            assert!(n <= 5 * crate::SAMPLE_RATE as usize, "{cue:?} renders {n} samples");
+            total += n;
+        }
+        assert!(total <= 20 * crate::SAMPLE_RATE as usize, "the street renders {total} samples");
     }
 }

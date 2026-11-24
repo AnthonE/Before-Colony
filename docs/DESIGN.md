@@ -1575,6 +1575,15 @@ reactor going dark and powering up, and, through the rock, the footsteps of anyo
 same body within 500 m, so hunter and hider can hear each other. There's no air in space, so it's
 the cockpit's sound: the suit's own machinery, and the world as the sensors render it, quieter with
 distance and gone beyond each cue's range. A blackout muffles everything.
+On foot, in the ring's air, it's the street's (`bc_sound::street`): the pilot's steps, one each
+stride of ground covered (a run lengthens the stride more than it quickens it); the town's traffic
+and its crowd as beds, as loud as what's near (the cars within 120 m, the nearer and the faster the
+more, a jam idling; the people within 30 m, those standing about more than those walking past),
+never quite silent down there; a car's engine rising with its speed, its door as the pilot gets in
+and out, and the traffic's cars going by within 6 m; a lift's ride as it comes in (not on waking
+where they left the town); and the bay's air handlers and mains hum, fainter on Bay Row. It all
+sits under the cockpit's level. A blow landing, a body falling and a pilot downed on foot are in
+the bank for the fights on foot to sound; nothing plays them yet.
 The browser plays it through Web Audio; volumes are settings (master, weapons, cockpit, music).
 `cargo run -p bc-sound --release --example reel -- reel.wav` writes a reel to listen to.
 

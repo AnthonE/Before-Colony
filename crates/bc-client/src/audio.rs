@@ -1,7 +1,8 @@
 //! Sound, through the browser's Web Audio. The bank (`bc_sound::synth`) is rendered into
 //! AudioBuffers a few cues a frame from boot; each frame the mixer (`bc_sound::mixer`) picks the
 //! one-shots to start, the cockpit model (`bc_sound::cockpit`) sets the engine loops and alarms,
-//! and the music director (`bc_sound::music`) crossfades the score.
+//! the street's (`bc_sound::street`) the town's beds, a car's engine, the bay's hum and the
+//! pilot's steps on foot, and the music director (`bc_sound::music`) crossfades the score.
 //!
 //! The AudioContext is made here, at the bank's 48 kHz (what the browser's Opus decodes to, for
 //! proximity voice), and left on the page as `window.bcAudio`, where `web/ui.js` resumes it on the
@@ -19,6 +20,7 @@ use bc_sim::content::{SpecialKind, WeaponClass, frame, weapon};
 use bc_sound::cockpit::{Cockpit, CockpitIn};
 use bc_sound::mixer::{Listener, Mixer, Request, STARTS_PER_FRAME, Start};
 use bc_sound::music::{Director, MusicIn};
+use bc_sound::street::{PASS_CLEAR, Street, StreetIn};
 use bc_sound::{CUE_COUNT, Cue, Mix};
 use bevy::prelude::*;
 use wasm_bindgen::JsValue;
@@ -39,10 +41,20 @@ const VOICES: usize = 24;
 /// How long bank building may take per frame, ms (the first frames, on the title screen).
 const BUILD_BUDGET_MS: f64 = 6.0;
 
-/// The order the bank is built in: what the title and the first seconds need, first.
+/// The order the bank is built in: what the title and the first seconds need, first (a new pilot
+/// wakes on the street, in the ring's town: its beds and their steps).
 fn build_order() -> Vec<Cue> {
-    let first =
-        [Cue::UiClick, Cue::UiConfirm, Cue::MusicTitle, Cue::CockpitHum, Cue::ThrusterLoop, Cue::Launch];
+    let first = [
+        Cue::UiClick,
+        Cue::UiConfirm,
+        Cue::MusicTitle,
+        Cue::TrafficBed,
+        Cue::CrowdBed,
+        Cue::StreetStep,
+        Cue::CockpitHum,
+        Cue::ThrusterLoop,
+        Cue::Launch,
+    ];
     let mut order: Vec<Cue> = first.to_vec();
     order.extend(Cue::ALL.iter().copied().filter(|c| !first.contains(c)));
     order
@@ -226,8 +238,11 @@ pub struct Sound {
     own_saber: bool,
     /// Each suit's footfalls so far (its walk's), as of last frame.
     steps: HashMap<u16, u32>,
-    /// Counters for the dev hooks.
+    /// On foot: the town, a car, the lifts, the bay.
+    street: Street,
+    /// Counters for the dev hooks: voices started, and the pilot's own steps on foot.
     pub started: u32,
+    pub street_steps: u32,
 }
 
 pub struct AudioPlugin;
@@ -332,7 +347,7 @@ pub fn build_bank(audio: Option<NonSendMut<WebAudio>>) {
 }
 
 /// Once a frame, after the camera moves and before the effects drain the events.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn play_sound(
     audio: Option<NonSendMut<WebAudio>>,
     mut sound: ResMut<Sound>,
@@ -343,7 +358,14 @@ pub fn play_sound(
     game: NonSend<GameClient>,
     drives: Query<(&crate::view::SuitDrive, Option<&crate::anim::Anim>)>,
     camera: Query<&GlobalTransform, With<MainCamera>>,
-    (city, origin): (Res<crate::city::CityView>, Res<crate::city::RenderOrigin>),
+    (city, origin, town_at, town_cars, crowd, clock): (
+        Res<crate::city::CityView>,
+        Res<crate::city::RenderOrigin>,
+        Res<crate::town::TownAt>,
+        Res<crate::town::TownCars>,
+        Res<crate::people::Crowd>,
+        Res<crate::trams::TramClock>,
+    ),
     time: Res<Time<Real>>,
     indoors: Res<crate::hangar::Indoors>,
     onfoot: Res<crate::onfoot::OnFoot>,
@@ -506,6 +528,73 @@ pub fn play_sound(
             sound.mixer.request(Request::own(Cue::AirlockHiss));
         }
     }
+
+    // On foot: the town's traffic and people near, a car driven and those going by, the lifts,
+    // the bay's machinery, and the pilot's own steps.
+    let place = game.borrow().core.hangar.place;
+    let playing = ui.playing();
+    let town = onfoot.town.as_ref().filter(|_| playing && place == Some(bc_econ::wire::Place::Town));
+    let at = town.map(|t| t.feet());
+    let wheel = town.and_then(|t| t.drive.as_ref());
+    let feet = onfoot.feet_down().filter(|_| playing);
+    let sin = StreetIn {
+        in_town: town.is_some(),
+        in_bay: playing && indoors.0 && place == Some(bc_econ::wire::Place::Hangar),
+        on_deck: playing && place == Some(bc_econ::wire::Place::Base),
+        feet: feet.map(|(f, _)| f.to_array()),
+        grounded: feet.is_some_and(|(_, g)| g),
+        driving: wheel.is_some(),
+        speed: wheel.map_or(0.0, |v| v.speed),
+        traffic: at.map_or(0.0, |at| bc_client_core::town::traffic_near(at, &town_cars.traffic)),
+        crowd: at.map_or(0.0, |at| {
+            let others: f32 = crowd
+                .0
+                .iter()
+                .filter(|(_, _, p)| p.strip == bc_proto::presence::RING_DECK && !p.driving())
+                .map(|(_, _, p)| {
+                    let ds = bc_sim::colony::deck::round_from(bc_sim::colony::deck::RING, at.s, p.s);
+                    bc_client_core::town::crowd_weight((p.x - at.x).hypot(ds))
+                })
+                .sum();
+            bc_client_core::town::crowd_near(at, (clock.0, clock.1), others)
+        }),
+        rides: onfoot.rides(),
+    };
+    if let Some(at) = at {
+        for c in &town_cars.traffic {
+            let ds = bc_sim::colony::deck::round_from(bc_sim::colony::deck::RING, at.s, c.s);
+            let dist = (c.car.x - at.x).hypot(ds);
+            // (Each near is asked about every frame; one gone past is forgotten.)
+            if dist > PASS_CLEAR * 2.0 {
+                continue;
+            }
+            if let Some(gain) = sound.street.car(now, c.car.id, dist, c.car.speed) {
+                let (pos, _) = bc_client_core::town_mesh::seen_from(town_at.s, c.car.x, c.s, 0.6);
+                sound.mixer.request(Request { gain, ..Request::at(Cue::CarPass, v3(pos)) });
+            }
+        }
+    }
+    let (mixer, steps) = (&mut sound.mixer, &mut sound.street_steps);
+    let street = sound.street.frame(now, &sin, &mut |c, gain| {
+        *steps += u32::from(c == Cue::StreetStep);
+        mixer.request(Request { gain, ..Request::own(c) });
+    });
+    // (`window.__bc.audio_street`: the street's loops heard, by name.)
+    let mut heard: Vec<&str> = Vec::new();
+    for l in street.loops {
+        let bus = mix.bus(l.cue.def().bus) * mix.master;
+        audio.set_loop(l.cue, l.gain * l.cue.def().gain * bus, l.rate);
+        if l.gain > 0.01 {
+            heard.push(match l.cue {
+                Cue::TrafficBed => "traffic",
+                Cue::CrowdBed => "crowd",
+                Cue::CarEngine => "engine",
+                _ => "bay",
+            });
+        }
+    }
+    dev.set("audio_street", heard.join(" "));
+    dev.set("audio_steps", sound.street_steps);
 
     // The cockpit (not while the view is in the bay).
     let cin = cockpit_in(&game, ui.playing() && !indoors.0, own_steps);

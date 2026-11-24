@@ -1,20 +1,22 @@
 //! Before Colony's sound. Every cue is synthesised at boot from arithmetic ([`synth`]); there are
 //! no audio assets. The [`mixer`] picks which of a frame's requests get a voice and where they sit
 //! in the stereo field, [`cockpit`] turns the pilot's state into engine loops, lock tones and
-//! alarms, and [`music`] follows the fight. The title theme ([`title`]) plays on the Super
-//! Famicom's sound chip, in software ([`spc`]).
+//! alarms, [`street`] does the same on foot (the ring's town, a car, the lifts, the bay), and
+//! [`music`] follows the fight. The title theme ([`title`]) plays on the Super Famicom's sound
+//! chip, in software ([`spc`]).
 //!
 //! Pure Rust: no Bevy, no clock, no I/O. The browser client plays what this decides through Web
 //! Audio (`bc-client/src/audio.rs`), and every rule here is a native test.
 //!
 //! **Sound in space.** There's no air to carry it, so what the pilot hears is the cockpit's: the
 //! suit's own machinery through its frame, and everything else as the sensors render it, quieter
-//! with distance and gone past a cue's radius.
+//! with distance and gone past a cue's radius. On foot, in the ring's air, it's the street's.
 
 pub mod cockpit;
 pub mod mixer;
 pub mod music;
 pub mod spc;
+pub mod street;
 pub mod synth;
 pub mod title;
 
@@ -145,10 +147,27 @@ cues!(
     PushOff,
     GoDark,
     PowerUp,
-    // A suit's radio (proximity voice in space; last, so every cue before keeps its seed): its
+    // A suit's radio (proximity voice in space; after the bodies', so every cue before keeps its seed): its
     // squelch opening as a transmission comes in or the pilot keys it, and closing as it ends.
     RadioOpen,
     RadioClose,
+    // On foot, in the ring's town and the bay (after the bodies' and the radio's, so every cue before
+    // keeps its number and its seed): a shoe on the paving, a car's door, a car going by, a lift's ride; the
+    // street's beds, the car's engine and the bay's machinery ([`street`]). Then, for fights on
+    // foot, named for whoever sounds them: a blow landing and a body hitting the floor, where
+    // they happen (`Request::at`, or `Request::own` for the pilot's own), and the pilot's own
+    // downed (the floor, and their ears ringing).
+    StreetStep,
+    CarDoor,
+    CarPass,
+    LiftRide,
+    TrafficBed,
+    CrowdBed,
+    CarEngine,
+    BayHum,
+    Blow,
+    Fall,
+    Downed,
 );
 
 /// How many cues there are.
@@ -245,21 +264,35 @@ impl Cue {
             Cue::PowerUp => def(Cockpit, 8, 0.0, 1.0, 0.5, 0.0),
             Cue::RadioOpen => def(Cockpit, 6, 0.0, 0.08, 0.3, 0.03),
             Cue::RadioClose => def(Cockpit, 6, 0.0, 0.08, 0.35, 0.03),
+            // On foot: quieter than the suit's, and the beds under the cockpit's loops
+            // (`street`'s tests hold them there).
+            Cue::StreetStep => def(Effects, 3, 0.0, street::STEP_GAP, 0.3, 0.12),
+            Cue::CarDoor => def(Effects, 6, 0.0, 0.3, 0.45, 0.05),
+            Cue::CarPass => def(Effects, 4, street::PASS_RADIUS, 0.12, 0.45, 0.1),
+            Cue::LiftRide => def(Effects, 6, 0.0, 1.0, 0.35, 0.0),
+            Cue::TrafficBed => looped(Effects, 0.2),
+            Cue::CrowdBed => looped(Effects, 0.18),
+            Cue::CarEngine => looped(Cockpit, 0.26),
+            Cue::BayHum => looped(Effects, 0.12),
+            Cue::Blow => def(Effects, 7, street::BRAWL_RADIUS, 0.06, 0.6, 0.08),
+            Cue::Fall => def(Effects, 6, street::BRAWL_RADIUS, 0.12, 0.55, 0.06),
+            Cue::Downed => def(Effects, 9, 0.0, 1.0, 0.6, 0.0),
         }
     }
 
-    /// The loops, in [`cockpit::Loops`] order.
+    /// Every loop: [`cockpit::LOOPS`], the music's, then [`street::LOOPS`].
     pub fn loops() -> impl Iterator<Item = Cue> {
         Cue::ALL.iter().copied().filter(|c| c.def().looped)
     }
 }
 
-/// The sample rate a cue is rendered at: [`SAMPLE_RATE`], the score's lower one, or the sound
-/// chip's for the title theme.
+/// The sample rate a cue is rendered at: [`SAMPLE_RATE`], the score's lower one, the sound chip's
+/// for the title theme, or the street's beds' ([`synth::BED_RATE`]).
 pub fn sample_rate(cue: Cue) -> u32 {
     match cue {
         Cue::MusicCalm | Cue::MusicCombat => music::MUSIC_RATE,
         Cue::MusicTitle => spc::RATE,
+        Cue::TrafficBed | Cue::CrowdBed | Cue::CarEngine | Cue::BayHum => synth::BED_RATE,
         _ => SAMPLE_RATE,
     }
 }
@@ -333,7 +366,7 @@ mod tests {
             assert!(d.gain > 0.0 && d.gain <= 1.0, "{c:?}");
             assert!(d.pitch_var >= 0.0 && d.pitch_var < 0.3, "{c:?}");
             if d.looped {
-                assert_eq!(d.radius, 0.0, "{c:?}: loops are the cockpit's or the music's");
+                assert_eq!(d.radius, 0.0, "{c:?}: loops are the cockpit's, the music's or the street's");
             }
         }
     }

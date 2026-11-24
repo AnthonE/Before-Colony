@@ -657,6 +657,49 @@ pub fn route(spot: &str, from: Vec3) -> Option<(Vec<Vec3>, Vec3)> {
     }
 }
 
+/// How far off the town's traffic is heard over its bed, and its people over theirs, m.
+pub const TRAFFIC_HEARD: f32 = 120.0;
+pub const CROWD_HEARD: f32 = 30.0;
+
+/// How much of the town's traffic a pilot at `at` hears, 0..1 (the street's bed,
+/// `bc_sound::street`): each car of `traffic` within [`TRAFFIC_HEARD`] m, the nearer and the
+/// faster the more (a jam idles), the sum easing towards 1 as the roads fill.
+pub fn traffic_near(at: DeckPos, traffic: &[crate::traffic::Shown]) -> f32 {
+    let sum: f32 = traffic
+        .iter()
+        .map(|c| {
+            let d = (c.car.x - at.x).hypot(deck::round_from(RING, at.s, c.s));
+            if d > TRAFFIC_HEARD {
+                return 0.0;
+            }
+            let fade = 1.0 - d / TRAFFIC_HEARD;
+            (c.car.speed / 15.0).clamp(0.0, 1.0) * fade / (1.0 + d / 12.0)
+        })
+        .sum();
+    sum / (sum + 1.2)
+}
+
+/// How many of the town's people a pilot at `at` hears at `tick` plus `frac`, 0..1 (the crowd's
+/// bed): the closed form's within [`CROWD_HEARD`] m (those standing about talk; those walking
+/// past, less), the nearer the more, and `others` more (other pilots near, weighed alike), the sum
+/// easing towards 1 as a square fills.
+pub fn crowd_near(at: DeckPos, (tick, frac): (u32, f32), others: f32) -> f32 {
+    let r = CROWD_HEARD;
+    let mut sum = others.max(0.0);
+    let t = town::town_t(at.s);
+    bc_sim::colony::street::each_person(at.x - r, at.x + r, t - r, t + r, tick, frac, &mut |p| {
+        let d = (p.x - at.x).hypot(p.t - t);
+        let talks = if p.pose == bc_sim::colony::street::Pose::Stand { 1.0 } else { 0.6 };
+        sum += talks * crowd_weight(d);
+    });
+    sum / (sum + 3.0)
+}
+
+/// How much another person `d` m off adds to [`crowd_near`]'s `others`.
+pub fn crowd_weight(d: f32) -> f32 {
+    if d > CROWD_HEARD { 0.0 } else { (1.0 - d / CROWD_HEARD) / (1.0 + d / 6.0) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1057,5 +1100,45 @@ mod tests {
         let (far, _) = way_to_lift(DeckPos::new(RING, x, town::deck_s(t), 0.0), 0.0, Some(1));
         assert!((far - town::ROUND / 6.0).abs() < 1.0, "a gate to the next: {far} m");
         assert_eq!((town::lift_name(0), town::lift_name(1)), ("HUB GATE", "TOWER HILL"));
+    }
+
+    #[test]
+    fn the_street_is_heard_by_whats_near() {
+        use crate::traffic::Shown;
+        use bc_sim::colony::street::{Car, Kind as CarKind};
+        let at = DeckPos::new(RING, -40.0, 500.0, 0.0);
+        let car = |x: f32, s: f32, speed: f32| Shown {
+            car: Car { id: 1, x, t: 0.0, yaw: 0.0, speed, kind: CarKind::Car, seed: 0 },
+            s,
+        };
+        assert_eq!(traffic_near(at, &[]), 0.0);
+        let one = traffic_near(at, &[car(-35.0, 505.0, 15.0)]);
+        assert!(one > 0.2 && one < 0.6, "{one}");
+        // Stopped, it idles; far off, it's not heard; across the ring's seam it is.
+        assert_eq!(traffic_near(at, &[car(-35.0, 505.0, 0.0)]), 0.0);
+        assert_eq!(traffic_near(at, &[car(-35.0, 500.0 + TRAFFIC_HEARD + 5.0, 15.0)]), 0.0);
+        let seam = DeckPos::new(RING, -40.0, round() - 2.0, 0.0);
+        assert!(traffic_near(seam, &[car(-35.0, 3.0, 15.0)]) > 0.2);
+        // A busy road is louder, and never past 1.
+        let busy: Vec<Shown> =
+            (0..30).map(|k| car(-30.0 + (k % 6) as f32 * 3.0, 450.0 + k as f32 * 4.0, 17.0)).collect();
+        let loud = traffic_near(at, &busy);
+        assert!(loud > one && loud < 1.0, "{loud}");
+
+        // The people: beside the blocks, and nobody in the boulevard's middle (its median is
+        // farther from them than they're heard).
+        let (mut beside, mut middle) = (0.0f32, 0.0f32);
+        for k in 0..60 {
+            let s = 200.0 + k as f32 * 40.0;
+            beside = beside.max(crowd_near(DeckPos::new(RING, -40.0, s, 0.0), (1_000, 0.0), 0.0));
+            middle = middle.max(crowd_near(DeckPos::new(RING, 0.0, s, 0.0), (1_000, 0.0), 0.0));
+        }
+        assert!(beside > 0.1 && middle < beside, "{beside} beside the blocks, {middle} in the middle");
+        // Others near add to it; the level stays under 1.
+        let here = DeckPos::new(RING, 0.0, 300.0, 0.0);
+        let alone = crowd_near(here, (1_000, 0.0), 0.0);
+        let with = crowd_near(here, (1_000, 0.0), 6.0 * crowd_weight(3.0));
+        assert!(with > alone && with < 1.0);
+        assert_eq!(crowd_weight(CROWD_HEARD + 1.0), 0.0);
     }
 }
