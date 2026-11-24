@@ -12,6 +12,7 @@
 // (`/status`'s `json!` is deep.)
 #![recursion_limit = "256"]
 
+pub mod brawl;
 pub mod bugs;
 pub mod charter;
 pub mod config;

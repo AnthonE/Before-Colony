@@ -162,6 +162,8 @@ pub struct GameShared {
     pub street: Arc<crate::street::Street>,
     /// Every pilot's heat, and the incidents the Watch is answering in the town (`crate::watch`).
     pub watch: Arc<crate::watch::Watch>,
+    /// Every pilot's health and fight on foot (`crate::brawl`).
+    pub brawl: Arc<crate::brawl::Brawls>,
     /// The Watch's units, out of its stations by road (`crate::dispatch`).
     pub dispatch: Arc<crate::dispatch::Dispatch>,
     /// The dev hooks are on (`Config::dev_hooks`): the dev HTTP's `/dev/incident`.
@@ -357,6 +359,7 @@ pub struct StatusView {
     plaza: Arc<crate::plaza::Plaza>,
     street: Arc<crate::street::Street>,
     watch: Arc<crate::watch::Watch>,
+    brawl: Arc<crate::brawl::Brawls>,
     dispatch: Arc<crate::dispatch::Dispatch>,
     anime: bool,
     pvp: bool,
@@ -495,6 +498,7 @@ impl GameRuntime {
         let homes =
             Arc::new(crate::homes::HomeRegister::open(cfg.data_dir.as_ref().map(|d| d.join("homes.json"))));
         let watch = Arc::new(crate::watch::Watch::default());
+        let brawl = Arc::new(crate::brawl::Brawls::default());
         let game = GameShared {
             sector: shared,
             egress: queue,
@@ -517,10 +521,13 @@ impl GameRuntime {
             town_start: survival && cfg.start == crate::config::Start::Town,
             street: Arc::new(crate::street::Street::default()),
             watch: watch.clone(),
+            brawl: brawl.clone(),
             dispatch: Arc::new(crate::dispatch::Dispatch::default()),
             dev_hooks: cfg.dev_hooks,
             inside,
-            plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone()).with_watch(watch)),
+            plaza: Arc::new(
+                crate::plaza::Plaza::with_homes(homes.clone()).with_watch(watch).with_brawl(brawl),
+            ),
             anime: cfg.flight == Flight::Anime,
             pvp: cfg.pvp_on(),
             market,
@@ -625,6 +632,7 @@ impl GameRuntime {
             plaza: self.shared.plaza.clone(),
             street: self.shared.street.clone(),
             watch: self.shared.watch.clone(),
+            brawl: self.shared.brawl.clone(),
             dispatch: self.shared.dispatch.clone(),
             anime: self.shared.anime,
             pvp: self.shared.pvp,
@@ -955,6 +963,15 @@ impl StatusView {
         });
         // Proximity voice: frames relayed and refused, counted (never who, never what).
         status["voice"] = self.voice.json();
+        // Pilots fighting on foot, anywhere (`crate::brawl`): counts, never who or where.
+        let [blows, downs, outs, helped, refused] = self.brawl.counts();
+        status["brawl"] = serde_json::json!({
+            "blows": blows,
+            "downs": downs,
+            "outs": outs,
+            "helped": helped,
+            "refused": refused,
+        });
         status["sessions"] = sessions;
         status
     }

@@ -17,6 +17,10 @@
 //!   order, posting, patrols, the charter, an ace's terms and a meal, the test range) is done in its
 //!   room (`desk::place_at`), and what the Charter Board pays out (the certificate's rifle, patrols'
 //!   rewards, aces' bounties) is collected in its hall. With the colony shut, the bay does it all.
+//! - **On foot, open season** (survival; `crate::brawl`): a blow thrown at another pilot, a car
+//!   that runs one down and a hand to help one up are judged here from the plaza's poses; a pilot
+//!   knocked out is carried up to their bay, and one who leaves while down wakes there. Their
+//!   health is kept with their body.
 //! - **The pilot's body** (survival): kept on their record (a guest's lasts the visit), it runs on
 //!   the wall clock while they're in the world, and The Arrival's counter feeds them
 //!   (`bc_econ::body`). How fed they are goes to the sector their suit is in (`Control::Fed`), right
@@ -164,6 +168,7 @@ pub(super) async fn run(
         incidents_seen: None,
         watch_news_seen: game.watch.news_seq(),
         units_sent: (Instant::now(), false),
+        hurt_sent: None,
         crowd_sent: (Instant::now(), false),
         homes_near: Vec::new(),
         knocks_heard: game.homes.with(|h| h.knocks_for("", u64::MAX).1),
@@ -265,6 +270,9 @@ struct Session<'a> {
     /// The Watch's units near them (`crate::dispatch`): when they were last sent, and whether any
     /// were.
     units_sent: (Instant, bool),
+    /// Their fight on foot (`crate::brawl`) as last told them: its version, their health, the tick
+    /// they get up at, and who was lifting them.
+    hurt_sent: Option<(u64, u8, Option<u32>, Option<u16>)>,
     /// When the town's people out of its crowd round them were last sent, and whether there were
     /// any (`Update::Crowd`).
     crowd_sent: (Instant, bool),
@@ -531,6 +539,13 @@ impl Session<'_> {
             let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
             self.game.watch.resume(self.id, std::mem::take(&mut r.heat), away, tick);
         }
+        // And how hurt they were on foot: still, healed by the time away (a reconnect heals nothing).
+        {
+            let away = self.record.as_ref().map_or(0, |r| pilots::unix_now().saturating_sub(r.seen_unix));
+            let away = u32::try_from(away.saturating_mul(u64::from(bc_sim::TICK_HZ))).unwrap_or(u32::MAX);
+            let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            self.game.brawl.enter(self.id, self.body.hp(), away, tick);
+        }
         if let Some(r) = self.record.as_mut() {
             // Woken, or gone: either way it's no longer out there asleep (in a hide spot or not).
             r.sleeper = None;
@@ -586,6 +601,7 @@ impl Session<'_> {
             if in_town {
                 self.place = Place::Town;
                 self.game.plaza.enter_town(self.id, &self.callsign);
+                self.arrived();
                 self.named.clear();
             }
             // Asleep in a bed at home when they left: they wake there.
@@ -1317,6 +1333,10 @@ impl Session<'_> {
 
     /// Keeps the record (a signed-in pilot's) in step with the hangar.
     async fn save(&mut self) {
+        if self.entered {
+            let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            self.body.keep_hp(self.game.brawl.hp(self.id, tick));
+        }
         if let Some(r) = self.record.as_mut() {
             if self.game.survival {
                 r.hangar = Some(self.hangar.clone());
@@ -1370,6 +1390,25 @@ impl Session<'_> {
                 _ => return self.note(wire::desk_refusal(kind), false).await,
             }
         }
+        // Down on foot (`crate::brawl`): they go nowhere and take nothing till they're up (a lift, a
+        // car, a fare, a trainer, a home's door, keypad or panel), whatever their client says.
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        if self.game.brawl.is_down(self.id, tick)
+            && (matches!(
+                req,
+                Request::LeaveTown
+                    | Request::RideAcross { .. }
+                    | Request::LeaveCity
+                    | Request::LeaveBase
+                    | Request::TakeParked { .. }
+                    | Request::Jack { .. }
+                    | Request::TakeLeft { .. }
+                    | Request::TakeFare { .. }
+                    | Request::BoardTrainer
+            ) || req.home().is_some())
+        {
+            return self.note("you're down", false).await;
+        }
         if req.home().is_some() {
             return self.home_request(req).await;
         }
@@ -1411,6 +1450,11 @@ impl Session<'_> {
                 }
                 Ok(())
             }
+            Request::Strike { pilot, x_cm, s_cm, yaw_mrad } => {
+                self.strike(pilot, (x_cm, s_cm, yaw_mrad)).await
+            }
+            Request::RunDown { pilot } => self.run_down(pilot).await,
+            Request::Help { pilot, on } => self.help(pilot, on).await,
             Request::TakeFare { person } => {
                 // Stopped by someone standing in a lift's square: a fare, to another gate's.
                 if self.place != Place::Town || self.fare.is_some() {
@@ -1649,6 +1693,7 @@ impl Session<'_> {
         self.place = Place::City;
         self.strip = strip % bc_sim::colony::frame::STRIPS as u8;
         self.game.plaza.enter(self.id, &self.callsign, self.strip);
+        self.arrived();
         self.game.plaza.key(self.id, &self.trader);
         self.homes_near.clear();
         self.named.clear();
@@ -1749,6 +1794,7 @@ impl Session<'_> {
         self.place = Place::City;
         self.strip = home.strip;
         self.game.plaza.enter_at(self.id, &self.callsign, self.strip, up);
+        self.arrived();
         self.game.plaza.key(self.id, &self.trader);
         self.homes_near.clear();
         self.named.clear();
@@ -1763,6 +1809,7 @@ impl Session<'_> {
         let (wake, at) = pilots::town_wake(spot);
         self.place = Place::Town;
         self.game.plaza.enter_at(self.id, &self.callsign, RING_DECK, at);
+        self.arrived();
         self.named.clear();
         tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "woke in the town");
         wake
@@ -1807,6 +1854,7 @@ impl Session<'_> {
         let bay = self.bay;
         self.place = Place::Base;
         self.game.plaza.enter_base(self.id, &self.callsign, bay);
+        self.arrived();
         self.named.clear();
         tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, bay, "out onto Bay Row");
         self.send_place().await?;
@@ -1845,6 +1893,7 @@ impl Session<'_> {
         }
         self.place = Place::Town;
         self.game.plaza.enter_town(self.id, &self.callsign);
+        self.arrived();
         self.named.clear();
         tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "down the spoke to the town");
         self.send_place().await?;
@@ -1897,9 +1946,239 @@ impl Session<'_> {
             bc_proto::presence::RING_DECK,
             (town::deck_s(t), x),
         );
+        self.arrived();
         tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, from, to, "across the hub");
         self.send(&Update::Across { to }).await?;
         self.note(format!("ACROSS THE HUB · DOWN TO {}", town::lift_name(to).to_uppercase()), true).await
+    }
+
+    /// Onto a floor on foot (down a lift, out of an airlock, woken, out of a trainer): nobody can hurt
+    /// them for a moment, unless they strike first (`bc_sim::colony::brawl::SHIELD_TICKS`).
+    fn arrived(&self) {
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        self.game.brawl.arrive(self.id, tick);
+    }
+
+    /// Whether `pilot` is somebody a blow, a car or a hand can reach: another session's pilot, never
+    /// one of the store's traders standing on the Exchange floor; and this pilot is on foot
+    /// somewhere (a sleeper or a suit is in no plaza).
+    fn fair_game(&self, pilot: u16) -> bool {
+        matches!(self.place, Place::City | Place::Base | Place::Town)
+            && pilot != self.id
+            && pilot < crate::plaza::VISITOR_BASE
+            && !self.game.plaza.is_visitor(pilot)
+    }
+
+    /// `pilot`'s poses to judge a blow or a car against: those taken in the last moment, newest
+    /// first; with none lately (a client that's stopped saying where it is, or says only what's
+    /// refused), the last one taken, as everyone sees them now: never out of reach for going quiet.
+    fn poses_of(&self, pilot: u16, now: Instant) -> Vec<(Instant, bc_proto::presence::PersonPose)> {
+        let recent = self.game.plaza.recent(pilot, crate::brawl::RECENT, now);
+        if !recent.is_empty() {
+            return recent;
+        }
+        self.game.plaza.pose_of(pilot).map(|p| vec![(now, p)]).unwrap_or_default()
+    }
+
+    /// A blow thrown at `pilot` from where the pilot says they stood, facing (`Request::Strike`):
+    /// taken if that's where their poses lately could have had them, and landed if it lands on one
+    /// of the other's poses of the last moment (`crate::brawl`). Where the Watch holds (the town),
+    /// it minds a blow somebody saw and a pilot beaten down, unless it's hitting back.
+    async fn strike(&mut self, pilot: u16, (x_cm, s_cm, yaw_mrad): (i32, i32, i32)) -> anyhow::Result<()> {
+        use bc_sim::colony::brawl::{Cannot, Hurt};
+        use bc_sim::colony::watch::{Offence, WITNESS};
+        if !self.fair_game(pilot) {
+            return Ok(());
+        }
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let now = Instant::now();
+        let brawl = &self.game.brawl;
+        match brawl.can_strike(self.id, tick) {
+            Ok(()) => {}
+            Err(Cannot::Down) => {
+                brawl.refused();
+                return self.note("you're down", false).await;
+            }
+            // (Too soon after the last: the client's own clock said otherwise. Nothing to say.)
+            Err(Cannot::Cooling) => {
+                brawl.refused();
+                return Ok(());
+            }
+        }
+        let mine = self.game.plaza.recent(self.id, crate::brawl::RECENT, now);
+        let claim = (x_cm as f32 / 100.0, s_cm as f32 / 100.0, yaw_mrad as f32 / 1_000.0);
+        let from =
+            crate::brawl::claimed(claim, &mine, now).filter(|p| self.game.plaza.could_step(self.id, p));
+        let Some(from) = from else {
+            brawl.refused();
+            return self.note("you're not where you swung from", false).await;
+        };
+        // Thrown: the cooldown starts, and a new arrival's shield is given up, landed or not.
+        let _ = brawl.strike(self.id, tick);
+        let theirs = self.poses_of(pilot, now);
+        let Some(damage) = crate::brawl::lands_on(&from, &theirs, now) else {
+            brawl.refused();
+            return self.note("the blow missed", false).await;
+        };
+        let name = self.game.plaza.name(pilot).unwrap_or_default().to_uppercase();
+        // (Before it lands: whether the one struck had hurt the striker first.)
+        let provoked = brawl.provoked(self.id, pilot, tick);
+        let hurt = brawl.hurt(pilot, damage, self.id, &self.callsign, tick);
+        let line = match hurt {
+            Hurt::Shielded => return self.note(format!("{name} JUST GOT HERE: LEAVE THEM BE"), false).await,
+            Hurt::Hit(_) => format!("YOU HIT {name}"),
+            Hurt::Down => format!("YOU PUT {name} DOWN"),
+            Hurt::Out => format!("YOU KNOCKED {name} OUT"),
+        };
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, victim = pilot, damage, ?hurt, "a blow on foot");
+        if self.place == Place::Town {
+            let at = (from.x, from.s);
+            // (Hitting back at whoever started on them lately is self-defence: the Watch minds
+            // nothing.)
+            if !provoked {
+                let o =
+                    if matches!(hurt, Hurt::Down | Hurt::Out) { Offence::Downed } else { Offence::Assault };
+                let saw = self.game.plaza.others_near(self.id, pilot, at, WITNESS, now);
+                self.game.watch.judged(self.id, &self.callsign, o, at, tick, saw);
+            }
+            self.game.street.scare_at(at, crate::street::RUN_FROM_JACK, tick);
+        }
+        self.note(line, true).await
+    }
+
+    /// The pilot's car reached `pilot` on foot (`Request::RunDown`): knocked down if the poses the
+    /// plaza took of both say so (`crate::brawl::runs_down`); the Watch minds it in the town, as any
+    /// somebody run down, and the crowd runs. Refused quietly (the screen that asked was a moment
+    /// off).
+    async fn run_down(&mut self, pilot: u16) -> anyhow::Result<()> {
+        use bc_sim::colony::brawl::Hurt;
+        use bc_sim::colony::watch::Offence;
+        if !self.fair_game(pilot) || self.place == Place::Base {
+            return Ok(());
+        }
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let now = Instant::now();
+        // Somebody lying there already isn't run down again (the client never asks it,
+        // `bc_client_core::town::struck_pilot`): asked twice in one pass, it's once.
+        if self.game.brawl.is_down(pilot, tick) {
+            self.game.brawl.refused();
+            return Ok(());
+        }
+        let mine = self.game.plaza.recent(self.id, crate::brawl::RECENT, now);
+        let theirs = self.poses_of(pilot, now);
+        if let Err(why) = crate::brawl::runs_down(&mine, &theirs, now) {
+            self.game.brawl.refused();
+            tracing::debug!(session = self.id, victim = pilot, why, "a run-down not taken");
+            return Ok(());
+        }
+        // (Before it's taken: whether the one run down had hurt the driver first.)
+        let provoked = self.game.brawl.provoked(self.id, pilot, tick);
+        // A new arrival who runs somebody down has struck first: their own shield's given up.
+        self.game.brawl.unshield(self.id);
+        let hurt = self.game.brawl.run_down(pilot, self.id, &self.callsign, tick);
+        if hurt == Hurt::Shielded {
+            return Ok(());
+        }
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, victim = pilot, ?hurt, "ran a pilot down");
+        if self.place == Place::Town
+            && let Some((_, at)) = mine.first()
+        {
+            if !provoked {
+                self.game.watch.offend(self.id, &self.callsign, Offence::HitSomeone, (at.x, at.s), tick);
+            }
+            self.game.street.scare_at((at.x, at.s), crate::street::RUN_FROM_HIT, tick);
+        }
+        let name = self.game.plaza.name(pilot).unwrap_or_default().to_uppercase();
+        let line = if hurt == Hurt::Out {
+            format!("YOU KNOCKED {name} OUT")
+        } else {
+            format!("YOU RAN {name} DOWN")
+        };
+        self.note(line, true).await
+    }
+
+    /// Beside `pilot`, who's down: start lifting them up (`on`), or stop (`Request::Help`). Their own
+    /// session sees it through ([`Session::brawl_tick`]) while the two stay together.
+    async fn help(&mut self, pilot: u16, on: bool) -> anyhow::Result<()> {
+        if !self.fair_game(pilot) {
+            return Ok(());
+        }
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        if on {
+            if self.game.brawl.is_down(self.id, tick) {
+                return self.note("you're down yourself", false).await;
+            }
+            let beside = match (self.game.plaza.pose_of(self.id), self.game.plaza.pose_of(pilot)) {
+                (Some(me), Some(them)) => !me.driving() && bc_sim::colony::brawl::helps(&me, &them),
+                _ => false,
+            };
+            if !beside {
+                return self.note("get beside them to help them up", false).await;
+            }
+        }
+        if !self.game.brawl.help(pilot, self.id, on, tick) && on {
+            return self.note("they're not down", false).await;
+        }
+        Ok(())
+    }
+
+    /// Their fight on foot, on the session's tick (`crate::brawl`): knocked out, carried up to the
+    /// bay; lifted up by whoever's at their side long enough; and their health, whether they're down
+    /// and who's helping, told them whenever it changes (healing, once a second).
+    async fn brawl_tick(&mut self, settle: bool) -> anyhow::Result<()> {
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        if self.game.brawl.take_out(self.id) {
+            self.carried_up().await?;
+        }
+        if let Some(helper) = self.game.brawl.helper_of(self.id) {
+            let plaza = &self.game.plaza;
+            let beside = match (plaza.pose_of(self.id), plaza.pose_of(helper)) {
+                (Some(me), Some(them)) => {
+                    !them.driving()
+                        && !self.game.brawl.is_down(helper, tick)
+                        && bc_sim::colony::brawl::helps(&them, &me)
+                }
+                _ => false,
+            };
+            if self.game.brawl.help_tick(self.id, helper, beside, tick) {
+                let name = plaza.name(helper).unwrap_or_default().to_uppercase();
+                tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, helper, "helped up");
+                self.note(format!("{name} HELPED YOU UP"), true).await?;
+            }
+        }
+        let Some(v) = self.game.brawl.view(self.id, tick) else { return Ok(()) };
+        let told = self.hurt_sent.is_some_and(|(version, hp, up, helper)| {
+            version == v.version && up == v.up_at && helper == v.helper && (hp == v.hp || !settle)
+        });
+        if !told {
+            self.hurt_sent = Some((v.version, v.hp, v.up_at, v.helper));
+            let down_s = v.up_at.map_or(0, |u| (u - tick).div_ceil(bc_sim::TICK_HZ)) as u16;
+            let helper = v.helper.and_then(|h| self.game.plaza.name(h));
+            self.send(&Update::Hurt { hp: v.hp, down_s, by: v.by, helper }).await?;
+        }
+        Ok(())
+    }
+
+    /// Knocked out on foot (`crate::brawl`): carried up to their bay, losing any fare and the car
+    /// they held (`pay_the_watch`'s way up); they wake there patched up.
+    async fn carried_up(&mut self) -> anyhow::Result<()> {
+        if !matches!(self.place, Place::City | Place::Base | Place::Town) {
+            return Ok(());
+        }
+        if let Some(held) = self.car.take() {
+            self.game.street.drop_held(held);
+        }
+        self.lose_fare().await?;
+        self.game.plaza.leave(self.id);
+        self.unwatch().await;
+        self.place = Place::Hangar;
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "knocked out: carried up to the bay");
+        self.send_place().await?;
+        self.note("KNOCKED OUT · CARRIED UP TO YOUR BAY", true).await?;
+        self.send_hangar().await?;
+        self.publish_hangar();
+        self.save().await;
+        Ok(())
     }
 
     /// A car taken in the town (`crate::street`): from a kerb, out of the traffic, or where it was
@@ -2172,6 +2451,7 @@ impl Session<'_> {
         self.strip = hall.strip;
         let (hatch, _) = bc_sim::colony::hall::hatch();
         self.game.plaza.enter_at(self.id, &self.callsign, self.strip, hatch);
+        self.arrived();
         self.game.plaza.key(self.id, &self.trader);
         self.homes_near.clear();
         self.named.clear();
@@ -2515,6 +2795,7 @@ impl Session<'_> {
             }
         }
         self.watch_tick(settle).await?;
+        self.brawl_tick(settle).await?;
         self.homes_tick(settle).await
     }
 
@@ -2737,11 +3018,23 @@ impl Session<'_> {
     /// The pilot is gone: their suit sleeps (signed in) or goes, their record is kept, and the
     /// slot is handed back.
     async fn leave(&mut self) {
-        self.lie_down().await;
-        // Down in the ring's town: where, to wake there.
-        let town = if self.survival() { self.town_spot() } else { None };
-        // And what the Watch wants of them (kept with them: a reload doesn't clear it).
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        // Down on foot when they left (or knocked out, and not carried up yet): as good as knocked
+        // out, they wake in their bay (and in no bed).
+        let down = self.game.brawl.take_out(self.id) || self.game.brawl.is_down(self.id, tick);
+        if !down {
+            self.lie_down().await;
+        }
+        // Down in the ring's town: where, to wake there.
+        let town = if self.survival() && !down { self.town_spot() } else { None };
+        // How hurt they are (kept with their body: a reload doesn't heal it).
+        let hp = if down { bc_sim::colony::brawl::OUT_HP } else { self.game.brawl.hp(self.id, tick) };
+        self.body.keep_hp(hp);
+        if down {
+            tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "left while down: wakes in the bay");
+        }
+        self.game.brawl.leave(self.id);
+        // And what the Watch wants of them (kept with them: a reload doesn't clear it).
         let heat = self.game.watch.points(self.id, tick);
         self.let_go_of_the_car();
         self.game.plaza.leave(self.id);

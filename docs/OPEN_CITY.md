@@ -32,9 +32,9 @@ each tested.
 | H2: furnishing: furniture bought and placed, seen by everyone who comes in; storage | built |
 | H3: your bed: asleep at home when logged out, waking there | built |
 | S1: the street in the tick: people on foot and their vehicles in the interior sector | in progress: the shared models (`bc_sim::foot`, `car`, `markab`), the homes overlay and the v39 codecs built; in the ring's town, pilots on foot and at the wheel are the server's off the tick (the plaza), the crowd's people taken out of it when something's done by them (`FREE_ROAM.md`, P2); the interior sector's tick next |
-| S2: collisions: cars meet cars and people | in part, in the ring's town: a car scrapes along walls and knocks against others (the Watch hears of it), people step aside from cars and are run down, and run from what frightens them |
+| S2: collisions: cars meet cars and people | in part, in the ring's town: a car scrapes along walls and knocks against others (the Watch hears of it), people step aside from cars and are run down, and run from what frightens them; a pilot's car runs other pilots down too (X1's down, the server's to judge from its own poses) |
 | C1: cars you own | planned; any car can be taken in the ring's town (from its kerb, from its driver, where it was left) |
-| X1: heat and the Watch | built in the ring's town (`FREE_ROAM.md`, W1): heat from what's seen, the Watch's units sent by road, cordons, chases, stops and fines; its patrols to do |
+| X1: heat and the Watch | built in the ring's town (`FREE_ROAM.md`, W1): heat from what's seen, the Watch's units sent by road, cordons, chases, stops and fines; its patrols to do. People can be hurt (open season on foot, `DECISIONS.md`, November 2026): the blow (F) anywhere on foot, and a car that runs a pilot down in the town, judged by the server from the plaza's last poses (`bc_sim::colony::brawl`, `bc-server`'s `brawl`); down (lying still, seen by all) and up again, a friend's hand up, a second lethal blow knocks out and up to the bay, health heals unhurt and is kept over a logout, gone while down wakes in the bay; the Watch minds a blow seen and a pilot put down in the town, never hitting back. The sidearm, pockets and the bag, death's own screen, and the Watch answering with force to do |
 | X2: a huge deal: incidents the whole strip sees | begun: the Watch's incidents told to everyone in the town (`Update::Incidents`) |
 | I1: intrusion: the Astrolabe's skills | planned |
 | R1: raids | planned |
@@ -202,8 +202,8 @@ hearth). It holds:
 - The right main code puts you on the crew; the guest code lets you open and close the door, nothing
   more. Setting the main code clears both lists, keeping only whoever set it.
 - Wrong codes shock you (5 hp a miss, more for each one in a row; never lethal, reset after 10 s),
-  and eight in a row lock the keypad for 15 minutes. (People on foot have no health till X1: until
-  then the shock is a jolt and a word.)
+  and eight in a row lock the keypad for 15 minutes. (People on foot have health now, X1, but the
+  shock doesn't take any yet: it's a jolt and a word.)
 - A knock (its own button on the keypad) is heard by the home's crew, wherever they are in the city.
 
 **Doors** are open or closed. Within 3 m of a door, the same check opens and closes it, so nobody can
@@ -255,8 +255,13 @@ dying (X1).
 
 ## The street in the tick (S1, S2)
 
-Today a pilot on foot is a pose in the plaza: off the tick, checked for plausibility, and harmless.
-Nothing can hit them because nothing can be decided about them fast or fairly enough. Crime, cars that
+Today a pilot on foot is a pose in the plaza: off the tick, checked for plausibility. Since the owner
+opened the season on foot (November 2026) they can be hurt, decided off the tick from the plaza's
+last poses of everyone (`bc-server`'s `brawl`: the blow's striker where their own poses could have
+had them, the one struck where the striker saw them, a car's speed from its poses): an interim, fair
+enough at a walk, that the interior sector's tick replaces. Its state is a closed form of the tick
+already (`bc_sim::colony::brawl::Brawl`, `Copy`, allocation-free), so it moves into the tick as it
+is. Crime, cars that
 collide and police that shoot all need the same thing suits already have: **people on foot and their
 vehicles as entities of the interior sector** (`sector-1`), simulated by its tick, predicted by their
 owner and lag-compensated for everyone else.
@@ -323,6 +328,31 @@ pilot carries on foot is their pockets: a small inventory of their own, dropped 
 **People can be hurt.** Health, and Gates' downed state: a mortal blow knocks you down for 40 to 50 s,
 crawling, and a friend can lift you up in 6 s within 3 m (`wound.rs`). A second blow, a head shot or a
 blast kills.
+
+*Built (open season on foot, November 2026; the numbers are the owner's knobs, their defaults):*
+- **Health** is 100, kept with the pilot's body (`bc_econ::body`) so a reconnect heals nothing;
+  unhurt for 30 s it heals a point a second. The bay's line shows it below whole.
+- **The blow** is F on foot (`CONTROLS.md`): 20 (twice from behind), within 2 m and 35° of the way
+  the striker faces, never through a wall, once in 0.8 s; the prompt names who it lands on from
+  the same function (`bc_sim::colony::brawl::lands`) the server judges with. Where the striker says
+  they swung from has to be where their last pose could have gone, by the plaza's own limits (no
+  wall between, never into a home they're kept out of).
+- **A car** at 6 m/s or more runs a pilot down in the town, the speed the server's own from the
+  driver's poses (and those unbroken lately: none held back to lunge); never one lying there
+  already, nor one who's just got into a car or sat down.
+- **Down** for 25 s at none (lying still where they fell, not Gates' crawl yet; the plaza holds
+  their poses to that spot), seen lying by everyone (`RIDE_DOWN`), going nowhere and opening
+  nothing; up with 30. A friend's E held beside them 6 s within 3 m lifts them sooner; it
+  wins over a car or a lift in reach.
+- **Out:** a lethal blow on someone down, or within 60 s of getting up (Gates' `REWOUND`): carried up
+  to their bay (losing a fare and the car held), patched up. Logging out while down is the same.
+  Death's screen, the bag and waking in bed or at Hub Gate (below) are still to come.
+- **New arrivals** (down a lift, out of an airlock, woken) can't be hurt for 10 s, unless they
+  strike first (a blow, or a car run at somebody).
+- **The Watch** minds it where it holds (the town): a blow seen (by its cars, the crowd, or another
+  pilot) adds heat, putting someone down more; hitting back at whoever started on you and hurt you
+  in the last 15 s adds none (whoever struck first gets nothing free for being hit back). The crowd runs from a fight. Never a target: the store's traders on the Exchange floor,
+  sleepers, suits.
 
 **Death, Rust's way.** You drop a bag with what you carried; it lasts 5 minutes, or 20, 40 or 60 by the
 rarest thing in it (Gates' `backpack.rs`). The death screen has no timer: wake in your bed (not again

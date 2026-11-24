@@ -545,12 +545,18 @@ fn draw_people(
             continue;
         };
         have.push(f.id);
-        // A Markab turns every way: its pose is its middle, and its whole attitude.
+        // A Markab turns every way: its pose is its middle, and its whole attitude. Knocked down
+        // (the server's word), they lie on their back where they fell.
+        let lying = pose.down();
         let turned = if pose.markab() {
             attitude(pose.yaw, pose.pitch, pose.roll)
+        } else if lying {
+            Quat::from_rotation_y(pose.yaw) * Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)
         } else {
             Quat::from_rotation_y(pose.yaw)
         };
+        let laid = PersonPose { h: pose.h + figure::LIE_UP, ..**pose };
+        let pose: &PersonPose = if lying { &laid } else { pose };
         if pose.strip == BASE_DECK {
             // On the base's deck, drawn round the view as the deck is.
             (tf.translation, tf.rotation) = crate::base::place_pose(pose, turned, base.s);
@@ -579,14 +585,18 @@ fn draw_people(
         let still = in_car || on_scooter;
         let turns = if seated {
             figure::seated(pose.pitch)
+        } else if lying {
+            figure::lying()
         } else {
-            figure::pose(
+            let standing = figure::pose(
                 if still { 0.0 } else { f.phase },
                 if still { 0.0 } else { pose.speed },
                 pose.pitch,
                 pose.grounded || still,
                 pose.running,
-            )
+            );
+            // Throwing a blow, as their pose says while its swing plays.
+            if pose.striking() { figure::strike(standing) } else { standing }
         };
         for (i, j) in f.joints.iter().enumerate() {
             if let Ok((mut t, _)) = joints.get_mut(*j) {

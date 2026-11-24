@@ -238,8 +238,10 @@ and hounds sent by road (`colony::watch::ANSWERS`, the server's `dispatch`): the
 level's time and go home, chase a wanted pilot, and stop and fine them with no word from the client.
 Clients draw the units the server sends (`units`). `/dev/incident` (with `--dev-hooks`) raises one.
 An offence adds heat only if it's seen (the Watch's cars, or anyone within 30 m), and every one is told
-(`Update::Watched`): who saw, or that nobody did. Patrols while nothing happens, and the units promoted
-into the tick, are still to do.
+(`Update::Watched`): who saw, or that nobody did. Since protocol 49 a fight on foot is an offence too
+(`OPEN_CITY.md`, X1): a blow seen (by its cars, the crowd or another pilot) and a pilot beaten down,
+judged by the server itself, never a blow at whoever hurt you in the last 15 s. Patrols while nothing
+happens, and the units promoted into the tick, are still to do.
 
 ### 5. Many sectors for one town (D)
 

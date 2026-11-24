@@ -289,6 +289,36 @@ pub fn seated(pitch: f32) -> [Quat; 12] {
     q
 }
 
+/// Knocked down (`bc_sim::colony::brawl`), lying on their back where they fell: arms flung out, a
+/// knee up, the head back (by [`Piece::ALL`]'s order, as [`pose`]). Whoever draws it turns the
+/// figure onto its back and lifts it [`LIE_UP`] off the ground.
+pub fn lying() -> [Quat; 12] {
+    let mut q = [Quat::IDENTITY; 12];
+    let x = |a: f32| Quat::from_rotation_x(a);
+    let z = |a: f32| Quat::from_rotation_z(a);
+    set(&mut q, Piece::UpperArmL, z(0.9));
+    set(&mut q, Piece::UpperArmR, z(-0.7) * x(-0.3));
+    set(&mut q, Piece::ForearmL, x(-0.4));
+    set(&mut q, Piece::ForearmR, x(-0.6));
+    set(&mut q, Piece::ThighL, x(-0.5));
+    set(&mut q, Piece::ShinL, x(0.9));
+    set(&mut q, Piece::Head, x(0.25));
+    q
+}
+
+/// How far off the ground a figure lying on its back is drawn, m (as the town's people lie).
+pub const LIE_UP: f32 = 0.22;
+
+/// Throwing a blow: `standing` (a [`pose`]) with the right arm driven out ahead at shoulder height
+/// and the chest turned into it.
+pub fn strike(standing: [Quat; 12]) -> [Quat; 12] {
+    let mut q = standing;
+    set(&mut q, Piece::UpperArmR, Quat::from_rotation_x(-1.5));
+    set(&mut q, Piece::ForearmR, Quat::from_rotation_x(-0.1));
+    set(&mut q, Piece::Chest, Quat::from_rotation_y(-0.3));
+    q
+}
+
 /// The stride's phase moves on by this much for `dist` metres walked (two steps a cycle).
 pub fn stride_phase(dist: f32, running: bool) -> f32 {
     dist / if running { 2.6 } else { 1.5 } * std::f32::consts::TAU

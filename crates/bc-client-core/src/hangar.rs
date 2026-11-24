@@ -34,6 +34,8 @@ pub struct HangarState {
     pub wake: Option<bc_econ::wire::Wake>,
     /// The pilot's body (`bc_econ::body`): how fed they are, and for how long.
     pub body: Option<bc_econ::body::BodyView>,
+    /// Their fight on foot (`Update::Hurt`, `crate::brawl`): their health, and whether they're down.
+    pub hurt: Option<crate::brawl::Hurt>,
     /// The book (and price history) of the item the pilot is watching.
     pub book: Option<(Depth, Vec<u64>)>,
     /// What to tell the pilot (the text, and whether it was done or refused), oldest first. The
@@ -159,6 +161,10 @@ impl HangarState {
             Update::Crowd { near, mid, far } => {
                 self.crowd = (near, mid, far);
                 self.crowd_heard += 1;
+            }
+            Update::Hurt { hp, down_s, by, helper } => {
+                let heard = self.hurt.as_ref().map_or(0, |h| h.heard) + 1;
+                self.hurt = Some(crate::brawl::Hurt { hp, down_s, by, helper, heard });
             }
         }
         false

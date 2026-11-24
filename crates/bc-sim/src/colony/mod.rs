@@ -19,6 +19,7 @@
 //! the bodies, nothing here allocates or reads a clock of its own, and every function is the same
 //! to the bit on the server and in the browser (libm through `math`).
 
+pub mod brawl;
 pub mod census;
 pub mod city;
 pub mod course;

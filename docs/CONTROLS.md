@@ -173,6 +173,16 @@ where ours already agree, and our own flight's where they don't:
   view never rolls with a barrel roll (rolling views are what make people sick: the shooter
   controls' reason, above).
 
+**On foot, a fight: F strikes, E held helps someone up** (`OPEN_CITY.md`, "Heat and the Watch";
+`bc_client_core::brawl`). F is melee in a suit already (and V is Overwatch's, which ours is flight
+assist), and on foot it was read only at a wheel (the fares, the Markab's fan), so a pilot's hand
+knows it as the blow and nothing on foot loses it. The prompt names who it would land on (`F
+STRIKE <NAME>`), from the same function the server judges it with. Lifting a pilot who's down is
+E held beside them (Gates' assist, six seconds), and it wins over a car at the kerb or a lift's
+door in reach: someone on the ground comes first (`brawl::use_key`). The left mouse button stays
+the pointer's lock on foot: a sidearm, when there is one, has to swallow that click as a suit's
+guns do.
+
 **Ejecting: U** (`DESIGN.md`, "Doom and ejecting"). Titanfall ejects on its use key, which is our
 roll (E). Of the keys still free (I, K, O, U), U is the one the left hand reaches from W without
 leaving the keyboard's left half. Steel Battalion hid its eject button under a plastic flap so that
