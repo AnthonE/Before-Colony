@@ -252,10 +252,10 @@ From oneshot:
 | What | From | How | For |
 |---|---|---|---|
 | A RIP doc: every lift with its source, lines, destination, how, and what was left behind | oneshot `docs/RIP.md` | idea | now: this table grows into it |
-| The rewind's depth chosen by the server from the link it measures, capped (160 ms there); ours believes the client's claim up to 8 ticks, 267 ms (`sim/combat.rs`, `MAX_REWIND_TICKS`) | oneshot `room/src/lib.rs` (`favour_for`), Gates `stats.rs` | port | 0.4 |
+| The rewind's depth chosen by the server from the link it measures, capped (160 ms there) | oneshot `room/src/lib.rs` (`favour_for`), Gates `stats.rs` | done: each session's floor from QUIC's own RTT (`docs/NETCODE.md`, "Trust"); the 8-tick cap stays the owner's to raise | 0.4 |
 | Cheat flags, decoys and an aim model trained on players; a `SECURITY.md` of promises and a bounty by severity; anticheat staged by how many play | oneshot `room/src/watch.rs`, `decoy.rs`, `tools/aim`, `SECURITY.md`, `docs/ANTICHEAT.md` | idea, then port: our lock-on changes what an aimbot is | 0.4 |
 | A leak gate (a test that no client is sent what it mustn't know) and an impaired-network gate | oneshot `room/tests/leaks.rs`, `client-net/tests/loopback.rs` | idea | 0.4 |
-| The `wtransport` pin both siblings use (crates.io 0.7.1 has a remote panic; we're on 0.7.2, to be checked against it) | oneshot `docs/RIP.md` §1 | check | 0.2 |
+| The `wtransport` pin both siblings use (crates.io 0.7.1 has a remote panic) | oneshot `docs/RIP.md` §1 | done: 0.7.2 had that fix but not upstream's remote connection leak fix, so we pin upstream past both (`Cargo.toml`), with a leak test | 0.2 |
 | Ranked queues, playlists that open by who's online, cups, parties; ratings and signed results through Elo Pros | oneshot `server/src/queue.rs`, `playlist.rs`, `party.rs`, `eloqueue.rs`, `elo.rs` | port, for the Proving Ground's board and arena fights | 0.3 |
 | Content as data compiled to checked-in Rust with a `--check`, and a design template a place is written in | oneshot `tools/maps/compile.mjs`, `docs/maps/cloudbreak.md` | idea | 0.3: the base's buildings, places |
 | A load tool of bot clients | oneshot `tools/load` | port beside `bc-bot` | 0.4 |
