@@ -73,3 +73,57 @@ export async function connectWallet(page: Page, name: RegExp, account: string, t
     { timeout, polling: 250 },
   );
 }
+
+/** An init script: every status the client publishes to `window.__bc`, in order, the newest 400
+ *  kept in `window.__bcLog` and all counted in `window.__bcCount`. The client publishes a frame at a
+ *  time, and on a page drawing in software a state can stand for one frame (the ride down a cap
+ *  lift, a drill's target struck) between two of a suite's looks: `seen` finds it here.
+ *  `page.addInitScript(keepStatus)` before `goto`. */
+export const keepStatus = () => {
+  const w = window as any;
+  let now: unknown;
+  w.__bcLog = [];
+  w.__bcCount = 0;
+  Object.defineProperty(w, "__bc", {
+    configurable: true,
+    get: () => now,
+    set: (v: unknown) => {
+      now = v;
+      w.__bcLog.push(v);
+      if (w.__bcLog.length > 400) w.__bcLog.shift();
+      w.__bcCount += 1;
+    },
+  });
+};
+
+/** How many statuses the page has published (`keepStatus`): taken before a step, it's where
+ *  `seen` starts looking. */
+export async function statusMark(page: Page): Promise<number> {
+  return page.evaluate(() => (window as any).__bcCount ?? 0);
+}
+
+/** The first status the page published since `mark` (`statusMark`) that `pred` holds for, however
+ *  briefly it stood (`keepStatus`), waited for up to `ms`. */
+export async function seen(
+  page: Page,
+  what: string,
+  pred: (s: Record<string, any>) => boolean,
+  ms: number,
+  mark: number,
+): Promise<Record<string, any>> {
+  const t0 = Date.now();
+  let from = mark;
+  for (;;) {
+    const { states, count } = await page.evaluate((from) => {
+      const w = window as any;
+      const log: unknown[] = w.__bcLog ?? [];
+      const count: number = w.__bcCount ?? 0;
+      return { states: log.slice(Math.max(0, log.length - (count - from))), count };
+    }, from);
+    const hit = (states as Record<string, any>[]).find(pred);
+    if (hit) return hit;
+    from = count;
+    if (Date.now() - t0 > ms) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(await bc(page))}`);
+    await page.waitForTimeout(250);
+  }
+}
